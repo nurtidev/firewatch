@@ -12,7 +12,7 @@ RUN pip install -r requirements.txt
 COPY . .
 
 # Railway provides $PORT; default to 8000 for local/compose.
-# Bind IPv6 (::) — Railway private networking is IPv6; also serves IPv4 (public).
+# Public service — bind IPv4 so Railway's healthcheck (IPv4) reaches it.
 ENV PORT=8000
 EXPOSE 8000
-CMD ["sh", "-c", "uvicorn app.main:app --host :: --port ${PORT}"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
