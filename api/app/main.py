@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import buildings, cards, health, routes
+from app.routers import buildings, cards, health, infra, routes
 
 app = FastAPI(title="FireWatch API", version="0.1.0")
 
@@ -17,6 +17,7 @@ app.include_router(health.router)
 app.include_router(buildings.router)
 app.include_router(cards.router)
 app.include_router(routes.router)
+app.include_router(infra.router)
 
 
 @app.get("/")

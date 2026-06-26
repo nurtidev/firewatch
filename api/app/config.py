@@ -17,5 +17,10 @@ class Settings(BaseSettings):
     # Where uploaded operational-card files are stored (Module 03).
     uploads_dir: str = "/app/uploads"
 
+    # Module 05: 10-min normative arrival → ~3.5 km road reach (straight-line
+    # approximation until OSRM isochrones replace it).
+    coverage_radius_m: int = 3500
+    arrival_normative_min: int = 10
+
 
 settings = Settings()

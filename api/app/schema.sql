@@ -71,3 +71,25 @@ CREATE TABLE IF NOT EXISTS inspectors (
     name     TEXT NOT NULL,
     district TEXT
 );
+
+-- Module 05 · Firefighting infrastructure ------------------------------------
+
+CREATE TABLE IF NOT EXISTS fire_stations (
+    id       BIGSERIAL PRIMARY KEY,
+    osm_id   BIGINT UNIQUE,
+    name     TEXT,
+    vehicles INTEGER,
+    geom     geometry(Point, 4326) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS fire_stations_geom_gist ON fire_stations USING GIST (geom);
+
+CREATE TABLE IF NOT EXISTS hydrants (
+    id         BIGSERIAL PRIMARY KEY,
+    osm_id     BIGINT UNIQUE,
+    status     TEXT,                 -- ok / broken
+    last_check DATE,
+    geom       geometry(Point, 4326) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS hydrants_geom_gist ON hydrants USING GIST (geom);
