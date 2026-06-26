@@ -1,0 +1,58 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-firewatch}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-firewatch}
+      POSTGRES_DB: ${POSTGRES_DB:-firewatch}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-firewatch}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./api
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://firewatch:firewatch@db:5432/firewatch}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      ML_URL: ${ML_URL:-http://ml:8000}
+      OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api/interpreter}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret}
+    ports:
+      - "8001:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./api:/app
+
+  ml:
+    build: ./ml
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://firewatch:firewatch@db:5432/firewatch}
+    ports:
+      - "8002:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./ml:/app
+
+  web:
+    build: ./web
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8001}
+    ports:
+      - "3001:3000"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
