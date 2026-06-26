@@ -13,23 +13,29 @@ from app.config import settings
 
 EXTRACT_TOOL = {
     "name": "extract_card",
-    "description": "Извлечь поля оперативной карточки объекта по форме МЧС РК (ОК-1).",
+    "description": "Извлечь поля оперативного плана / карточки объекта (форма ДЧС РК).",
     "input_schema": {
         "type": "object",
         "properties": {
+            "object_name": {"type": "string", "description": "Наименование объекта (ЖК, здание)"},
             "address": {"type": "string", "description": "Адрес объекта"},
             "object_type": {"type": "string", "description": "Тип объекта"},
+            "category": {"type": "string", "description": "Категория здания"},
+            "fire_resistance": {"type": "string", "description": "Степень огнестойкости"},
+            "floors": {"type": "string", "description": "Этажность / блоки"},
             "year_built": {"type": ["integer", "null"], "description": "Год постройки"},
-            "floors": {"type": ["integer", "null"], "description": "Этажность"},
-            "construction": {"type": "string", "description": "Конструкция / материалы"},
-            "floors_material": {"type": "string", "description": "Перекрытия"},
-            "fire_systems": {"type": "string", "description": "АПС/АУПТ, системы пожаротушения"},
-            "water_source": {"type": "string", "description": "Источники водоснабжения"},
-            "hydrant": {"type": "string", "description": "Гидрант: расстояние, состояние"},
-            "responsible_person": {"type": "string", "description": "Ответственное лицо"},
-            "phone": {"type": "string", "description": "Телефон"},
-            "evacuation": {"type": "string", "description": "Эвакуационные выходы и их состояние"},
-            "notes": {"type": "string", "description": "Примечания"},
+            "construction": {"type": "string", "description": "Конструктив: фундамент, стены, перекрытия, лестницы"},
+            "fire_systems": {"type": "string", "description": "АПС/АУПТ, дымоудаление, системы пожаротушения"},
+            "water_source": {"type": "string", "description": "Водоснабжение, гидранты, насосы"},
+            "nearest_station": {"type": "string", "description": "Ближайшая пожарная часть"},
+            "distance_to_station": {"type": "string", "description": "Расстояние до ближайшей ПЧ"},
+            "arrival_time": {"type": "string", "description": "Время прибытия первого подразделения"},
+            "fire_rank": {"type": "string", "description": "Ранг (номер) пожара по высылке сил"},
+            "contacts": {"type": "string", "description": "Ответственные лица и телефоны"},
+            "staff_day": {"type": "string", "description": "Численность персонала днём"},
+            "staff_night": {"type": "string", "description": "Численность персонала ночью"},
+            "evacuation": {"type": "string", "description": "Эвакуационные пути и выходы, их состояние"},
+            "notes": {"type": "string", "description": "Примечания, особенности"},
             "prescriptions": {
                 "type": "array",
                 "description": "Предписания по выявленным уязвимостям",
@@ -53,13 +59,15 @@ EXTRACT_TOOL = {
 }
 
 PROMPT = (
-    "Это скан оперативной карточки объекта по форме МЧС РК (ОК-1). "
+    "Это оперативный план или оперативная карточка объекта (форма ДЧС/МЧС РК; "
+    "документ может быть на русском или казахском языке). "
     "Извлеки все поля строго из документа — ничего не выдумывай. "
     "Если поле отсутствует, оставь пустую строку или null. "
     "Затем на основе содержимого сформируй предписания по выявленным уязвимостям "
-    "(заблокированные эвакуационные выходы, отсутствие АПС/АУПТ, деревянные "
-    "перекрытия, складирование в подвалах, неисправный гидрант и т.п.) — "
-    "с конкретной мерой, сроком устранения в днях и уровнем критичности. "
+    "(заблокированные эвакуационные выходы, отсутствие/неисправность АПС/АУПТ, "
+    "деревянные перекрытия, складирование в подвалах, неисправный гидрант, "
+    "превышение норматива прибытия и т.п.) — с конкретной мерой, сроком "
+    "устранения в днях и уровнем критичности. "
     "Верни результат через инструмент extract_card."
 )
 
