@@ -19,7 +19,10 @@ def _contributions(f: BuildingFeatures) -> list[FeatureContribution]:
         ("Плотность застройки квартала", f.block_density * 8.0),
         ("Сезон (зимний период)", 7.0 if f.winter_season else 0.0),
         ("Этажность", min(max(f.floors - 5, 0) * 1.2, 8.0)),
-        ("АПС/АУПТ отсутствуют", 10.0 if not f.has_fire_alarm else -4.0),
+        (
+            "АПС/АУПТ отсутствуют" if not f.has_fire_alarm else "АПС/АУПТ исправны",
+            10.0 if not f.has_fire_alarm else -4.0,
+        ),
         ("Капремонт (недавний)", -5.0 if f.capital_repair_recent else 0.0),
         (
             "Гидрант рядом",

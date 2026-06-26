@@ -1,12 +1,17 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import BuildingPanel from "@/components/BuildingPanel";
 
 // MapLibre touches `window`, so render the map client-side only.
 const RiskMap = dynamic(() => import("@/components/RiskMap"), { ssr: false });
 
 export default function MapPage() {
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const handleSelect = useCallback((id: number) => setSelectedId(id), []);
+
   return (
     <main className="relative h-screen w-screen">
       <div className="absolute left-4 top-4 z-10 rounded-md bg-black/70 px-4 py-3 backdrop-blur">
@@ -19,8 +24,13 @@ export default function MapPage() {
           <span>● 36–70 средний</span>
           <span>● 71–100 высокий</span>
         </div>
+        <p className="mt-1 text-[10px] text-neutral-500">
+          Клик по зданию — карточка риска
+        </p>
       </div>
-      <RiskMap />
+
+      <RiskMap onSelect={handleSelect} />
+      <BuildingPanel id={selectedId} onClose={() => setSelectedId(null)} />
     </main>
   );
 }

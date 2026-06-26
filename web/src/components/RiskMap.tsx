@@ -23,7 +23,11 @@ const STYLE: StyleSpecification = {
   layers: [{ id: "osm", type: "raster", source: "osm" }],
 };
 
-export default function RiskMap() {
+export default function RiskMap({
+  onSelect,
+}: {
+  onSelect?: (id: number) => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -69,10 +73,21 @@ export default function RiskMap() {
 
       void loadBuildings(map);
       map.on("moveend", () => void loadBuildings(map));
+
+      map.on("click", "buildings-risk", (e) => {
+        const id = e.features?.[0]?.properties?.id;
+        if (id != null) onSelect?.(Number(id));
+      });
+      map.on("mouseenter", "buildings-risk", () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", "buildings-risk", () => {
+        map.getCanvas().style.cursor = "";
+      });
     });
 
     return () => map.remove();
-  }, []);
+  }, [onSelect]);
 
   return <div ref={containerRef} className="h-full w-full" />;
 }
