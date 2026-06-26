@@ -33,3 +33,6 @@ ml/artifacts/*.ubj
 # Data dumps
 *.osm.pbf
 data/*.csv
+
+# Uploaded operational-card files
+api/uploads/

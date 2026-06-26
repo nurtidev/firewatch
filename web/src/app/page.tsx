@@ -15,13 +15,21 @@ export default function Home() {
           Предиктивная аналитика пожарной безопасности. Каждое здание Казахстана
           — под наблюдением модели.
         </p>
-        <Link
-          href="/map"
-          className="mt-8 inline-block rounded-md px-5 py-3 text-sm font-medium text-black"
-          style={{ background: "var(--fw-accent)" }}
-        >
-          Открыть карту риска →
-        </Link>
+        <div className="mt-8 flex gap-3">
+          <Link
+            href="/map"
+            className="inline-block rounded-md px-5 py-3 text-sm font-medium text-black"
+            style={{ background: "var(--fw-accent)" }}
+          >
+            Карта риска →
+          </Link>
+          <Link
+            href="/cards"
+            className="inline-block rounded-md border border-neutral-700 px-5 py-3 text-sm font-medium text-neutral-200 hover:bg-neutral-900"
+          >
+            Оперкарточки (ИИ) →
+          </Link>
+        </div>
       </div>
 
       <footer className="text-xs tracking-widest text-neutral-600">

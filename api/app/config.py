@@ -14,5 +14,8 @@ class Settings(BaseSettings):
     # Pilot bounding box (Astana). Used by the OSM import job.
     city_name: str = "Astana"
 
+    # Where uploaded operational-card files are stored (Module 03).
+    uploads_dir: str = "/app/uploads"
+
 
 settings = Settings()

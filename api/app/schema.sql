@@ -33,3 +33,28 @@ CREATE TABLE IF NOT EXISTS risk_scores (
 );
 
 CREATE INDEX IF NOT EXISTS risk_scores_score_idx ON risk_scores (score);
+
+-- Module 03 · AI operational cards -------------------------------------------
+
+CREATE TABLE IF NOT EXISTS operational_cards (
+    id          BIGSERIAL PRIMARY KEY,
+    building_id BIGINT REFERENCES buildings(id) ON DELETE SET NULL,
+    filename    TEXT,
+    media_type  TEXT,
+    file_path   TEXT,
+    status      TEXT NOT NULL DEFAULT 'extracted',  -- extracted / failed
+    extracted   JSONB,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS prescriptions (
+    id            BIGSERIAL PRIMARY KEY,
+    card_id       BIGINT REFERENCES operational_cards(id) ON DELETE CASCADE,
+    issue         TEXT,
+    recommendation TEXT NOT NULL,
+    deadline_days INTEGER,
+    severity      TEXT,                              -- low / medium / high
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS prescriptions_card_idx ON prescriptions (card_id);
