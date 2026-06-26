@@ -7,8 +7,8 @@ Swap `score()` for a loaded model in Phase 1 without changing the API surface.
 
 from app.schemas import BuildingFeatures, FeatureContribution, RiskPrediction
 
-MODEL_VERSION = "heuristic-0.1"
-BASE_SCORE = 40.0
+MODEL_VERSION = "heuristic-0.2"
+BASE_SCORE = 20.0
 
 
 def _contributions(f: BuildingFeatures) -> list[FeatureContribution]:
@@ -16,7 +16,7 @@ def _contributions(f: BuildingFeatures) -> list[FeatureContribution]:
         ("Возраст здания", min(f.age_years * 0.35, 25.0)),
         ("Деревянные перекрытия", 16.0 if f.wooden_floors else 0.0),
         ("Инциденты в радиусе 300м (3 г.)", min(f.incidents_300m_3y * 6.0, 18.0)),
-        ("Плотность застройки квартала", f.block_density * 12.0),
+        ("Плотность застройки квартала", f.block_density * 8.0),
         ("Сезон (зимний период)", 7.0 if f.winter_season else 0.0),
         ("Этажность", min(max(f.floors - 5, 0) * 1.2, 8.0)),
         ("АПС/АУПТ отсутствуют", 10.0 if not f.has_fire_alarm else -4.0),

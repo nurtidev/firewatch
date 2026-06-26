@@ -1,0 +1,35 @@
+-- FireWatch core schema (Phase 1). Idempotent — safe to re-run.
+
+CREATE TABLE IF NOT EXISTS buildings (
+    id            BIGSERIAL PRIMARY KEY,
+    osm_id        BIGINT UNIQUE,
+    address       TEXT,
+    building_type TEXT,                 -- residential / public / industrial
+    osm_tag       TEXT,                 -- raw OSM building=* value
+    year_built    INTEGER,
+    floors        INTEGER,
+    geom          geometry(Polygon, 4326) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS buildings_geom_gist ON buildings USING GIST (geom);
+CREATE INDEX IF NOT EXISTS buildings_type_idx ON buildings (building_type);
+
+CREATE TABLE IF NOT EXISTS incidents (
+    id          BIGSERIAL PRIMARY KEY,
+    building_id BIGINT REFERENCES buildings(id) ON DELETE CASCADE,
+    occurred_at DATE,
+    severity    SMALLINT,              -- 1..5
+    geom        geometry(Point, 4326)
+);
+
+CREATE INDEX IF NOT EXISTS incidents_geom_gist ON incidents USING GIST (geom);
+
+CREATE TABLE IF NOT EXISTS risk_scores (
+    building_id   BIGINT PRIMARY KEY REFERENCES buildings(id) ON DELETE CASCADE,
+    score         SMALLINT NOT NULL CHECK (score BETWEEN 0 AND 100),
+    model_version TEXT NOT NULL,
+    explanation   JSONB,
+    computed_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS risk_scores_score_idx ON risk_scores (score);
