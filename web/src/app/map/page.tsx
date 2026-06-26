@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
+import AppShell from "@/components/AppShell";
 import BuildingPanel from "@/components/BuildingPanel";
 
 // MapLibre touches `window`, so render the map client-side only.
@@ -13,12 +13,9 @@ export default function MapPage() {
   const handleSelect = useCallback((id: number) => setSelectedId(id), []);
 
   return (
-    <main className="relative h-screen w-screen">
+    <AppShell fullBleed>
       <div className="absolute left-4 top-4 z-10 rounded-md bg-black/70 px-4 py-3 backdrop-blur">
-        <Link href="/" className="text-xs tracking-widest text-neutral-400">
-          ← FIREWATCH
-        </Link>
-        <h1 className="mt-1 text-sm font-semibold">Карта риска · Астана</h1>
+        <h1 className="text-sm font-semibold">Карта риска · Астана</h1>
         <div className="mt-2 flex gap-3 text-xs text-neutral-400">
           <span>● 0–35 низкий</span>
           <span>● 36–70 средний</span>
@@ -31,6 +28,6 @@ export default function MapPage() {
 
       <RiskMap onSelect={handleSelect} />
       <BuildingPanel id={selectedId} onClose={() => setSelectedId(null)} />
-    </main>
+    </AppShell>
   );
 }

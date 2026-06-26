@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import AppShell from "@/components/AppShell";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
@@ -55,12 +55,10 @@ export default function RoutesPage() {
   }, [selected]);
 
   return (
-    <main className="min-h-screen p-8">
+    <AppShell>
+      <div className="p-8">
       <div className="mb-6">
-        <Link href="/" className="text-xs tracking-widest text-neutral-500">
-          ← FIREWATCH
-        </Link>
-        <h1 className="mt-1 text-2xl font-bold">Автоматический план инспекций</h1>
+        <h1 className="text-2xl font-bold">Автоматический план инспекций</h1>
         <p className="text-sm text-neutral-400">
           Маршрут на день · приоритет по риску, сроку проверки и географии
         </p>
@@ -160,6 +158,7 @@ export default function RoutesPage() {
           </ol>
         </div>
       )}
-    </main>
+      </div>
+    </AppShell>
   );
 }

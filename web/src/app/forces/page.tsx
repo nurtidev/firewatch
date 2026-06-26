@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import AppShell from "@/components/AppShell";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
@@ -93,12 +93,10 @@ export default function ForcesPage() {
   );
 
   return (
-    <main className="min-h-screen p-8">
+    <AppShell>
+      <div className="p-8">
       <div className="mb-6">
-        <Link href="/" className="text-xs tracking-widest text-neutral-500">
-          ← FIREWATCH
-        </Link>
-        <h1 className="mt-1 text-2xl font-bold">Расчёт сил и средств</h1>
+        <h1 className="text-2xl font-bold">Расчёт сил и средств</h1>
         <p className="text-sm text-neutral-400">
           Методика ДЧС РК · по «Есеп Евразия» — время развития, площадь, расход
           воды, стволы, машины, личный состав, ранг
@@ -211,7 +209,8 @@ export default function ForcesPage() {
           </section>
         )}
       </div>
-    </main>
+      </div>
+    </AppShell>
   );
 }
 

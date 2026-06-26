@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import AppShell from "@/components/AppShell";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
@@ -61,12 +61,10 @@ export default function ChatPage() {
   }
 
   return (
-    <main className="mx-auto flex h-screen max-w-3xl flex-col p-6">
+    <AppShell>
+    <main className="mx-auto flex h-full max-w-3xl flex-col p-6">
       <div className="mb-3">
-        <Link href="/" className="text-xs tracking-widest text-neutral-500">
-          ← FIREWATCH
-        </Link>
-        <h1 className="mt-1 text-xl font-bold">ИИ-аналитик · диалог с данными</h1>
+        <h1 className="text-xl font-bold">ИИ-аналитик · диалог с данными</h1>
         <p className="text-xs text-neutral-400">
           Вопрос обычным языком → ответ строго из данных ДЧС · источник в каждом
           ответе
@@ -130,6 +128,7 @@ export default function ChatPage() {
         </button>
       </form>
     </main>
+    </AppShell>
   );
 }
 

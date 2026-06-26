@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import AppShell from "@/components/AppShell";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
@@ -101,13 +101,11 @@ export default function CardsPage() {
   }
 
   return (
-    <main className="min-h-screen p-8">
+    <AppShell>
+      <div className="p-8">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <Link href="/" className="text-xs tracking-widest text-neutral-500">
-            ← FIREWATCH
-          </Link>
-          <h1 className="mt-1 text-2xl font-bold">
+          <h1 className="text-2xl font-bold">
             ИИ-обработка оперкарточек
           </h1>
           <p className="text-sm text-neutral-400">
@@ -236,6 +234,7 @@ export default function CardsPage() {
           </ul>
         </div>
       )}
-    </main>
+      </div>
+    </AppShell>
   );
 }

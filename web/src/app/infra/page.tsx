@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
+import AppShell from "@/components/AppShell";
 
 const InfraMap = dynamic(() => import("@/components/InfraMap"), { ssr: false });
 
@@ -28,12 +28,9 @@ export default function InfraPage() {
   }, []);
 
   return (
-    <main className="relative h-screen w-screen">
+    <AppShell fullBleed>
       <div className="absolute left-4 top-4 z-10 max-w-xs rounded-md bg-black/75 px-4 py-3 backdrop-blur">
-        <Link href="/" className="text-xs tracking-widest text-neutral-400">
-          ← FIREWATCH
-        </Link>
-        <h1 className="mt-1 text-sm font-semibold">
+        <h1 className="text-sm font-semibold">
           Инфраструктура пожаротушения
         </h1>
         <p className="mt-0.5 text-[11px] text-neutral-400">
@@ -70,7 +67,7 @@ export default function InfraPage() {
       )}
 
       <InfraMap />
-    </main>
+    </AppShell>
   );
 }
 

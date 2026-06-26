@@ -72,6 +72,17 @@ CREATE TABLE IF NOT EXISTS inspectors (
     district TEXT
 );
 
+-- Auth · users with roles -----------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS users (
+    id            BIGSERIAL PRIMARY KEY,
+    username      TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    role          TEXT NOT NULL,   -- inspector / supervisor / leadership / admin
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Module 05 · Firefighting infrastructure ------------------------------------
 
 CREATE TABLE IF NOT EXISTS fire_stations (

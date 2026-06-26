@@ -1,64 +1,135 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import AppShell from "@/components/AppShell";
+import { API_URL, useAuth } from "@/lib/auth";
+import { navForRole } from "@/lib/nav";
+
+const MODULE_DESC: Record<string, string> = {
+  "/map": "Каждое здание — оценка 0–100, фильтры, карточка с SHAP",
+  "/chat": "Запрос на естественном языке → ответ из данных ДЧС",
+  "/infra": "Гидранты, части, зоны покрытия и слепые зоны",
+  "/routes": "Маршрут на день по приоритету риска и срока",
+  "/cards": "Скан → извлечение полей → автопредписания",
+  "/forces": "Стволы, машины, личный состав, ранг пожара",
+};
+
+type Overview = {
+  buildings: number;
+  high_risk: number;
+  mid_risk: number;
+  avg_score: number;
+  stations: number;
+  broken_hydrants: number;
+  cards: number;
+  prescriptions: number;
+  inspectors: number;
+};
 
 export default function Home() {
-  return (
-    <main className="flex min-h-screen flex-col justify-between p-10">
-      <header className="text-xs tracking-widest text-neutral-500">
-        FW · ИНТЕЛЛЕКТУАЛЬНАЯ ПЛАТФОРМА
-      </header>
+  const { user, ready } = useAuth();
+  const router = useRouter();
+  const [ov, setOv] = useState<Overview | null>(null);
 
-      <div>
-        <h1 className="text-7xl font-bold tracking-tight">
-          FireWatch<span style={{ color: "var(--fw-accent)" }}>.</span>
-        </h1>
-        <p className="mt-4 max-w-xl text-lg text-neutral-400">
-          Предиктивная аналитика пожарной безопасности. Каждое здание Казахстана
-          — под наблюдением модели.
+  // Inspectors don't have a dashboard — send them to their route.
+  useEffect(() => {
+    if (ready && user?.role === "inspector") router.replace("/routes");
+  }, [ready, user, router]);
+
+  useEffect(() => {
+    fetch(`${API_URL}/overview`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setOv)
+      .catch(() => {});
+  }, []);
+
+  return (
+    <AppShell>
+      <div className="p-8">
+        <h1 className="text-2xl font-bold">Обзор · Астана</h1>
+        <p className="text-sm text-neutral-400">
+          Сводка по городу на основе данных ДЧС и модели риска
         </p>
-        <div className="mt-8 flex gap-3">
-          <Link
-            href="/map"
-            className="inline-block rounded-md px-5 py-3 text-sm font-medium text-black"
-            style={{ background: "var(--fw-accent)" }}
-          >
-            Карта риска →
-          </Link>
-          <Link
-            href="/cards"
-            className="inline-block rounded-md border border-neutral-700 px-5 py-3 text-sm font-medium text-neutral-200 hover:bg-neutral-900"
-          >
-            Оперкарточки (ИИ) →
-          </Link>
-          <Link
-            href="/routes"
-            className="inline-block rounded-md border border-neutral-700 px-5 py-3 text-sm font-medium text-neutral-200 hover:bg-neutral-900"
-          >
-            План инспекций →
-          </Link>
-          <Link
-            href="/infra"
-            className="inline-block rounded-md border border-neutral-700 px-5 py-3 text-sm font-medium text-neutral-200 hover:bg-neutral-900"
-          >
-            Инфраструктура →
-          </Link>
-          <Link
-            href="/forces"
-            className="inline-block rounded-md border border-neutral-700 px-5 py-3 text-sm font-medium text-neutral-200 hover:bg-neutral-900"
-          >
-            Расчёт сил и средств →
-          </Link>
-          <Link
-            href="/chat"
-            className="inline-block rounded-md border border-neutral-700 px-5 py-3 text-sm font-medium text-neutral-200 hover:bg-neutral-900"
-          >
-            ИИ-аналитик →
-          </Link>
+
+        <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+          <Tile value={ov?.buildings} label="зданий в базе" />
+          <Tile value={ov?.high_risk} label="высокий риск" accent />
+          <Tile value={ov?.avg_score} label="средний балл риска" />
+          <Tile value={ov?.broken_hydrants} label="неисправных гидрантов" accent />
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-4 md:grid-cols-4">
+          <Tile value={ov?.stations} label="пожарных частей" small />
+          <Tile value={ov?.inspectors} label="инспекторов" small />
+          <Tile value={ov?.cards} label="обработано карточек" small />
+          <Tile value={ov?.prescriptions} label="предписаний выдано" small />
+        </div>
+
+        <h2 className="mt-10 text-xs tracking-widest text-neutral-500">
+          МОДУЛИ
+        </h2>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {user &&
+            navForRole(user.role)
+              .filter((n) => n.href !== "/")
+              .map((n) => (
+                <Card
+                  key={n.href}
+                  href={n.href}
+                  title={n.label}
+                  desc={MODULE_DESC[n.href] ?? ""}
+                />
+              ))}
         </div>
       </div>
+    </AppShell>
+  );
+}
 
-      <footer className="text-xs tracking-widest text-neutral-600">
-        FIREWATCH × ДЧС РК · ПИЛОТ: АСТАНА
-      </footer>
-    </main>
+function Tile({
+  value,
+  label,
+  accent,
+  small,
+}: {
+  value: number | undefined;
+  label: string;
+  accent?: boolean;
+  small?: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
+      <div
+        className={`font-bold ${small ? "text-2xl" : "text-3xl"}`}
+        style={{ color: accent ? "#ff5a1f" : "#fff" }}
+      >
+        {value == null ? "—" : value.toLocaleString("ru")}
+      </div>
+      <div className="mt-1 text-[10px] uppercase tracking-widest text-neutral-500">
+        {label}
+      </div>
+    </div>
+  );
+}
+
+function Card({
+  href,
+  title,
+  desc,
+}: {
+  href: string;
+  title: string;
+  desc: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-4 transition hover:border-neutral-600"
+    >
+      <div className="font-medium text-neutral-100">{title}</div>
+      <div className="mt-1 text-xs text-neutral-500">{desc}</div>
+    </Link>
   );
 }
