@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+import { apiFetch } from "@/lib/auth";
 
 type Preset = { key: string; label: string; vl: number; jtr: number };
 type Barrel = { key: string; label: string; q: number };
@@ -55,7 +54,7 @@ export default function ForcesPage() {
   const [res, setRes] = useState<Result | null>(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/forces/presets`)
+    apiFetch(`/forces/presets`)
       .then((r) => r.json())
       .then((d) => {
         setPresets(d.objects);
@@ -65,7 +64,7 @@ export default function ForcesPage() {
   }, []);
 
   async function calc() {
-    const r = await fetch(`${API_URL}/forces/calc`, {
+    const r = await apiFetch(`/forces/calc`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(p),

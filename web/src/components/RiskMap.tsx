@@ -2,10 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import maplibregl, { type StyleSpecification } from "maplibre-gl";
-
-// `||` (not `??`) so an empty build-time value also falls back.
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+import { apiFetch } from "@/lib/auth";
 
 // Astana center.
 const CENTER: [number, number] = [71.43, 51.13];
@@ -108,7 +105,7 @@ async function loadBuildings(map: maplibregl.Map) {
   const b = map.getBounds();
   const bbox = `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`;
   try {
-    const res = await fetch(`${API_URL}/buildings?bbox=${bbox}`);
+    const res = await apiFetch(`/buildings?bbox=${bbox}`);
     if (!res.ok) return;
     const geojson = await res.json();
     const source = map.getSource("buildings") as

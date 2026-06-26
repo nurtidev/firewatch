@@ -2,8 +2,8 @@
 
 import { useEffect, useRef } from "react";
 import maplibregl, { type StyleSpecification } from "maplibre-gl";
+import { apiFetch } from "@/lib/auth";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 const CENTER: [number, number] = [71.42, 51.13];
 
 const STYLE: StyleSpecification = {
@@ -21,7 +21,7 @@ const STYLE: StyleSpecification = {
 
 async function geojson(path: string) {
   try {
-    const r = await fetch(`${API_URL}${path}`);
+    const r = await apiFetch(path);
     return r.ok ? await r.json() : { type: "FeatureCollection", features: [] };
   } catch {
     return { type: "FeatureCollection", features: [] };

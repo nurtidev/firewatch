@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+import { apiFetch } from "@/lib/auth";
 
 type Factor = { feature: string; value: number };
 type Detail = {
@@ -36,7 +35,7 @@ export default function BuildingPanel({
     if (id == null) return;
     setLoading(true);
     setData(null);
-    fetch(`${API_URL}/buildings/${id}`)
+    apiFetch(`/buildings/${id}`)
       .then((r) => (r.ok ? r.json() : null))
       .then(setData)
       .catch(() => setData(null))

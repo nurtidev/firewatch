@@ -3,8 +3,13 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.routers.auth import current_user
 
-router = APIRouter(prefix="/buildings", tags=["buildings"])
+router = APIRouter(
+    prefix="/buildings",
+    tags=["buildings"],
+    dependencies=[Depends(current_user)],
+)
 
 TYPE_LABELS = {
     "residential": "Жилое",

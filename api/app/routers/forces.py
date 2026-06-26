@@ -8,10 +8,16 @@ Reproduces the Евразия worked example.
 
 import math
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-router = APIRouter(prefix="/forces", tags=["forces"])
+from app.routers.auth import current_user
+
+router = APIRouter(
+    prefix="/forces",
+    tags=["forces"],
+    dependencies=[Depends(current_user)],
+)
 
 # Object presets: Vл — линейная скорость распространения (м/мин), Jтр — требуемая
 # интенсивность подачи воды (л/(с·м²)).

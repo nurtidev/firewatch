@@ -3,10 +3,9 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import AppShell from "@/components/AppShell";
+import { apiFetch } from "@/lib/auth";
 
 const InfraMap = dynamic(() => import("@/components/InfraMap"), { ssr: false });
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
 type Stats = {
   stations: number;
@@ -21,7 +20,7 @@ export default function InfraPage() {
   const [stats, setStats] = useState<Stats | null>(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/infra/stats`)
+    apiFetch(`/infra/stats`)
       .then((r) => (r.ok ? r.json() : null))
       .then(setStats)
       .catch(() => {});

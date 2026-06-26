@@ -6,9 +6,10 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.routers.auth import current_user
 from app.routers.buildings import TYPE_LABELS
 
-router = APIRouter(tags=["inspections"])
+router = APIRouter(tags=["inspections"], dependencies=[Depends(current_user)])
 
 # Working-day slots (lunch 12:30–14:00 skipped), up to 6 stops.
 SLOTS = ["08:30", "10:00", "11:30", "14:00", "15:30", "17:00"]

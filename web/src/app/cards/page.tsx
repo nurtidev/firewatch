@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+import { apiFetch, apiSrc } from "@/lib/auth";
 
 type Prescription = {
   issue: string | null;
@@ -63,7 +62,7 @@ export default function CardsPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refreshList = () =>
-    fetch(`${API_URL}/cards`)
+    apiFetch(`/cards`)
       .then((r) => (r.ok ? r.json() : []))
       .then(setList)
       .catch(() => {});
@@ -81,7 +80,7 @@ export default function CardsPage() {
     const body = new FormData();
     body.append("file", f);
     try {
-      const res = await fetch(`${API_URL}/cards`, { method: "POST", body });
+      const res = await apiFetch(`/cards`, { method: "POST", body });
       if (!res.ok) {
         const msg = await res.json().catch(() => ({}));
         throw new Error(msg.detail || `Ошибка ${res.status}`);
@@ -96,7 +95,7 @@ export default function CardsPage() {
   }
 
   async function openCard(id: number) {
-    const res = await fetch(`${API_URL}/cards/${id}`);
+    const res = await apiFetch(`/cards/${id}`);
     if (res.ok) setCard(await res.json());
   }
 
@@ -140,13 +139,13 @@ export default function CardsPage() {
             </p>
             {card.media_type === "application/pdf" ? (
               <iframe
-                src={`${API_URL}/cards/${card.id}/file`}
+                src={apiSrc(`/cards/${card.id}/file`)}
                 className="h-[560px] w-full rounded bg-white"
               />
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={`${API_URL}/cards/${card.id}/file`}
+                src={apiSrc(`/cards/${card.id}/file`)}
                 alt="Оригинал карточки"
                 className="max-h-[560px] w-full rounded object-contain"
               />

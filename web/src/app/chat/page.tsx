@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import AppShell from "@/components/AppShell";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+import { apiFetch } from "@/lib/auth";
 
 type Assistant = {
   role: "assistant";
@@ -36,7 +35,7 @@ export default function ChatPage() {
     setInput("");
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/chat`, {
+      const res = await apiFetch(`/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question }),

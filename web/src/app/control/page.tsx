@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+import { apiFetch } from "@/lib/auth";
 
 type Stop = {
   building_id: number;
@@ -30,7 +29,7 @@ export default function ControlPage() {
   const [updated, setUpdated] = useState<string>("");
 
   const load = useCallback(() => {
-    fetch(`${API_URL}/routes/progress`)
+    apiFetch(`/routes/progress`)
       .then((r) => (r.ok ? r.json() : []))
       .then((d) => {
         setData(d);

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import { API_URL, useAuth } from "@/lib/auth";
+import { apiFetch, useAuth } from "@/lib/auth";
 import { navForRole } from "@/lib/nav";
 
 const MODULE_DESC: Record<string, string> = {
@@ -40,7 +40,7 @@ export default function Home() {
   }, [ready, user, router]);
 
   useEffect(() => {
-    fetch(`${API_URL}/overview`)
+    apiFetch(`/overview`)
       .then((r) => (r.ok ? r.json() : null))
       .then(setOv)
       .catch(() => {});

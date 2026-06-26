@@ -80,3 +80,25 @@ export function authToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("fw_token");
 }
+
+/** Fetch an API path with the bearer token attached; on 401 → login. */
+export async function apiFetch(
+  path: string,
+  opts: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(opts.headers);
+  const token = authToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(`${API_URL}${path}`, { ...opts, headers });
+  if (res.status === 401 && typeof window !== "undefined") {
+    localStorage.removeItem("fw_token");
+    localStorage.removeItem("fw_user");
+    window.location.href = "/login";
+  }
+  return res;
+}
+
+/** URL for <img>/<iframe> sources (file endpoint is unauthenticated). */
+export function apiSrc(path: string): string {
+  return `${API_URL}${path}`;
+}

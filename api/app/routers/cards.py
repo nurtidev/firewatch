@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import get_db
 from app.extraction import extract_card
+from app.routers.auth import current_user
 
 router = APIRouter(prefix="/cards", tags=["cards"])
 
@@ -28,7 +29,11 @@ def _save(data: bytes, media_type: str) -> tuple[str, Path]:
 
 
 @router.post("")
-async def upload_card(file: UploadFile, db: Session = Depends(get_db)) -> dict:
+async def upload_card(
+    file: UploadFile,
+    db: Session = Depends(get_db),
+    user: dict = Depends(current_user),
+) -> dict:
     if file.content_type not in ALLOWED:
         raise HTTPException(415, "Поддерживаются PDF, PNG, JPEG")
     data = await file.read()
@@ -77,11 +82,14 @@ async def upload_card(file: UploadFile, db: Session = Depends(get_db)) -> dict:
             },
         )
     db.commit()
-    return get_card(card_id, db)
+    return _card_detail(card_id, db)
 
 
 @router.get("")
-def list_cards(db: Session = Depends(get_db)) -> list[dict]:
+def list_cards(
+    db: Session = Depends(get_db),
+    user: dict = Depends(current_user),
+) -> list[dict]:
     rows = db.execute(
         text(
             """
@@ -99,7 +107,15 @@ def list_cards(db: Session = Depends(get_db)) -> list[dict]:
 
 
 @router.get("/{card_id}")
-def get_card(card_id: int, db: Session = Depends(get_db)) -> dict:
+def get_card(
+    card_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(current_user),
+) -> dict:
+    return _card_detail(card_id, db)
+
+
+def _card_detail(card_id: int, db: Session) -> dict:
     card = db.execute(
         text("SELECT * FROM operational_cards WHERE id = :id"), {"id": card_id}
     ).mappings().first()

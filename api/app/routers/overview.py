@@ -3,8 +3,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.routers.auth import current_user
 
-router = APIRouter(tags=["overview"])
+router = APIRouter(tags=["overview"], dependencies=[Depends(current_user)])
 
 
 @router.get("/overview")

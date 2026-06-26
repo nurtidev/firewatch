@@ -2,9 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
-import { useAuth } from "@/lib/auth";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+import { apiFetch, useAuth } from "@/lib/auth";
 
 type Inspector = { id: number; name: string; district: string };
 type Stop = {
@@ -57,14 +55,14 @@ export default function RoutesPage() {
   const [openStop, setOpenStop] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/routes/checklist`)
+    apiFetch(`/routes/checklist`)
       .then((r) => r.json())
       .then(setChecklist)
       .catch(() => {});
   }, []);
 
   useEffect(() => {
-    fetch(`${API_URL}/inspectors`)
+    apiFetch(`/inspectors`)
       .then((r) => (r.ok ? r.json() : []))
       .then((list: Inspector[]) => {
         setInspectors(list);
@@ -77,7 +75,7 @@ export default function RoutesPage() {
 
   const loadRoute = useCallback(() => {
     if (selected == null) return;
-    fetch(`${API_URL}/routes/today?inspector_id=${selected}`)
+    apiFetch(`/routes/today?inspector_id=${selected}`)
       .then((r) => (r.ok ? r.json() : null))
       .then(setRoute)
       .catch(() => setRoute(null));
@@ -191,7 +189,7 @@ function StopRow({
   async function save(status: "done" | "violation") {
     setSaving(true);
     try {
-      await fetch(`${API_URL}/routes/visit`, {
+      await apiFetch(`/routes/visit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

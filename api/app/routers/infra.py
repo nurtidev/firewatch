@@ -6,8 +6,13 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import get_db
+from app.routers.auth import current_user
 
-router = APIRouter(prefix="/infra", tags=["infrastructure"])
+router = APIRouter(
+    prefix="/infra",
+    tags=["infrastructure"],
+    dependencies=[Depends(current_user)],
+)
 
 
 def _fc(rows, geom_key: str, props) -> dict:
