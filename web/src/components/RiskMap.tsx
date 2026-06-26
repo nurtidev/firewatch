@@ -3,8 +3,9 @@
 import { useEffect, useRef } from "react";
 import maplibregl, { type StyleSpecification } from "maplibre-gl";
 
+// `||` (not `??`) so an empty build-time value also falls back.
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
 // Astana center.
 const CENTER: [number, number] = [71.43, 51.13];
@@ -51,7 +52,18 @@ export default function RiskMap({
         type: "circle",
         source: "buildings",
         paint: {
-          "circle-radius": 5,
+          // grow dots with zoom so they read clearly at city scale
+          "circle-radius": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            11,
+            3,
+            14,
+            6,
+            17,
+            10,
+          ],
           // green → yellow → red by risk score
           "circle-color": [
             "interpolate",

@@ -46,7 +46,11 @@ services:
       - ./ml:/app
 
   web:
-    build: ./web
+    build:
+      context: ./web
+      args:
+        # NEXT_PUBLIC_* must be baked at build time for the browser bundle.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8001}
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8001}
     ports:
