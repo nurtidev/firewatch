@@ -41,6 +41,12 @@ export default function Home() {
           >
             Инфраструктура →
           </Link>
+          <Link
+            href="/forces"
+            className="inline-block rounded-md border border-neutral-700 px-5 py-3 text-sm font-medium text-neutral-200 hover:bg-neutral-900"
+          >
+            Расчёт сил и средств →
+          </Link>
         </div>
       </div>
 
