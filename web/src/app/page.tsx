@@ -47,6 +47,12 @@ export default function Home() {
           >
             Расчёт сил и средств →
           </Link>
+          <Link
+            href="/chat"
+            className="inline-block rounded-md border border-neutral-700 px-5 py-3 text-sm font-medium text-neutral-200 hover:bg-neutral-900"
+          >
+            ИИ-аналитик →
+          </Link>
         </div>
       </div>
 
