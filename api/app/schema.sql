@@ -72,6 +72,23 @@ CREATE TABLE IF NOT EXISTS inspectors (
     district TEXT
 );
 
+-- Module 04 · inspection visits (execution tracking) -------------------------
+
+CREATE TABLE IF NOT EXISTS inspection_visits (
+    id           BIGSERIAL PRIMARY KEY,
+    inspector_id BIGINT REFERENCES inspectors(id) ON DELETE CASCADE,
+    building_id  BIGINT REFERENCES buildings(id) ON DELETE CASCADE,
+    visit_date   DATE NOT NULL,
+    status       TEXT NOT NULL,            -- done / violation
+    checklist    JSONB,
+    note         TEXT,
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (inspector_id, building_id, visit_date)
+);
+
+CREATE INDEX IF NOT EXISTS visits_lookup_idx
+    ON inspection_visits (inspector_id, visit_date);
+
 -- Auth · users with roles -----------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS users (
