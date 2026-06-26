@@ -58,3 +58,16 @@ CREATE TABLE IF NOT EXISTS prescriptions (
 );
 
 CREATE INDEX IF NOT EXISTS prescriptions_card_idx ON prescriptions (card_id);
+
+-- Module 04 · Inspection planning -------------------------------------------
+
+ALTER TABLE buildings ADD COLUMN IF NOT EXISTS district TEXT;
+ALTER TABLE buildings ADD COLUMN IF NOT EXISTS last_inspected DATE;
+
+CREATE INDEX IF NOT EXISTS buildings_district_idx ON buildings (district);
+
+CREATE TABLE IF NOT EXISTS inspectors (
+    id       BIGSERIAL PRIMARY KEY,
+    name     TEXT NOT NULL,
+    district TEXT
+);

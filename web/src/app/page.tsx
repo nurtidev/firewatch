@@ -29,6 +29,12 @@ export default function Home() {
           >
             Оперкарточки (ИИ) →
           </Link>
+          <Link
+            href="/routes"
+            className="inline-block rounded-md border border-neutral-700 px-5 py-3 text-sm font-medium text-neutral-200 hover:bg-neutral-900"
+          >
+            План инспекций →
+          </Link>
         </div>
       </div>
 
