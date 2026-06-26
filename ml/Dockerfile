@@ -16,6 +16,7 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
+# Bind IPv6 (::) — Railway private networking is IPv6; also serves IPv4.
 ENV PORT=8000
 EXPOSE 8000
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "uvicorn app.main:app --host :: --port ${PORT}"]
