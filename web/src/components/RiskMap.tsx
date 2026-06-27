@@ -25,18 +25,20 @@ const STYLE: StyleSpecification = {
   layers: [{ id: "osm", type: "raster", source: "osm" }],
 };
 
+// Risk gradient mirrors the severity scale (lib/risk + @theme tokens) so the
+// map markers and the legend/badges read as one system.
 const RISK_COLOR: maplibregl.ExpressionSpecification = [
   "interpolate",
   ["linear"],
   ["coalesce", ["get", "score"], 0],
   0,
-  "#2ecc71",
+  "#2fce7e", // normal
   35,
-  "#f1c40f",
+  "#ffd029", // elevated
   70,
-  "#e67e22",
+  "#ff8c1a", // high
   100,
-  "#e74c3c",
+  "#ff453a", // critical
 ];
 
 function queryString(filters: MapFilters, bbox: string): string {

@@ -16,6 +16,8 @@ export const NAV: NavItem[] = [
   { href: "/infra", label: "Инфраструктура", roles: ["supervisor", "leadership", "admin"] },
   { href: "/forces", label: "Расчёт сил и средств", roles: ["supervisor", "admin"] },
   { href: "/chat", label: "ИИ-аналитик", roles: ["leadership", "supervisor", "admin"] },
+  { href: "/model", label: "Модель ИИ", roles: ["leadership", "supervisor", "admin"] },
+  { href: "/audit", label: "Журнал аудита", roles: ["leadership", "admin"] },
 ];
 
 export const DEFAULT_ROUTE: Record<Role, string> = {

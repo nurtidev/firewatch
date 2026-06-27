@@ -1,15 +1,154 @@
 @import "tailwindcss";
 @import "maplibre-gl/dist/maplibre-gl.css";
 
-:root {
-  --fw-bg: #0a0a0a;
-  --fw-accent: #ff5a1f;
+/* =========================================================================
+   FireWatch design system — mission-critical govtech, dark, dense, calm.
+   Tailwind v4 is CSS-first: @theme vars generate utilities
+   (--color-critical → bg-critical / text-critical / border-critical).
+   ========================================================================= */
+@theme {
+  /* Neutral ramp — dark control-room base */
+  --color-bg:        #0a0a0b;   /* app background */
+  --color-surface:   #121215;   /* cards / panels */
+  --color-surface-2: #1a1a1f;   /* raised / hover */
+  --color-surface-3: #232329;   /* inputs / active row */
+  --color-border:    #27272d;   /* hairline dividers */
+  --color-border-strong: #34343c;
+  --color-muted:     #8b8b94;   /* secondary text */
+  --color-faint:     #5c5c64;   /* tertiary / meta */
+  --color-fg:        #ededf0;   /* primary text */
+
+  /* Brand — FireWatch orange */
+  --color-accent:        #ff5a1f;
+  --color-accent-hover:  #ff6f3c;
+  --color-accent-weak:   #2a1209;  /* tinted accent surface */
+  --color-accent-fg:     #0a0a0b;  /* text on accent fill */
+
+  /* Semantic status (severity scale) — color IS data */
+  --color-critical: #ff453a;  /* немедленная угроза */
+  --color-high:     #ff8c1a;  /* высокий риск */
+  --color-elevated: #ffd029;  /* повышенный */
+  --color-normal:   #2fce7e;  /* в норме */
+  --color-info:     #3d9bff;  /* справочно */
+
+  /* Status surfaces (chips/rows on dark) */
+  --color-critical-bg: #2a100e;
+  --color-high-bg:     #2a1a0a;
+  --color-elevated-bg: #292309;
+  --color-normal-bg:   #0c2418;
+  --color-info-bg:     #0c1d2b;
+
+  /* Typography — wired from next/font in layout.tsx */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-mono-jb), ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Type scale */
+  --text-2xs:  0.6875rem; /* 11 — micro labels */
+  --text-xs:   0.75rem;   /* 12 — meta */
+  --text-sm:   0.8125rem; /* 13 — body dense */
+  --text-base: 0.875rem;  /* 14 — body */
+  --text-md:   1rem;      /* 16 */
+  --text-lg:   1.25rem;   /* 20 — section titles */
+  --text-xl:   1.5rem;    /* 24 — page titles */
+  --text-2xl:  2rem;      /* 32 — hero metrics */
+  --text-3xl:  2.5rem;    /* 40 — big hero */
+
+  /* Radius — restrained */
+  --radius-sm: 5px;
+  --radius:    9px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+
+  /* Elevation — subtle on dark */
+  --shadow-card: 0 1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.35);
+  --shadow-pop:  0 10px 30px -6px rgba(0,0,0,.65), 0 2px 8px rgba(0,0,0,.4);
+
+  /* Motion */
+  --ease: cubic-bezier(.2, 0, 0, 1);
+  --dur-fast: 140ms;
+  --dur:      220ms;
 }
 
+/* =========================================================================
+   Base
+   ========================================================================= */
 html,
 body {
   height: 100%;
-  background: var(--fw-bg);
-  color: #ededed;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-size: var(--text-base);
+  line-height: 1.45;
+}
+
+/* Tabular numerals everywhere they read as data */
+.tabular { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* Legacy aliases — keep existing var() references alive */
+:root {
+  --fw-bg: var(--color-bg);
+  --fw-accent: var(--color-accent);
+}
+
+/* Focus — always visible, accent ring, never removed */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-accent) 35%, transparent);
+}
+
+/* Scrollbars — quiet, control-room */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--color-faint); }
+
+/* Native form controls inherit the dark palette */
+input, select, textarea, button { font: inherit; }
+select option { background: var(--color-surface); color: var(--color-fg); }
+::placeholder { color: var(--color-faint); }
+
+/* =========================================================================
+   Animations — purposeful only
+   ========================================================================= */
+@keyframes fw-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .35; }
+}
+@keyframes fw-shimmer {
+  100% { transform: translateX(100%); }
+}
+@keyframes fw-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fw-fade-in { animation: fw-fade-in var(--dur) var(--ease); }
+.fw-live-dot { animation: fw-pulse 2s var(--ease) infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

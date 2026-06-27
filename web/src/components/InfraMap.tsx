@@ -55,13 +55,13 @@ export default function InfraMap() {
         id: "coverage-fill",
         type: "fill",
         source: "coverage",
-        paint: { "fill-color": "#22c55e", "fill-opacity": 0.12 },
+        paint: { "fill-color": "#2fce7e", "fill-opacity": 0.12 },
       });
       map.addLayer({
         id: "coverage-line",
         type: "line",
         source: "coverage",
-        paint: { "line-color": "#22c55e", "line-opacity": 0.4, "line-width": 1 },
+        paint: { "line-color": "#2fce7e", "line-opacity": 0.4, "line-width": 1 },
       });
 
       // Blind-zone buildings — red
@@ -72,7 +72,7 @@ export default function InfraMap() {
         source: "blind",
         paint: {
           "circle-radius": 3,
-          "circle-color": "#ef4444",
+          "circle-color": "#ff453a", // critical
           "circle-opacity": 0.55,
         },
       });
@@ -89,8 +89,8 @@ export default function InfraMap() {
             "match",
             ["get", "status"],
             "broken",
-            "#f59e0b",
-            "#3b82f6",
+            "#ff8c1a", // high
+            "#3d9bff", // info
           ],
         },
       });
@@ -103,7 +103,7 @@ export default function InfraMap() {
         source: "stations",
         paint: {
           "circle-radius": 8,
-          "circle-color": "#ff5a1f",
+          "circle-color": "#ff5a1f", // accent
           "circle-stroke-width": 2,
           "circle-stroke-color": "#fff",
         },
