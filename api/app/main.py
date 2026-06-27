@@ -5,6 +5,7 @@ from app.audit import audit
 from app.auth import decode_token
 from app.config import settings
 from app.routers import (
+    audit_log,
     auth,
     buildings,
     cards,
@@ -12,6 +13,7 @@ from app.routers import (
     forces,
     health,
     infra,
+    model,
     overview,
     routes,
 )
@@ -63,6 +65,8 @@ app.include_router(infra.router)
 app.include_router(forces.router)
 app.include_router(chat.router)
 app.include_router(overview.router)
+app.include_router(model.router)
+app.include_router(audit_log.router)
 
 
 @app.get("/")
