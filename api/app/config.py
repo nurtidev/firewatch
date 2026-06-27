@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     overpass_url: str = "https://overpass-api.de/api/interpreter"
     jwt_secret: str = "dev-secret"
 
+    # Comma-separated allowed web origins for CORS ("*" = any, dev only).
+    cors_origins: str = "*"
+
     # Pilot bounding box (Astana). Used by the OSM import job.
     city_name: str = "Astana"
 

@@ -1,21 +1,25 @@
-"""Apply the core schema. Run: docker compose exec api python -m scripts.init_db"""
+"""Bring the database schema to head via Alembic migrations.
+
+Run:  docker compose exec api python -m scripts.init_db
+Equivalent to `alembic upgrade head`, but keeps a stable module entrypoint.
+"""
 
 from pathlib import Path
 
-from sqlalchemy import text
+from alembic import command
+from alembic.config import Config
 
-from app.db import engine
+from app.config import settings
 
-SCHEMA = Path(__file__).resolve().parent.parent / "app" / "schema.sql"
+API_ROOT = Path(__file__).resolve().parent.parent
 
 
 def main() -> None:
-    sql = SCHEMA.read_text(encoding="utf-8")
-    with engine.begin() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
-        for statement in filter(str.strip, sql.split(";")):
-            conn.execute(text(statement))
-    print("schema applied")
+    cfg = Config(str(API_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(API_ROOT / "migrations"))
+    cfg.set_main_option("sqlalchemy.url", settings.database_url)
+    command.upgrade(cfg, "head")
+    print("migrations applied (head)")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,7 @@
--- FireWatch core schema (Phase 1). Idempotent — safe to re-run.
+-- FireWatch core schema — FROZEN BASELINE (== Alembic revision 0001_baseline).
+-- Do NOT edit to evolve the schema: add a new migration under migrations/versions
+-- instead. This file is materialised verbatim by the baseline revision and kept
+-- only as a readable snapshot. Idempotent — safe to re-run.
 
 CREATE TABLE IF NOT EXISTS buildings (
     id            BIGSERIAL PRIMARY KEY,

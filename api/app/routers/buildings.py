@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.access import enforce_building_scope
 from app.db import get_db
 from app.routers.auth import current_user
 
@@ -33,11 +34,13 @@ def list_buildings(
     district: str | None = None,
     risk: str | None = None,
     db: Session = Depends(get_db),
+    user: dict = Depends(current_user),
 ) -> dict:
     """Buildings (footprint polygons) with risk scores as a FeatureCollection.
 
     `bbox` = "minLon,minLat,maxLon,maxLat" limits to the visible map area.
     Optional filters: `type` (building_type), `district`, `risk` (low/mid/high).
+    Scoped roles are server-side confined to their own district.
     """
     has_table = db.execute(
         text("SELECT to_regclass('public.buildings')")
@@ -66,6 +69,10 @@ def list_buildings(
         params["district"] = district
     if risk in RISK_BANDS:
         clauses.append(RISK_BANDS[risk])
+
+    # Server-side district confinement for scoped roles (cannot be bypassed by
+    # the client-supplied `district` filter above).
+    enforce_building_scope(clauses, params, user)
 
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
 

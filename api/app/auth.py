@@ -31,12 +31,13 @@ def verify_password(password: str, stored: str) -> bool:
     return hmac.compare_digest(dk, candidate)
 
 
-def create_token(username: str, role: str, name: str) -> str:
+def create_token(username: str, role: str, name: str, district: str | None = None) -> str:
     now = datetime.datetime.now(tz=datetime.timezone.utc)
     payload = {
         "sub": username,
         "role": role,
         "name": name,
+        "district": district,
         "exp": now + datetime.timedelta(days=TOKEN_TTL_DAYS),
         "iat": now,
     }
