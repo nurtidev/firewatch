@@ -1,0 +1,98 @@
+{
+  "n": 1800,
+  "base_rate": 0.1767,
+  "roc_auc": 0.8351,
+  "pr_auc": 0.5654,
+  "brier_raw": 0.1076,
+  "brier_calibrated": 0.1076,
+  "lift": [
+    {
+      "fraction": 0.05,
+      "k": 90,
+      "precision": 0.7778,
+      "lift": 4.403,
+      "recall_captured": 0.2201
+    },
+    {
+      "fraction": 0.1,
+      "k": 180,
+      "precision": 0.6333,
+      "lift": 3.585,
+      "recall_captured": 0.3585
+    },
+    {
+      "fraction": 0.2,
+      "k": 360,
+      "precision": 0.5139,
+      "lift": 2.909,
+      "recall_captured": 0.5818
+    }
+  ],
+  "calibration": [
+    {
+      "bin": "0.0–0.1",
+      "count": 936,
+      "mean_predicted": 0.0439,
+      "observed_frequency": 0.0417
+    },
+    {
+      "bin": "0.1–0.2",
+      "count": 347,
+      "mean_predicted": 0.1468,
+      "observed_frequency": 0.1499
+    },
+    {
+      "bin": "0.2–0.3",
+      "count": 171,
+      "mean_predicted": 0.2424,
+      "observed_frequency": 0.2749
+    },
+    {
+      "bin": "0.3–0.4",
+      "count": 107,
+      "mean_predicted": 0.3423,
+      "observed_frequency": 0.4206
+    },
+    {
+      "bin": "0.4–0.5",
+      "count": 74,
+      "mean_predicted": 0.4483,
+      "observed_frequency": 0.3514
+    },
+    {
+      "bin": "0.5–0.6",
+      "count": 69,
+      "mean_predicted": 0.5511,
+      "observed_frequency": 0.5072
+    },
+    {
+      "bin": "0.6–0.7",
+      "count": 48,
+      "mean_predicted": 0.6394,
+      "observed_frequency": 0.7083
+    },
+    {
+      "bin": "0.7–0.8",
+      "count": 37,
+      "mean_predicted": 0.7421,
+      "observed_frequency": 0.8108
+    },
+    {
+      "bin": "0.8–0.9",
+      "count": 11,
+      "mean_predicted": 0.8275,
+      "observed_frequency": 0.9091
+    }
+  ],
+  "feature_importance_gain": {
+    "Деревянные перекрытия": 60.95,
+    "Возраст здания": 26.91,
+    "АПС/АУПТ": 26.32,
+    "Инциденты в радиусе 300 м (3 г.)": 15.16,
+    "Зимний период": 10.46,
+    "Капитальный ремонт (недавний)": 6.79,
+    "Плотность застройки квартала": 5.35,
+    "Расстояние до гидранта": 4.41,
+    "Этажность": 4.4
+  }
+}

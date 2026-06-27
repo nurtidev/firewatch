@@ -20,8 +20,10 @@ venv/
 .env.local
 .env.*.local
 
-# ML artifacts
-ml/artifacts/*.json
+# ML artifacts — model binaries are rebuilt at image build time, not committed.
+# metrics.json / MODEL_CARD.md ARE committed as validation proof for the tender.
+ml/artifacts/model.json
+ml/artifacts/meta.json
 ml/artifacts/*.pkl
 ml/artifacts/*.ubj
 

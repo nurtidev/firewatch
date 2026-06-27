@@ -16,6 +16,11 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
+# Train, calibrate and validate the model at build time. The quality gate in
+# train.train exits non-zero (failing the build) if ROC-AUC drops below floor,
+# so a regressed model can never ship. Artifacts are baked into the image.
+RUN python -m train.train
+
 # Bind IPv6 (::) — Railway private networking is IPv6; also serves IPv4.
 ENV PORT=8000
 EXPOSE 8000
