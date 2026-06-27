@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  api:
+    name: API · pytest + migrations (PostGIS)
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: firewatch
+          POSTGRES_PASSWORD: firewatch
+          POSTGRES_DB: firewatch
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U firewatch"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://firewatch:firewatch@localhost:5432/firewatch
+      FW_RUN_DB_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        working-directory: api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+      - name: Run tests (unit + DB integration: migrations, RBAC scoping, audit)
+        working-directory: api
+        run: pytest -q
+
+  ml:
+    name: ML · train + validate + pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        working-directory: ml
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+      - name: Train model (quality gate fails the build if ROC-AUC < floor)
+        working-directory: ml
+        run: python -m train.train
+      - name: Run tests
+        working-directory: ml
+        run: pytest -q
+
+  web:
+    name: Web · build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install deps
+        working-directory: web
+        run: npm install --no-audit --no-fund
+      - name: Build (type-checks the app)
+        working-directory: web
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8001
+        run: npm run build
+
+  lint:
+    name: Lint · ruff (syntax/undefined-name)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - name: ruff (error-class rules only)
+        run: ruff check api ml --select E9,F63,F7,F82
