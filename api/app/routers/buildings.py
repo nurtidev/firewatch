@@ -19,16 +19,25 @@ TYPE_LABELS = {
 }
 
 
+RISK_BANDS = {
+    "low": "r.score <= 35",
+    "mid": "r.score BETWEEN 36 AND 70",
+    "high": "r.score > 70",
+}
+
+
 @router.get("")
 def list_buildings(
     bbox: str | None = None,
+    type: str | None = None,
+    district: str | None = None,
+    risk: str | None = None,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Return buildings with risk scores as GeoJSON FeatureCollection.
+    """Buildings (footprint polygons) with risk scores as a FeatureCollection.
 
-    `bbox` = "minLon,minLat,maxLon,maxLat" limits the result to the visible
-    map area (essential at ~250K buildings). Returns an empty collection until
-    the OSM import job has populated the `buildings` table (Phase 0/1).
+    `bbox` = "minLon,minLat,maxLon,maxLat" limits to the visible map area.
+    Optional filters: `type` (building_type), `district`, `risk` (low/mid/high).
     """
     has_table = db.execute(
         text("SELECT to_regclass('public.buildings')")
@@ -36,20 +45,29 @@ def list_buildings(
     if not has_table:
         return {"type": "FeatureCollection", "features": []}
 
-    where = ""
+    clauses: list[str] = []
     params: dict = {}
     if bbox:
         min_lon, min_lat, max_lon, max_lat = (float(x) for x in bbox.split(","))
-        where = (
-            "WHERE b.geom && ST_MakeEnvelope("
-            ":min_lon, :min_lat, :max_lon, :max_lat, 4326)"
+        clauses.append(
+            "b.geom && ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)"
         )
-        params = {
+        params |= {
             "min_lon": min_lon,
             "min_lat": min_lat,
             "max_lon": max_lon,
             "max_lat": max_lat,
         }
+    if type:
+        clauses.append("b.building_type = :type")
+        params["type"] = type
+    if district:
+        clauses.append("b.district = :district")
+        params["district"] = district
+    if risk in RISK_BANDS:
+        clauses.append(RISK_BANDS[risk])
+
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
 
     rows = db.execute(
         text(
@@ -59,11 +77,11 @@ def list_buildings(
                 b.address,
                 b.building_type,
                 r.score,
-                ST_AsGeoJSON(ST_Centroid(b.geom)) AS geometry
+                ST_AsGeoJSON(b.geom) AS geometry
             FROM buildings b
             LEFT JOIN risk_scores r ON r.building_id = b.id
             {where}
-            LIMIT 5000
+            LIMIT 8000
             """
         ),
         params,

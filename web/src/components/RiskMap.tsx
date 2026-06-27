@@ -4,10 +4,14 @@ import { useEffect, useRef } from "react";
 import maplibregl, { type StyleSpecification } from "maplibre-gl";
 import { apiFetch } from "@/lib/auth";
 
-// Astana center.
+export type MapFilters = {
+  type?: string;
+  district?: string;
+  risk?: string;
+};
+
 const CENTER: [number, number] = [71.43, 51.13];
 
-// Raster OSM base style (dev only — replace with a vector tile provider for prod).
 const STYLE: StyleSpecification = {
   version: 8,
   sources: {
@@ -21,12 +25,54 @@ const STYLE: StyleSpecification = {
   layers: [{ id: "osm", type: "raster", source: "osm" }],
 };
 
+const RISK_COLOR: maplibregl.ExpressionSpecification = [
+  "interpolate",
+  ["linear"],
+  ["coalesce", ["get", "score"], 0],
+  0,
+  "#2ecc71",
+  35,
+  "#f1c40f",
+  70,
+  "#e67e22",
+  100,
+  "#e74c3c",
+];
+
+function queryString(filters: MapFilters, bbox: string): string {
+  const p = new URLSearchParams({ bbox });
+  if (filters.type) p.set("type", filters.type);
+  if (filters.district) p.set("district", filters.district);
+  if (filters.risk) p.set("risk", filters.risk);
+  return p.toString();
+}
+
 export default function RiskMap({
   onSelect,
+  filters,
 }: {
   onSelect?: (id: number) => void;
+  filters: MapFilters;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const filtersRef = useRef<MapFilters>(filters);
+
+  async function loadBuildings(map: maplibregl.Map) {
+    const b = map.getBounds();
+    const bbox = `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`;
+    try {
+      const res = await apiFetch(`/buildings?${queryString(filtersRef.current, bbox)}`);
+      if (!res.ok) return;
+      const geojson = await res.json();
+      const source = map.getSource("buildings") as
+        | maplibregl.GeoJSONSource
+        | undefined;
+      source?.setData(geojson);
+    } catch {
+      /* leave map as-is */
+    }
+  }
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -37,6 +83,7 @@ export default function RiskMap({
       center: CENTER,
       zoom: 12,
     });
+    mapRef.current = map;
     map.addControl(new maplibregl.NavigationControl(), "top-right");
 
     map.on("load", () => {
@@ -45,74 +92,46 @@ export default function RiskMap({
         data: { type: "FeatureCollection", features: [] },
       });
       map.addLayer({
-        id: "buildings-risk",
-        type: "circle",
+        id: "buildings-fill",
+        type: "fill",
         source: "buildings",
-        paint: {
-          // grow dots with zoom so they read clearly at city scale
-          "circle-radius": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            11,
-            3,
-            14,
-            6,
-            17,
-            10,
-          ],
-          // green → yellow → red by risk score
-          "circle-color": [
-            "interpolate",
-            ["linear"],
-            ["coalesce", ["get", "score"], 0],
-            0,
-            "#2ecc71",
-            35,
-            "#f1c40f",
-            70,
-            "#e67e22",
-            100,
-            "#e74c3c",
-          ],
-          "circle-stroke-width": 1,
-          "circle-stroke-color": "rgba(0,0,0,0.4)",
-        },
+        paint: { "fill-color": RISK_COLOR, "fill-opacity": 0.75 },
+      });
+      map.addLayer({
+        id: "buildings-outline",
+        type: "line",
+        source: "buildings",
+        paint: { "line-color": "rgba(0,0,0,0.35)", "line-width": 0.5 },
       });
 
       void loadBuildings(map);
       map.on("moveend", () => void loadBuildings(map));
 
-      map.on("click", "buildings-risk", (e) => {
+      map.on("click", "buildings-fill", (e) => {
         const id = e.features?.[0]?.properties?.id;
         if (id != null) onSelect?.(Number(id));
       });
-      map.on("mouseenter", "buildings-risk", () => {
+      map.on("mouseenter", "buildings-fill", () => {
         map.getCanvas().style.cursor = "pointer";
       });
-      map.on("mouseleave", "buildings-risk", () => {
+      map.on("mouseleave", "buildings-fill", () => {
         map.getCanvas().style.cursor = "";
       });
     });
 
-    return () => map.remove();
+    return () => {
+      map.remove();
+      mapRef.current = null;
+    };
   }, [onSelect]);
 
-  return <div ref={containerRef} className="h-full w-full" />;
-}
+  // Reload when filters change.
+  useEffect(() => {
+    filtersRef.current = filters;
+    const map = mapRef.current;
+    if (map && map.isStyleLoaded()) void loadBuildings(map);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.type, filters.district, filters.risk]);
 
-async function loadBuildings(map: maplibregl.Map) {
-  const b = map.getBounds();
-  const bbox = `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`;
-  try {
-    const res = await apiFetch(`/buildings?bbox=${bbox}`);
-    if (!res.ok) return;
-    const geojson = await res.json();
-    const source = map.getSource("buildings") as
-      | maplibregl.GeoJSONSource
-      | undefined;
-    source?.setData(geojson);
-  } catch {
-    // API not reachable yet — leave the map empty.
-  }
+  return <div ref={containerRef} className="h-full w-full" />;
 }
