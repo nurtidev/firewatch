@@ -54,6 +54,38 @@ type CardListItem = {
   created_at: string;
 };
 
+/* ─── Structured ПТП (operational plan) shape ────────────────────────────── */
+
+type Room = { name?: string; area_m2?: number | string; type?: string };
+type FloorPlan = { floor?: string; source_file?: string; rooms?: Room[] };
+type StructuredPlan = {
+  object?: {
+    name?: string;
+    address?: string;
+    category?: string;
+    fire_resistance_degree?: string;
+    total_area_ha?: number;
+    occupancy?: string;
+    has_kindergarten?: boolean;
+    blocks?: { id?: string; floors?: string; notes?: string }[];
+  };
+  response?: {
+    nearest_station?: string;
+    distance_km?: number;
+    route?: string;
+    arrival_min?: number;
+    preassigned_rank?: string;
+  };
+  contacts?: { role?: string; name?: string; phone?: string }[];
+  water_sources?: { type?: string; note?: string; distance_m?: number | null }[];
+  floor_plans?: FloorPlan[];
+  force_calc?: Record<string, unknown>;
+};
+
+function isStructured(ex: Record<string, unknown> | undefined): boolean {
+  return !!ex && (!!ex["object"] || !!ex["floor_plans"]);
+}
+
 /* ─── Field manifest ─────────────────────────────────────────────────────── */
 
 const FIELDS: [string, string][] = [
@@ -246,8 +278,16 @@ export default function CardsPage() {
           </div>
         </Card>
 
-        {/* ── Result: two-column ── */}
-        {card && (
+        {/* ── Result: structured ПТП (digital operational plan) ── */}
+        {card && isStructured(card.extracted) && (
+          <StructuredPlanView
+            ex={card.extracted as StructuredPlan}
+            filename={card.filename}
+          />
+        )}
+
+        {/* ── Result: AI-extracted flat card (two-column) ── */}
+        {card && !isStructured(card.extracted) && (
           <div className="mt-6 grid gap-5 lg:grid-cols-2 fw-fade-in">
             {/* Left — original */}
             <Card className="flex flex-col overflow-hidden p-0">
@@ -422,5 +462,168 @@ export default function CardsPage() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+/* ─── Structured ПТП view (digital operational plan / building plan) ──────── */
+
+function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: string }) {
+  const obj = ex.object ?? {};
+  const resp = ex.response ?? {};
+  const floors = (ex.floor_plans ?? []).filter((f) => (f.rooms?.length ?? 0) > 0);
+  const [floorIdx, setFloorIdx] = useState(0);
+  const floor = floors[floorIdx];
+
+  return (
+    <div className="mt-6 space-y-5 fw-fade-in">
+      {/* Object summary */}
+      <Card className="p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <SectionLabel>Оперативный план (ПТП)</SectionLabel>
+            <h2 className="mt-1 text-lg font-semibold leading-snug text-fg">
+              {obj.name ?? filename}
+            </h2>
+            {obj.address && <p className="mt-1 text-sm text-muted">{obj.address}</p>}
+          </div>
+          <FileText className="h-5 w-5 shrink-0 text-faint" />
+        </div>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {obj.category && <Badge>{obj.category}</Badge>}
+          {obj.fire_resistance_degree && <Badge>{obj.fire_resistance_degree}</Badge>}
+          {obj.total_area_ha != null && <Badge>{obj.total_area_ha} га</Badge>}
+          {obj.has_kindergarten && <Badge tone="accent">Детский сад в составе</Badge>}
+          {obj.occupancy && <Badge>{obj.occupancy}</Badge>}
+        </div>
+      </Card>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        {/* Response */}
+        <Card className="p-5">
+          <SectionLabel className="mb-3">Реагирование</SectionLabel>
+          <dl className="space-y-2 text-sm">
+            <Row label="Ближайшая ПЧ" value={resp.nearest_station} />
+            <Row
+              label="Расстояние / прибытие"
+              value={[
+                resp.distance_km != null ? `${resp.distance_km} км` : null,
+                resp.arrival_min != null ? `${resp.arrival_min} мин` : null,
+              ].filter(Boolean).join(" · ") || null}
+            />
+            <Row label="Маршрут" value={resp.route} />
+            <Row label="Ранг пожара" value={resp.preassigned_rank} />
+          </dl>
+        </Card>
+
+        {/* Blocks */}
+        {(obj.blocks?.length ?? 0) > 0 && (
+          <Card className="p-5">
+            <SectionLabel className="mb-3">Блоки / этажность</SectionLabel>
+            <ul className="space-y-1.5 text-sm">
+              {obj.blocks!.map((b, i) => (
+                <li key={i} className="flex gap-3">
+                  <span className="w-10 shrink-0 font-medium text-fg">{b.id}</span>
+                  <span className="text-muted">
+                    {[b.floors, b.notes].filter(Boolean).join(" · ")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
+      </div>
+
+      {/* Floor plan / экспликация — the building plan content */}
+      {floors.length > 0 && (
+        <Card className="p-5">
+          <SectionLabel className="mb-3">План объекта · поэтажная экспликация</SectionLabel>
+          <div className="flex flex-wrap gap-1.5">
+            {floors.map((f, i) => (
+              <button
+                key={i}
+                onClick={() => setFloorIdx(i)}
+                className={cn(
+                  "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                  i === floorIdx
+                    ? "border-accent/40 bg-accent-weak text-accent"
+                    : "border-border bg-surface-2 text-muted hover:text-fg",
+                )}
+              >
+                {f.floor ?? `Этаж ${i + 1}`}
+              </button>
+            ))}
+          </div>
+          {floor && (
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-2xs uppercase tracking-wider text-faint">
+                    <th className="py-2 pr-3 font-medium">Помещение</th>
+                    <th className="py-2 pr-3 font-medium">Тип</th>
+                    <th className="py-2 text-right font-medium">Площадь, м²</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {floor.rooms!.map((r, i) => (
+                    <tr key={i} className="border-b border-border/60 last:border-0">
+                      <td className="py-1.5 pr-3 text-fg">{r.name ?? "—"}</td>
+                      <td className="py-1.5 pr-3 text-muted">{r.type ?? ""}</td>
+                      <td className="py-1.5 text-right tabular text-muted">{r.area_m2 ?? ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Water sources */}
+      {(ex.water_sources?.length ?? 0) > 0 && (
+        <Card className="p-5">
+          <SectionLabel className="mb-3">Водоисточники</SectionLabel>
+          <ul className="space-y-1.5 text-sm">
+            {ex.water_sources!.map((w, i) => (
+              <li key={i} className="flex items-baseline justify-between gap-3">
+                <span className="text-fg">
+                  {w.type}
+                  {w.note && <span className="text-faint"> · {w.note}</span>}
+                </span>
+                {w.distance_m != null && (
+                  <span className="shrink-0 tabular text-muted">{w.distance_m} м</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {/* Force calc */}
+      {ex.force_calc && Object.keys(ex.force_calc).length > 0 && (
+        <Card className="p-5">
+          <SectionLabel className="mb-3">Расчёт сил и средств</SectionLabel>
+          <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+            {Object.entries(ex.force_calc).map(([k, v]) => (
+              <div key={k} className="flex gap-3 text-sm">
+                <dt className="min-w-0 flex-1 text-faint">{k}</dt>
+                <dd className="shrink-0 text-fg">
+                  {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value?: string | null }) {
+  if (!value) return null;
+  return (
+    <div className="flex gap-3">
+      <dt className="w-40 shrink-0 text-faint">{label}</dt>
+      <dd className="min-w-0 text-fg">{value}</dd>
+    </div>
   );
 }

@@ -85,6 +85,7 @@ def list_buildings(
                 b.id,
                 b.address,
                 b.building_type,
+                b.floors,
                 r.score,
                 ST_AsGeoJSON(b.geom) AS geometry
             FROM buildings b
@@ -107,6 +108,7 @@ def list_buildings(
                 "address": row["address"],
                 "type": row["building_type"],
                 "score": row["score"],
+                "floors": row["floors"],
             },
         }
         for row in rows

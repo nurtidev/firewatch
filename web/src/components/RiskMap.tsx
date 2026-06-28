@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import maplibregl, { type StyleSpecification } from "maplibre-gl";
+import { Box, Square } from "lucide-react";
 import { apiFetch } from "@/lib/auth";
 
 export type MapFilters = {
@@ -59,6 +60,17 @@ export default function RiskMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const filtersRef = useRef<MapFilters>(filters);
+  const [is3d, setIs3d] = useState(false);
+
+  function toggle3d() {
+    const map = mapRef.current;
+    if (!map) return;
+    const next = !is3d;
+    setIs3d(next);
+    map.setLayoutProperty("buildings-fill", "visibility", next ? "none" : "visible");
+    map.setLayoutProperty("buildings-3d", "visibility", next ? "visible" : "none");
+    map.easeTo({ pitch: next ? 55 : 0, duration: 600 });
+  }
 
   async function loadBuildings(map: maplibregl.Map) {
     const b = map.getBounds();
@@ -105,20 +117,40 @@ export default function RiskMap({
         source: "buildings",
         paint: { "line-color": "rgba(0,0,0,0.35)", "line-width": 0.5 },
       });
+      // 2.5D massing: extrude footprints by floor count (≈3 m/floor), coloured by
+      // risk. Hidden until the user toggles 3D. Gives a city/quarter walk-around.
+      map.addLayer({
+        id: "buildings-3d",
+        type: "fill-extrusion",
+        source: "buildings",
+        layout: { visibility: "none" },
+        paint: {
+          "fill-extrusion-color": RISK_COLOR,
+          "fill-extrusion-height": [
+            "*",
+            ["coalesce", ["get", "floors"], 3],
+            3,
+          ],
+          "fill-extrusion-base": 0,
+          "fill-extrusion-opacity": 0.85,
+        },
+      });
 
       void loadBuildings(map);
       map.on("moveend", () => void loadBuildings(map));
 
-      map.on("click", "buildings-fill", (e) => {
-        const id = e.features?.[0]?.properties?.id;
-        if (id != null) onSelect?.(Number(id));
-      });
-      map.on("mouseenter", "buildings-fill", () => {
-        map.getCanvas().style.cursor = "pointer";
-      });
-      map.on("mouseleave", "buildings-fill", () => {
-        map.getCanvas().style.cursor = "";
-      });
+      for (const layer of ["buildings-fill", "buildings-3d"]) {
+        map.on("click", layer, (e) => {
+          const id = e.features?.[0]?.properties?.id;
+          if (id != null) onSelect?.(Number(id));
+        });
+        map.on("mouseenter", layer, () => {
+          map.getCanvas().style.cursor = "pointer";
+        });
+        map.on("mouseleave", layer, () => {
+          map.getCanvas().style.cursor = "";
+        });
+      }
     });
 
     return () => {
@@ -135,5 +167,18 @@ export default function RiskMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.type, filters.district, filters.risk]);
 
-  return <div ref={containerRef} className="h-full w-full" />;
+  return (
+    <div className="relative h-full w-full">
+      <div ref={containerRef} className="h-full w-full" />
+      <button
+        onClick={toggle3d}
+        className="absolute bottom-6 right-3 z-10 inline-flex items-center gap-1.5 rounded-md border border-border-strong bg-surface/90 px-2.5 py-1.5 text-xs font-medium text-fg shadow-pop backdrop-blur transition-colors hover:bg-surface-2"
+        aria-pressed={is3d}
+        aria-label={is3d ? "Перейти в 2D" : "Перейти в 3D"}
+      >
+        {is3d ? <Square className="h-3.5 w-3.5" /> : <Box className="h-3.5 w-3.5" />}
+        {is3d ? "2D" : "3D"}
+      </button>
+    </div>
+  );
 }
