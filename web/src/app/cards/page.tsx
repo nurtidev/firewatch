@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   Upload,
   FileText,
@@ -9,11 +10,14 @@ import {
   Calendar,
   Clock,
   MapPin,
-  ServerCrash,
   ScanLine,
   ChevronRight,
+  Box,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+
+// Three.js touches WebGL/window — load client-side only.
+const Building3D = dynamic(() => import("@/components/Building3D"), { ssr: false });
 import { apiFetch, apiSrc } from "@/lib/auth";
 import { SEVERITY, type Severity } from "@/lib/risk";
 import {
@@ -470,7 +474,14 @@ export default function CardsPage() {
 function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: string }) {
   const obj = ex.object ?? {};
   const resp = ex.response ?? {};
-  const floors = (ex.floor_plans ?? []).filter((f) => (f.rooms?.length ?? 0) > 0);
+  const floors = useMemo(
+    () => (ex.floor_plans ?? []).filter((f) => (f.rooms?.length ?? 0) > 0),
+    [ex],
+  );
+  const floors3d = useMemo(
+    () => floors.map((f) => ({ label: f.floor ?? "", hasRooms: true })),
+    [floors],
+  );
   const [floorIdx, setFloorIdx] = useState(0);
   const floor = floors[floorIdx];
 
@@ -532,6 +543,37 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
           </Card>
         )}
       </div>
+
+      {/* 3D model — procedural massing, click a floor to inspect it */}
+      {floors.length > 0 && (
+        <Card className="p-5">
+          <div className="flex items-center gap-2">
+            <Box className="h-3.5 w-3.5 text-faint" aria-hidden />
+            <SectionLabel>3D-модель объекта</SectionLabel>
+          </div>
+          <p className="mt-1 text-xs text-muted">
+            Этажи по экспликации. Вращайте мышью, колесо — зум, клик по этажу —
+            показать его помещения ниже.
+          </p>
+          <div className="mt-3 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
+            <Building3D
+              floors={floors3d}
+              selected={floorIdx}
+              onSelect={setFloorIdx}
+              className="h-[360px] w-full rounded-lg border border-border bg-surface-2/40"
+            />
+            <div className="text-sm">
+              <div className="text-faint">Выбран этаж</div>
+              <div className="mt-0.5 text-lg font-semibold text-fg">
+                {floor?.floor ?? "—"}
+              </div>
+              <div className="mt-1 text-xs text-muted">
+                {floor?.rooms?.length ?? 0} помещений
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Floor plan / экспликация — the building plan content */}
       {floors.length > 0 && (
