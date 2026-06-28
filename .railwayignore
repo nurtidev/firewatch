@@ -1,0 +1,11 @@
+# Keep `railway up` uploads small. Services build from their root dir (/api, /ml,
+# /web); none of these are needed in the upload context.
+.git
+node_modules
+**/node_modules
+docs
+*.pdf
+*.vsd
+*.doc
+*.docx
+*.PDF
