@@ -153,15 +153,28 @@ users                -- роли: inspector / supervisor / admin
    - `web`, `api` (Node) — Nixpacks автоматически.
    - `ml`, `routing` — собственный `Dockerfile` (XGBoost-зависимости, граф OSRM).
 4. **Переменные окружения** (Railway Variables):
+   - `FW_ENV=production` — включает fail-fast: api не стартует с дефолтными
+     `JWT_SECRET`/`DATABASE_URL`/`CORS_ORIGINS`; ml-`/health` отдаёт 503, если
+     модель не загрузилась (битая сборка видна сразу).
+   - `FW_TRUST_PROXY_HEADERS=true` — за Cloudflare: брать реальный IP клиента из
+     `X-Forwarded-For` в аудит (включать только когда заголовок ставит доверенный
+     прокси). `FW_JWT_TTL_HOURS` — время жизни токена (по умолчанию 12 ч).
    - `ANTHROPIC_API_KEY` — Claude.
    - `DATABASE_URL` — на PostGIS-сервис (reference variable).
-   - `OSRM_URL`, `OVERPASS_URL`, секреты auth (`JWT_SECRET`), ключ object storage.
+   - `OSRM_URL`, `OVERPASS_URL`, секреты auth (`JWT_SECRET`, ≥32 случайных
+     символа), ключ object storage.
 5. **Volume** — для PDF-сканов и артефакта ML-модели (или Cloudflare R2).
-6. **Cron** (Railway cron):
-   - ежедневный пересчёт риска (`ml`);
-   - утренний 07:00 — генерация маршрутов (`api`).
-7. **Домены:** Railway-домен на `web` → Cloudflare proxy → `firewatch.dchs.kz`. API за тем же доменом по пути `/api` или поддомен `api.`.
-8. **Среды:** `production` + `staging` через Railway environments.
+6. **Миграции БД** — выполняются через `preDeployCommand: alembic upgrade head`
+   в `api/railway.json` (один раз до раскатки, не в каждой реплике — нет гонки
+   и падения всех инстансов на сломанной миграции).
+7. **Cron** (отдельный Railway service на образе `api`, конфиг
+   `api/railway.cron.json`, `cronSchedule: "0 2 * * *"` = 07:00 Астаны при
+   UTC+5):
+   - ежедневный пересчёт риска: `python -m scripts.compute_risk` (single-flight
+     через `pg_try_advisory_lock`, повтор сбойного чанка, exit 1 при ошибках);
+   - утренний 07:00 — генерация маршрутов (`api`, TODO: вынести в cron-команду).
+8. **Домены:** Railway-домен на `web` → Cloudflare proxy → `firewatch.dchs.kz`. API за тем же доменом по пути `/api` или поддомен `api.`.
+9. **Среды:** `production` + `staging` через Railway environments.
 
 > Инфраструктуру на Railway (проект, сервисы из репо, БД, переменные, домены, cron) можно поднять автоматически через Railway-интеграцию, как только будет код в репозитории.
 

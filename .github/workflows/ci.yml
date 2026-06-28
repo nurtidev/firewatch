@@ -37,6 +37,12 @@ jobs:
       - name: Run tests (unit + DB integration: migrations, RBAC scoping, audit)
         working-directory: api
         run: pytest -q
+      - name: Migrations round-trip (up → down → up)
+        working-directory: api
+        run: |
+          alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
 
   ml:
     name: ML · train + validate + pytest
@@ -74,6 +80,20 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8001
         run: npm run build
+
+  audit:
+    name: Security · pip-audit (api + ml deps)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit
+      - name: Audit API dependencies
+        run: pip-audit -r api/requirements.txt
+      - name: Audit ML dependencies
+        run: pip-audit -r ml/requirements.txt
 
   lint:
     name: Lint · ruff (syntax/undefined-name)
