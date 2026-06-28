@@ -47,6 +47,14 @@ _GT = {
     "hydrant_excess": 0.0020,        # applied to max(hydrant_m-50, 0)
     "capital_repair_recent": -0.55,
     "wooden_x_old": 0.65,            # interaction: wooden AND age>50
+    # ДЧС domain factors. has_gas / hazard_category raise ignition & spread
+    # likelihood; mass / vulnerable occupancy raise the supervision priority
+    # (life-safety consequence) — the score is a risk-PRIORITY, not pure ignition
+    # probability, matching РК риск-ориентированный надзор. Documented in the card.
+    "has_gas": 0.45,
+    "hazard_category": 0.16,         # per category level (Д=1 … А=5)
+    "mass_occupancy": 0.30,
+    "vulnerable_occupancy": 0.40,
 }
 _NOISE_SD = 0.40
 
@@ -74,6 +82,28 @@ def synthetic(n: int = N_SAMPLES, seed: int = SEED) -> tuple[pd.DataFrame, np.nd
     nearest_hydrant_m = np.clip(rng.gamma(2.2, 60, n), 15, 400).round().astype(float)
     capital_repair_recent = (rng.random(n) < 0.15).astype(float)
 
+    # Functional-use class drives the domain features. A latent building use is
+    # sampled, then occupancy / hazard / gas are derived from it (and dropped) —
+    # so the four features carry realistic correlation, not independent noise.
+    use = rng.choice(
+        ["residential", "public_mass", "vulnerable", "industrial", "other"],
+        size=n,
+        p=[0.55, 0.12, 0.06, 0.12, 0.15],
+    )
+    mass_occupancy = (use == "public_mass").astype(float)
+    vulnerable_occupancy = (use == "vulnerable").astype(float)
+    # Production fire-hazard category: only industrial objects carry one (А=5…Д=1),
+    # skewed toward the milder В/Г/Д categories.
+    hazard_draw = rng.choice([5, 4, 3, 2, 1], size=n, p=[0.07, 0.10, 0.28, 0.25, 0.30])
+    hazard_category = np.where(use == "industrial", hazard_draw, 0).astype(float)
+    # Gas supply: common in older residential stock, present in some public objects.
+    p_gas = np.select(
+        [use == "residential", use == "public_mass", use == "vulnerable"],
+        [np.where(year_built < 2000, 0.7, 0.45), 0.4, 0.35],
+        default=0.1,
+    )
+    has_gas = (rng.random(n) < p_gas).astype(float)
+
     df = pd.DataFrame(
         {
             "age_years": age_years,
@@ -85,6 +115,10 @@ def synthetic(n: int = N_SAMPLES, seed: int = SEED) -> tuple[pd.DataFrame, np.nd
             "winter_season": winter_season,
             "nearest_hydrant_m": nearest_hydrant_m,
             "capital_repair_recent": capital_repair_recent,
+            "mass_occupancy": mass_occupancy,
+            "vulnerable_occupancy": vulnerable_occupancy,
+            "hazard_category": hazard_category,
+            "has_gas": has_gas,
         }
     )[FEATURE_ORDER]
 
@@ -99,6 +133,10 @@ def synthetic(n: int = N_SAMPLES, seed: int = SEED) -> tuple[pd.DataFrame, np.nd
         + _GT["hydrant_excess"] * np.maximum(df.nearest_hydrant_m - 50, 0)
         + _GT["capital_repair_recent"] * df.capital_repair_recent
         + _GT["wooden_x_old"] * (df.wooden_floors * (df.age_years > 50))
+        + _GT["has_gas"] * df.has_gas
+        + _GT["hazard_category"] * df.hazard_category
+        + _GT["mass_occupancy"] * df.mass_occupancy
+        + _GT["vulnerable_occupancy"] * df.vulnerable_occupancy
     ).to_numpy()
 
     logit_base = np.log(_BASE_RATE / (1.0 - _BASE_RATE))

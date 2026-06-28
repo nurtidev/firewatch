@@ -28,6 +28,10 @@ def _contributions(f: BuildingFeatures) -> list[FeatureContribution]:
             "Гидрант рядом",
             -4.0 if f.nearest_hydrant_m <= 50 else (3.0 if f.nearest_hydrant_m > 150 else 0.0),
         ),
+        ("Газоснабжение", 8.0 if f.has_gas else 0.0),
+        ("Категория пож. опасности (А–Д)", f.hazard_category * 3.0),
+        ("Массовое пребывание людей", 7.0 if f.mass_occupancy else 0.0),
+        ("Маломобильные / дети / стационар", 10.0 if f.vulnerable_occupancy else 0.0),
     ]
     nonzero = [(name, round(val, 1)) for name, val in items if val != 0.0]
     nonzero.sort(key=lambda kv: abs(kv[1]), reverse=True)

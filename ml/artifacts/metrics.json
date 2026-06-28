@@ -1,98 +1,108 @@
 {
   "n": 1800,
-  "base_rate": 0.1767,
-  "roc_auc": 0.8351,
-  "pr_auc": 0.5654,
-  "brier_raw": 0.1076,
-  "brier_calibrated": 0.1076,
+  "base_rate": 0.1778,
+  "roc_auc": 0.8147,
+  "pr_auc": 0.535,
+  "brier_raw": 0.1117,
+  "brier_calibrated": 0.1118,
   "lift": [
     {
       "fraction": 0.05,
       "k": 90,
-      "precision": 0.7778,
-      "lift": 4.403,
-      "recall_captured": 0.2201
+      "precision": 0.7111,
+      "lift": 4.0,
+      "recall_captured": 0.2
     },
     {
       "fraction": 0.1,
       "k": 180,
-      "precision": 0.6333,
-      "lift": 3.585,
-      "recall_captured": 0.3585
+      "precision": 0.6222,
+      "lift": 3.5,
+      "recall_captured": 0.35
     },
     {
       "fraction": 0.2,
       "k": 360,
-      "precision": 0.5139,
-      "lift": 2.909,
-      "recall_captured": 0.5818
+      "precision": 0.5028,
+      "lift": 2.828,
+      "recall_captured": 0.5656
     }
   ],
   "calibration": [
     {
       "bin": "0.0–0.1",
-      "count": 936,
-      "mean_predicted": 0.0439,
-      "observed_frequency": 0.0417
+      "count": 961,
+      "mean_predicted": 0.0436,
+      "observed_frequency": 0.052
     },
     {
       "bin": "0.1–0.2",
-      "count": 347,
-      "mean_predicted": 0.1468,
-      "observed_frequency": 0.1499
+      "count": 352,
+      "mean_predicted": 0.1452,
+      "observed_frequency": 0.1705
     },
     {
       "bin": "0.2–0.3",
-      "count": 171,
-      "mean_predicted": 0.2424,
-      "observed_frequency": 0.2749
+      "count": 164,
+      "mean_predicted": 0.249,
+      "observed_frequency": 0.25
     },
     {
       "bin": "0.3–0.4",
-      "count": 107,
-      "mean_predicted": 0.3423,
-      "observed_frequency": 0.4206
+      "count": 92,
+      "mean_predicted": 0.3494,
+      "observed_frequency": 0.3152
     },
     {
       "bin": "0.4–0.5",
-      "count": 74,
-      "mean_predicted": 0.4483,
-      "observed_frequency": 0.3514
+      "count": 67,
+      "mean_predicted": 0.4441,
+      "observed_frequency": 0.5672
     },
     {
       "bin": "0.5–0.6",
-      "count": 69,
-      "mean_predicted": 0.5511,
-      "observed_frequency": 0.5072
+      "count": 63,
+      "mean_predicted": 0.5421,
+      "observed_frequency": 0.5397
     },
     {
       "bin": "0.6–0.7",
-      "count": 48,
-      "mean_predicted": 0.6394,
-      "observed_frequency": 0.7083
+      "count": 42,
+      "mean_predicted": 0.6435,
+      "observed_frequency": 0.5952
     },
     {
       "bin": "0.7–0.8",
-      "count": 37,
-      "mean_predicted": 0.7421,
-      "observed_frequency": 0.8108
+      "count": 33,
+      "mean_predicted": 0.7516,
+      "observed_frequency": 0.6364
     },
     {
       "bin": "0.8–0.9",
-      "count": 11,
-      "mean_predicted": 0.8275,
-      "observed_frequency": 0.9091
+      "count": 19,
+      "mean_predicted": 0.85,
+      "observed_frequency": 0.8421
+    },
+    {
+      "bin": "0.9–1.0",
+      "count": 7,
+      "mean_predicted": 0.9134,
+      "observed_frequency": 0.8571
     }
   ],
   "feature_importance_gain": {
-    "Деревянные перекрытия": 60.95,
-    "Возраст здания": 26.91,
-    "АПС/АУПТ": 26.32,
-    "Инциденты в радиусе 300 м (3 г.)": 15.16,
-    "Зимний период": 10.46,
-    "Капитальный ремонт (недавний)": 6.79,
-    "Плотность застройки квартала": 5.35,
-    "Расстояние до гидранта": 4.41,
-    "Этажность": 4.4
+    "Деревянные перекрытия": 53.2,
+    "АПС/АУПТ": 24.25,
+    "Возраст здания": 22.81,
+    "Инциденты в радиусе 300 м (3 г.)": 10.02,
+    "Зимний период": 7.82,
+    "Массовое пребывание людей": 5.95,
+    "Капитальный ремонт (недавний)": 5.82,
+    "Газоснабжение": 5.58,
+    "Плотность застройки квартала": 5.38,
+    "Этажность": 4.91,
+    "Маломобильные / дети / стационар": 4.66,
+    "Расстояние до гидранта": 4.16,
+    "Категория пож. опасности (А–Д)": 3.58
   }
 }

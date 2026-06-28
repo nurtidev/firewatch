@@ -41,6 +41,9 @@ def _load() -> tuple[xgb.Booster, dict] | None:
 
 
 _loaded = _load()
+# True when the trained XGBoost artifacts loaded; False means we silently fell
+# back to the heuristic — surfaced via /health so a misbuilt image is visible.
+MODEL_LOADED = _loaded is not None
 MODEL_VERSION = _loaded[1]["model_version"] if _loaded else heuristic.MODEL_VERSION
 
 
@@ -61,6 +64,15 @@ def _model_predict(booster: xgb.Booster, meta: dict, f: BuildingFeatures) -> Ris
     # the calibrated margin, then map log-odds -> probability points via the
     # delta method (dp ≈ p(1-p)·d(log-odds)).
     contribs = booster.predict(dm, pred_contribs=True)[0]
+    return RiskPrediction(
+        score=max(0, min(100, score)),
+        model_version=meta["model_version"],
+        explanation=_contributions_to_rows(meta, float(proba), contribs),
+    )
+
+
+def _contributions_to_rows(meta: dict, proba: float, contribs) -> list[FeatureContribution]:
+    a = meta["platt_a"]
     scale = a * proba * (1.0 - proba) * 100.0
     rows: list[FeatureContribution] = []
     for name, raw in zip(FEATURE_ORDER, contribs[:-1], strict=True):
@@ -68,17 +80,42 @@ def _model_predict(booster: xgb.Booster, meta: dict, f: BuildingFeatures) -> Ris
         if abs(pp) >= _MIN_CONTRIB_PP:
             rows.append(FeatureContribution(feature=FEATURE_LABELS.get(name, name), value=pp))
     rows.sort(key=lambda c: abs(c.value), reverse=True)
-    return RiskPrediction(
-        score=max(0, min(100, score)),
-        model_version=meta["model_version"],
-        explanation=rows[:_MAX_FACTORS],
-    )
+    return rows[:_MAX_FACTORS]
 
 
 def score(f: BuildingFeatures) -> RiskPrediction:
     if _loaded is None:
         return heuristic.score(f)
     return _model_predict(_loaded[0], _loaded[1], f)
+
+
+def score_batch(items: list[BuildingFeatures]) -> list[RiskPrediction]:
+    """Score many buildings in TWO booster calls (margins + TreeSHAP) instead of
+    2×N — the per-item loop dominated the daily 250k-building scoring job."""
+    if not items:
+        return []
+    if _loaded is None:
+        return [heuristic.score(f) for f in items]
+    booster, meta = _loaded
+    a, b = meta["platt_a"], meta["platt_b"]
+    matrix = np.array([to_vector(f) for f in items], dtype=float)
+    dm = xgb.DMatrix(matrix, feature_names=FEATURE_ORDER)
+
+    margins = booster.predict(dm, output_margin=True)
+    probas = _sigmoid(a * margins + b)
+    contribs = booster.predict(dm, pred_contribs=True)  # (N, n_features+1)
+
+    out: list[RiskPrediction] = []
+    for proba, contrib in zip(probas, contribs, strict=True):
+        score_i = max(0, min(100, int(round(float(proba) * 100))))
+        out.append(
+            RiskPrediction(
+                score=score_i,
+                model_version=meta["model_version"],
+                explanation=_contributions_to_rows(meta, float(proba), contrib),
+            )
+        )
+    return out
 
 
 def metrics() -> dict | None:

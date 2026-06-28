@@ -18,6 +18,10 @@ META_PATH = ARTIFACTS_DIR / "meta.json"
 METRICS_PATH = ARTIFACTS_DIR / "metrics.json"
 
 # Positional feature order. Booleans are encoded as 0/1.
+# NOTE: append new features ONLY at the end (the booster indexes positionally) and
+# retrain. The trailing four were added in the ДЧС domain pass: building function
+# (mass / vulnerable occupancy), production fire-hazard category, and gas supply —
+# the factors a fire inspector sorts objects by first.
 FEATURE_ORDER: list[str] = [
     "age_years",
     "floors",
@@ -28,6 +32,10 @@ FEATURE_ORDER: list[str] = [
     "winter_season",
     "nearest_hydrant_m",
     "capital_repair_recent",
+    "mass_occupancy",
+    "vulnerable_occupancy",
+    "hazard_category",
+    "has_gas",
 ]
 
 # Human-readable Russian labels for SHAP explanation rows shown in the UI.
@@ -41,6 +49,10 @@ FEATURE_LABELS: dict[str, str] = {
     "winter_season": "Зимний период",
     "nearest_hydrant_m": "Расстояние до гидранта",
     "capital_repair_recent": "Капитальный ремонт (недавний)",
+    "mass_occupancy": "Массовое пребывание людей",
+    "vulnerable_occupancy": "Маломобильные / дети / стационар",
+    "hazard_category": "Категория пож. опасности (А–Д)",
+    "has_gas": "Газоснабжение",
 }
 
 
@@ -56,5 +68,9 @@ def to_vector(f: BuildingFeatures) -> list[float]:
         "winter_season": 1.0 if f.winter_season else 0.0,
         "nearest_hydrant_m": float(f.nearest_hydrant_m),
         "capital_repair_recent": 1.0 if f.capital_repair_recent else 0.0,
+        "mass_occupancy": 1.0 if f.mass_occupancy else 0.0,
+        "vulnerable_occupancy": 1.0 if f.vulnerable_occupancy else 0.0,
+        "hazard_category": float(f.hazard_category),
+        "has_gas": 1.0 if f.has_gas else 0.0,
     }
     return [raw[name] for name in FEATURE_ORDER]

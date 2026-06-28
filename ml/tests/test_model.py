@@ -44,6 +44,17 @@ def test_to_vector_matches_feature_order():
     assert v[FEATURE_ORDER.index("has_fire_alarm")] == 0.0
 
 
+def test_domain_features_raise_risk():
+    """Vulnerable occupancy / gas / production hazard must not lower the score —
+    a kindergarten with gas should never read safer than an identical object
+    without those factors."""
+    base = BuildingFeatures(age_years=30, floors=5, block_density=0.5)
+    risky = base.model_copy(
+        update={"vulnerable_occupancy": True, "has_gas": True, "hazard_category": 4}
+    )
+    assert scorer.score(risky).score >= scorer.score(base).score
+
+
 def test_lift_at_rewards_good_ranking():
     y = np.array([0, 0, 0, 0, 0, 0, 0, 0, 1, 1])
     proba = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.9, 0.95])
