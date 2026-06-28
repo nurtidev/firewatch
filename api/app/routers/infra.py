@@ -43,7 +43,8 @@ def stations(db: Session = Depends(get_db)) -> dict:
 def hydrants(db: Session = Depends(get_db)) -> dict:
     rows = db.execute(
         text(
-            "SELECT status, last_check, ST_AsGeoJSON(geom) AS geom FROM hydrants"
+            "SELECT status, last_check, pressure_bar, diameter_mm, hydrant_type, "
+            "ST_AsGeoJSON(geom) AS geom FROM hydrants"
         )
     ).mappings().all()
     return _fc(
@@ -52,13 +53,24 @@ def hydrants(db: Session = Depends(get_db)) -> dict:
         lambda r: {
             "status": r["status"],
             "last_check": r["last_check"].isoformat() if r["last_check"] else None,
+            # Operational specs (NULL until the water-utility feed is wired) — let
+            # the dispatcher judge whether the hydrant sustains the required flow.
+            "pressure_bar": r["pressure_bar"],
+            "diameter_mm": r["diameter_mm"],
+            "hydrant_type": r["hydrant_type"],
         },
     )
 
 
 @router.get("/coverage")
 def coverage(db: Session = Depends(get_db)) -> dict:
-    """One buffered polygon per station ≈ 10-min reach."""
+    """One buffered polygon per station ≈ 10-min reach.
+
+    LIMITATION: straight-line geodesic buffer, NOT a road-network isochrone — it
+    ignores rivers (Есиль), railways and closed blocks, so it can over-state
+    coverage. Replace with OSRM/2GIS isochrones before relying on blind-zone
+    conclusions operationally. The response flags this via `approximate: true`.
+    """
     rows = db.execute(
         text(
             "SELECT name, "
@@ -67,7 +79,9 @@ def coverage(db: Session = Depends(get_db)) -> dict:
         ),
         {"r": settings.coverage_radius_m},
     ).mappings().all()
-    return _fc(rows, "geom", lambda r: {"name": r["name"]})
+    fc = _fc(rows, "geom", lambda r: {"name": r["name"]})
+    fc["approximate"] = True  # straight-line buffer, not a road isochrone
+    return fc
 
 
 @router.get("/blind-zones")
@@ -124,4 +138,7 @@ def stats(db: Session = Depends(get_db)) -> dict:
         "blind_pct": round(100.0 * row["blind"] / total, 1),
         "coverage_radius_m": settings.coverage_radius_m,
         "normative_min": settings.arrival_normative_min,
+        # Blind zones use a straight-line buffer, not road isochrones — treat as
+        # an upper bound on coverage (real reach is worse). See /coverage.
+        "approximate": True,
     }

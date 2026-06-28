@@ -1,4 +1,4 @@
-from pydantic import model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Insecure development defaults that must never reach production. If the process
@@ -12,9 +12,13 @@ _DEV_DB_URL = "postgresql+psycopg://firewatch:firewatch@db:5432/firewatch"
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    # App-specific config is namespaced under FW_ (the documented form); the bare
+    # name is also accepted for convenience. (Externally-owned vars like
+    # DATABASE_URL / ANTHROPIC_API_KEY / JWT_SECRET stay un-prefixed by design.)
+    #
     # Deployment environment. Set FW_ENV=production in the prod contour to enable
     # the safety checks below. Defaults to development for local work.
-    env: str = "development"
+    env: str = Field("development", validation_alias=AliasChoices("FW_ENV", "ENV"))
 
     database_url: str = _DEV_DB_URL
     anthropic_api_key: str = ""
@@ -24,15 +28,22 @@ class Settings(BaseSettings):
     jwt_secret: str = _DEV_JWT_SECRET
 
     # Comma-separated allowed web origins for CORS ("*" = any, dev only).
-    cors_origins: str = "*"
+    cors_origins: str = Field(
+        "*", validation_alias=AliasChoices("FW_CORS_ORIGINS", "CORS_ORIGINS")
+    )
 
     # Behind Cloudflare/reverse proxy: trust X-Forwarded-For for the real client
     # IP in the audit trail. Enable ONLY when a trusted proxy sets it (else it is
     # client-spoofable). Set FW_TRUST_PROXY_HEADERS=true in the prod contour.
-    trust_proxy_headers: bool = False
+    trust_proxy_headers: bool = Field(
+        False,
+        validation_alias=AliasChoices("FW_TRUST_PROXY_HEADERS", "TRUST_PROXY_HEADERS"),
+    )
 
     # Access-token lifetime. Short by default (gov-contour); was 7 days.
-    jwt_ttl_hours: int = 12
+    jwt_ttl_hours: int = Field(
+        12, validation_alias=AliasChoices("FW_JWT_TTL_HOURS", "JWT_TTL_HOURS")
+    )
 
     # Pilot bounding box (Astana). Used by the OSM import job.
     city_name: str = "Astana"
