@@ -12,7 +12,6 @@ from app.config import settings
 
 _ITER = 200_000
 _ALG = "HS256"
-TOKEN_TTL_DAYS = 7
 
 
 def hash_password(password: str) -> str:
@@ -38,7 +37,7 @@ def create_token(username: str, role: str, name: str, district: str | None = Non
         "role": role,
         "name": name,
         "district": district,
-        "exp": now + datetime.timedelta(days=TOKEN_TTL_DAYS),
+        "exp": now + datetime.timedelta(hours=settings.jwt_ttl_hours),
         "iat": now,
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=_ALG)

@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.audit import audit
+from app.audit import audit, client_ip
 from app.auth import create_token, decode_token, verify_password
 from app.db import get_db
 
@@ -32,7 +32,7 @@ def current_user(authorization: str | None = Header(default=None)) -> dict:
 
 @router.post("/login")
 def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)) -> dict:
-    ip = request.client.host if request.client else None
+    ip = client_ip(request)
     row = db.execute(
         text(
             "SELECT username, password_hash, name, role, district "

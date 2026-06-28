@@ -9,12 +9,29 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 from sqlalchemy import text
 
+from app.config import settings
 from app.db import engine
 
 log = logging.getLogger("firewatch.audit")
+
+
+def client_ip(request: Any) -> str | None:
+    """Real client IP for the audit trail.
+
+    Behind a trusted proxy (Cloudflare) the socket peer is the proxy, so the
+    real client is the leftmost entry of X-Forwarded-For. Only trusted when
+    FW_TRUST_PROXY_HEADERS is set — otherwise the header is client-spoofable and
+    we use the socket peer.
+    """
+    if settings.trust_proxy_headers:
+        fwd = request.headers.get("x-forwarded-for")
+        if fwd:
+            return fwd.split(",")[0].strip()
+    return request.client.host if request.client else None
 
 
 def audit(

@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.access import enforce_building_scope
+from app.access import enforce_building_scope, has_full_access
+from app.audit import audit, client_ip
 from app.db import get_db
 from app.routers.auth import current_user
 
@@ -20,10 +21,11 @@ TYPE_LABELS = {
 }
 
 
+# Risk-band SQL filters — kept in sync with lib/risk.ts scoreSeverity thresholds.
 RISK_BANDS = {
-    "low": "r.score <= 35",
-    "mid": "r.score BETWEEN 36 AND 70",
-    "high": "r.score > 70",
+    "low": "r.score < 20",
+    "mid": "r.score BETWEEN 20 AND 39",
+    "high": "r.score >= 40",
 }
 
 
@@ -113,14 +115,24 @@ def list_buildings(
 
 
 @router.get("/{building_id}")
-def building_detail(building_id: int, db: Session = Depends(get_db)) -> dict:
-    """Full operational card for one building: attributes, risk, SHAP factors."""
+def building_detail(
+    building_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(current_user),
+) -> dict:
+    """Full operational card for one building: attributes, risk, SHAP factors.
+
+    District-scoped: an inspector/supervisor can only open buildings in their own
+    district. Returns 404 (not 403) for out-of-scope objects so existence in
+    another district isn't leaked.
+    """
     row = db.execute(
         text(
             """
             SELECT
                 b.id, b.osm_id, b.address, b.building_type, b.osm_tag,
-                b.year_built, b.floors,
+                b.year_built, b.floors, b.district,
                 r.score, r.model_version, r.explanation, r.computed_at
             FROM buildings b
             LEFT JOIN risk_scores r ON r.building_id = b.id
@@ -132,6 +144,20 @@ def building_detail(building_id: int, db: Session = Depends(get_db)) -> dict:
 
     if row is None:
         raise HTTPException(status_code=404, detail="building not found")
+
+    if not has_full_access(user) and row["district"] != user.get("district"):
+        raise HTTPException(status_code=404, detail="building not found")
+
+    audit(
+        action="read.building",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="GET",
+        path=f"/buildings/{building_id}",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"building_id": building_id},
+    )
 
     return {
         "id": row["id"],

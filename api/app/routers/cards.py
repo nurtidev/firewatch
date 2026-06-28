@@ -1,17 +1,27 @@
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.audit import audit, client_ip
 from app.config import settings
 from app.db import get_db
 from app.extraction import extract_card
 from app.routers.auth import current_user
 
-router = APIRouter(prefix="/cards", tags=["cards"])
+# Router-level auth: every card endpoint — including GET /{id}/file, which
+# serves the original uploaded document with extracted ПДн (contacts, phones) —
+# requires a valid token. Without this, files were downloadable unauthenticated
+# by enumerating card_id. District-scoping is not yet possible: operational_cards
+# has no building/district FK (see _card_detail); add that link to scope per-role.
+router = APIRouter(
+    prefix="/cards",
+    tags=["cards"],
+    dependencies=[Depends(current_user)],
+)
 
 ALLOWED = {
     "application/pdf": ".pdf",
@@ -109,10 +119,24 @@ def list_cards(
 @router.get("/{card_id}")
 def get_card(
     card_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: dict = Depends(current_user),
 ) -> dict:
-    return _card_detail(card_id, db)
+    detail = _card_detail(card_id, db)
+    # Operational cards hold ПДн (contacts) — reads must be auditable, not just
+    # state changes (gov-contour requirement).
+    audit(
+        action="read.card",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="GET",
+        path=f"/cards/{card_id}",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"card_id": card_id},
+    )
+    return detail
 
 
 def _card_detail(card_id: int, db: Session) -> dict:
@@ -142,13 +166,28 @@ def _card_detail(card_id: int, db: Session) -> dict:
 
 
 @router.get("/{card_id}/file")
-def get_card_file(card_id: int, db: Session = Depends(get_db)) -> FileResponse:
+def get_card_file(
+    card_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(current_user),
+) -> FileResponse:
     row = db.execute(
         text("SELECT file_path, media_type FROM operational_cards WHERE id = :id"),
         {"id": card_id},
     ).mappings().first()
     if row is None or not Path(row["file_path"]).exists():
         raise HTTPException(404, "Файл не найден")
+    audit(
+        action="read.card_file",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="GET",
+        path=f"/cards/{card_id}/file",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"card_id": card_id},
+    )
     return FileResponse(row["file_path"], media_type=row["media_type"])
 
 

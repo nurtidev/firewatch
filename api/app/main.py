@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.audit import audit
+from app.audit import audit, client_ip
 from app.auth import decode_token
 from app.config import settings
 from app.routers import (
@@ -33,12 +33,17 @@ app.add_middleware(
 _MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 
 
+# Handlers that write their own richer audit entry (with body/SQL detail) — the
+# generic middleware skips them to avoid duplicate, less-informative rows.
+_AUDIT_SELF = {"/auth/login", "/chat"}
+
+
 @app.middleware("http")
 async def audit_mutations(request: Request, call_next):
-    """Audit every state-changing request. Login is audited in its handler
-    (it needs the request body), so it is skipped here to avoid duplicates."""
+    """Audit every state-changing request. Handlers in _AUDIT_SELF write their
+    own entries (they need the request body), so they are skipped here."""
     response = await call_next(request)
-    if request.method in _MUTATING and request.url.path != "/auth/login":
+    if request.method in _MUTATING and request.url.path not in _AUDIT_SELF:
         auth_header = request.headers.get("authorization", "")
         payload = (
             decode_token(auth_header.split(" ", 1)[1])
@@ -52,7 +57,7 @@ async def audit_mutations(request: Request, call_next):
             method=request.method,
             path=request.url.path,
             status_code=response.status_code,
-            ip=request.client.host if request.client else None,
+            ip=client_ip(request),
         )
     return response
 

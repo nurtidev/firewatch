@@ -11,10 +11,47 @@ import decimal
 import re
 
 import anthropic
+import sqlglot
+from sqlglot import exp
 from sqlalchemy import text
 
+from app.access import has_full_access
 from app.config import settings
 from app.db import engine
+
+# Tables the analyst may read. Deliberately excludes `users` (password hashes)
+# and `operational_cards` (extracted ПДн: contacts, phones). Enforced by parsing
+# the generated SQL — a whitelist at the query layer, not a regex blacklist.
+ALLOWED_TABLES = frozenset(
+    {
+        "buildings",
+        "risk_scores",
+        "incidents",
+        "fire_stations",
+        "hydrants",
+        "inspectors",
+        "prescriptions",
+    }
+)
+
+# Functions that read the filesystem, sleep (DoS), or reach config/system state.
+BANNED_FUNCS = frozenset(
+    {
+        "pg_sleep",
+        "pg_read_file",
+        "pg_read_binary_file",
+        "pg_ls_dir",
+        "pg_stat_file",
+        "lo_import",
+        "lo_export",
+        "dblink",
+        "dblink_exec",
+        "query_to_xml",
+        "current_setting",
+        "set_config",
+        "txid_current",
+    }
+)
 
 SCHEMA_DOC = """
 Таблицы (PostgreSQL + PostGIS). Не выбирай столбцы geom.
@@ -27,12 +64,11 @@ incidents(building_id -> buildings.id, occurred_at date, severity smallint)
 fire_stations(id, name, vehicles int)
 hydrants(id, status ['ok','broken'], last_check date)
 inspectors(id, name, district)
-operational_cards(id, extracted jsonb, created_at)
 prescriptions(id, card_id, issue, recommendation, deadline_days, severity)
 
 Подсказки:
 - Риск здания: buildings b JOIN risk_scores r ON r.building_id = b.id, поле r.score.
-- «Критический/высокий риск» = r.score > 70; «средний» = 36..70; «низкий» = 0..35.
+- «Критический» = r.score >= 60; «высокий» = 40..59; «средний» = 20..39; «низкий» = 0..19.
 - Текст ищи через ILIKE с '%...%'. Район хранится без слова «район» (напр. 'Сарыаркинский').
 - «построенные до 1990» = b.year_built < 1990.
 """
@@ -100,6 +136,31 @@ def validate_sql(sql: str) -> str:
         raise ChatError("Разрешены только SELECT-запросы")
     if BANNED.search(s):
         raise ChatError("Запрос содержит недопустимые конструкции")
+
+    # Parse and enforce a table whitelist — defence in depth beyond the regex.
+    # A syntactically valid SELECT can still read users/operational_cards; only
+    # an AST walk catches that reliably (unicode, comments, subqueries).
+    try:
+        statements = sqlglot.parse(s, read="postgres")
+    except Exception as err:  # noqa: BLE001 - any parse failure is a reject
+        raise ChatError("Не удалось разобрать запрос") from err
+    if len(statements) != 1 or statements[0] is None:
+        raise ChatError("Разрешён только один запрос")
+    stmt = statements[0]
+    if not isinstance(stmt, (exp.Select, exp.Union, exp.Subquery)):
+        raise ChatError("Разрешены только SELECT-запросы")
+
+    cte_names = {c.alias_or_name.lower() for c in stmt.find_all(exp.CTE)}
+    for table in stmt.find_all(exp.Table):
+        name = (table.name or "").lower()
+        if name in cte_names:
+            continue
+        if name not in ALLOWED_TABLES:
+            raise ChatError(f"Доступ к таблице '{name or '?'}' запрещён")
+    for fn in stmt.find_all(exp.Anonymous):
+        if (fn.name or "").lower() in BANNED_FUNCS:
+            raise ChatError("Запрос содержит недопустимую функцию")
+
     if not re.search(r"\blimit\b", low):
         s += " LIMIT 50"
     return s
@@ -149,7 +210,13 @@ def summarize(
     return "".join(b.text for b in msg.content if b.type == "text").strip()
 
 
-def ask(question: str) -> dict:
+def ask(question: str, user: dict) -> dict:
+    # The analyst issues free-form SELECTs across districts, so it is restricted
+    # to command roles (leadership/admin). Scoped roles (inspector/supervisor)
+    # must use the district-scoped building views, not free SQL — this closes
+    # the cross-district ПДн read without fragile per-query SQL rewriting.
+    if not has_full_access(user):
+        raise ChatError("ИИ-аналитик доступен только руководству (leadership/admin)")
     client = _client()
     gen = generate_sql(client, question)
     sql = validate_sql(gen["sql"])
