@@ -13,11 +13,23 @@ import {
   ScanLine,
   ChevronRight,
   Box,
+  Building2,
+  Layers,
+  Truck,
+  Droplets,
+  Calculator,
+  Phone,
+  Flame,
+  Timer,
+  Ruler,
+  Baby,
+  type LucideIcon,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 
 // Three.js touches WebGL/window — load client-side only.
 const Building3D = dynamic(() => import("@/components/Building3D"), { ssr: false });
+import FloorPlan2D from "@/components/FloorPlan2D";
 import { apiFetch, apiSrc } from "@/lib/auth";
 import { SEVERITY, type Severity } from "@/lib/risk";
 import {
@@ -29,6 +41,9 @@ import {
   StatusChip,
   Skeleton,
   EmptyState,
+  Tabs,
+  Collapsible,
+  type TabItem,
 } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
@@ -133,6 +148,7 @@ export default function CardsPage() {
   const [dragOver, setDragOver] = useState(false);
   const [selectedFilename, setSelectedFilename] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const autoOpened = useRef(false);
 
   const refreshList = () =>
     apiFetch(`/cards`)
@@ -146,6 +162,14 @@ export default function CardsPage() {
   useEffect(() => {
     refreshList();
   }, []);
+
+  // Auto-open when there's exactly one card — no empty landing, no extra click.
+  useEffect(() => {
+    if (autoOpened.current || card || list.length !== 1) return;
+    autoOpened.current = true;
+    openCard(list[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list, card]);
 
   async function upload() {
     const f = fileRef.current?.files?.[0];
@@ -193,6 +217,76 @@ export default function CardsPage() {
     }
   }
 
+  const uploadZone = (
+    <>
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        className={cn(
+          "relative flex flex-col items-center justify-center gap-3 rounded-md border-2 border-dashed py-10 transition-colors duration-[var(--dur-fast)]",
+          dragOver
+            ? "border-accent bg-accent-weak"
+            : "border-border hover:border-border-strong",
+        )}
+      >
+        <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-surface-2">
+          <Upload className="h-5 w-5 text-faint" />
+        </div>
+        <div className="text-center">
+          <p className="text-sm text-fg">
+            Перетащите файл сюда или{" "}
+            <label className="cursor-pointer text-accent underline-offset-2 hover:underline">
+              выберите вручную
+              <input
+                ref={fileRef}
+                type="file"
+                accept="application/pdf,image/png,image/jpeg"
+                className="sr-only"
+                onChange={handleFileChange}
+              />
+            </label>
+          </p>
+          <p className="mt-1 text-xs text-faint">PDF, PNG, JPEG — до 20 МБ</p>
+        </div>
+
+        {selectedFilename && (
+          <div className="flex items-center gap-2 rounded-md border border-border bg-surface-2 px-3 py-1.5">
+            {selectedFilename.endsWith(".pdf") ? (
+              <FileText className="h-4 w-4 text-info" />
+            ) : (
+              <ImageIcon className="h-4 w-4 text-info" />
+            )}
+            <span className="max-w-[260px] truncate text-sm text-fg">{selectedFilename}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <Button onClick={upload} disabled={uploading || !selectedFilename} className="gap-2">
+          {uploading ? (
+            <>
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent-fg/30 border-t-accent-fg" />
+              Обработка…
+            </>
+          ) : (
+            <>
+              <ScanLine className="h-4 w-4" />
+              Извлечь данные
+            </>
+          )}
+        </Button>
+
+        {error && (
+          <div className="flex items-center gap-2 rounded-md border border-critical/40 bg-critical-bg px-3 py-1.5">
+            <AlertOctagon className="h-4 w-4 shrink-0 text-critical" />
+            <span className="text-sm text-critical">{error}</span>
+          </div>
+        )}
+      </div>
+    </>
+  );
+
   return (
     <AppShell>
       <div className="mx-auto max-w-[1400px] p-5 sm:p-7 lg:p-8">
@@ -207,80 +301,25 @@ export default function CardsPage() {
           }
         />
 
-        {/* ── Upload zone ── */}
-        <Card className="mt-6 p-5">
-          <SectionLabel className="mb-4">Загрузить карточку</SectionLabel>
-
-          <div
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            className={cn(
-              "relative flex flex-col items-center justify-center gap-3 rounded-md border-2 border-dashed py-10 transition-colors duration-[var(--dur-fast)]",
-              dragOver
-                ? "border-accent bg-accent-weak"
-                : "border-border hover:border-border-strong",
-            )}
+        {/* ── Upload zone — folds away once a plan is on screen ── */}
+        {card ? (
+          <Collapsible
+            title={
+              <span className="inline-flex items-center gap-2">
+                <Upload className="h-4 w-4 text-faint" aria-hidden />
+                Загрузить новую карточку
+              </span>
+            }
+            className="mt-6"
           >
-            <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-surface-2">
-              <Upload className="h-5 w-5 text-faint" />
-            </div>
-            <div className="text-center">
-              <p className="text-sm text-fg">
-                Перетащите файл сюда или{" "}
-                <label className="cursor-pointer text-accent underline-offset-2 hover:underline">
-                  выберите вручную
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept="application/pdf,image/png,image/jpeg"
-                    className="sr-only"
-                    onChange={handleFileChange}
-                  />
-                </label>
-              </p>
-              <p className="mt-1 text-xs text-faint">PDF, PNG, JPEG — до 20 МБ</p>
-            </div>
-
-            {selectedFilename && (
-              <div className="flex items-center gap-2 rounded-md border border-border bg-surface-2 px-3 py-1.5">
-                {selectedFilename.endsWith(".pdf") ? (
-                  <FileText className="h-4 w-4 text-info" />
-                ) : (
-                  <ImageIcon className="h-4 w-4 text-info" />
-                )}
-                <span className="max-w-[260px] truncate text-sm text-fg">{selectedFilename}</span>
-              </div>
-            )}
-          </div>
-
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <Button
-              onClick={upload}
-              disabled={uploading || !selectedFilename}
-              className="gap-2"
-            >
-              {uploading ? (
-                <>
-                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent-fg/30 border-t-accent-fg" />
-                  Обработка…
-                </>
-              ) : (
-                <>
-                  <ScanLine className="h-4 w-4" />
-                  Извлечь данные
-                </>
-              )}
-            </Button>
-
-            {error && (
-              <div className="flex items-center gap-2 rounded-md border border-critical/40 bg-critical-bg px-3 py-1.5">
-                <AlertOctagon className="h-4 w-4 shrink-0 text-critical" />
-                <span className="text-sm text-critical">{error}</span>
-              </div>
-            )}
-          </div>
-        </Card>
+            {uploadZone}
+          </Collapsible>
+        ) : (
+          <Card className="mt-6 p-5">
+            <SectionLabel className="mb-4">Загрузить карточку</SectionLabel>
+            {uploadZone}
+          </Card>
+        )}
 
         {/* ── Result: structured ПТП (digital operational plan) ── */}
         {card && isStructured(card.extracted) && (
@@ -474,6 +513,11 @@ export default function CardsPage() {
 function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: string }) {
   const obj = ex.object ?? {};
   const resp = ex.response ?? {};
+  const contacts = (ex.contacts ?? []).filter((c) => c.role || c.name || c.phone);
+  const water = ex.water_sources ?? [];
+  const hasForce = !!ex.force_calc && Object.keys(ex.force_calc).length > 0;
+  const hasResponse = !!(resp.nearest_station || resp.route || resp.preassigned_rank);
+
   const floors = useMemo(
     () => (ex.floor_plans ?? []).filter((f) => (f.rooms?.length ?? 0) > 0),
     [ex],
@@ -485,32 +529,183 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
   const [floorIdx, setFloorIdx] = useState(0);
   const floor = floors[floorIdx];
 
+  // Surface a tab only when it carries content — no empty sections.
+  const tabs: TabItem[] = (
+    [
+      { id: "overview", label: "Обзор", icon: Building2 },
+      floors.length > 0 && {
+        id: "floors", label: "Этажи и 3D", icon: Layers, count: floors.length,
+      },
+      hasResponse && { id: "response", label: "Реагирование", icon: Truck },
+      water.length > 0 && {
+        id: "water", label: "Водоисточники", icon: Droplets, count: water.length,
+      },
+      hasForce && { id: "force", label: "Расчёт сил", icon: Calculator },
+      contacts.length > 0 && {
+        id: "contacts", label: "Контакты", icon: Phone, count: contacts.length,
+      },
+    ] as (TabItem | false)[]
+  ).filter(Boolean) as TabItem[];
+
+  // Default to the 3D/floors view — the tangible hero of the plan.
+  const [tab, setTab] = useState(floors.length > 0 ? "floors" : "overview");
+
   return (
     <div className="mt-6 space-y-5 fw-fade-in">
-      {/* Object summary */}
-      <Card className="p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <SectionLabel>Оперативный план (ПТП)</SectionLabel>
-            <h2 className="mt-1 text-lg font-semibold leading-snug text-fg">
-              {obj.name ?? filename}
-            </h2>
-            {obj.address && <p className="mt-1 text-sm text-muted">{obj.address}</p>}
+      {/* Summary header — the at-a-glance answer for the duty officer */}
+      <Card className="overflow-hidden p-0">
+        <div className="p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <SectionLabel>Оперативный план тушения (ПТП)</SectionLabel>
+              <h2 className="mt-1 text-xl font-semibold leading-snug text-fg">
+                {obj.name ?? filename}
+              </h2>
+              {obj.address && <p className="mt-1 text-sm text-muted">{obj.address}</p>}
+            </div>
+            <FileText className="h-5 w-5 shrink-0 text-faint" aria-hidden />
           </div>
-          <FileText className="h-5 w-5 shrink-0 text-faint" />
+          {(obj.has_kindergarten || obj.category || obj.fire_resistance_degree) && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {obj.has_kindergarten && (
+                <StatusChip
+                  severity={SEVERITY.critical}
+                  icon={false}
+                  label={
+                    <span className="inline-flex items-center gap-1">
+                      <Baby className="h-3.5 w-3.5" aria-hidden />
+                      Детский сад в составе
+                    </span>
+                  }
+                />
+              )}
+              {obj.category && <Badge>{obj.category}</Badge>}
+              {obj.fire_resistance_degree && <Badge>{obj.fire_resistance_degree}</Badge>}
+            </div>
+          )}
         </div>
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {obj.category && <Badge>{obj.category}</Badge>}
-          {obj.fire_resistance_degree && <Badge>{obj.fire_resistance_degree}</Badge>}
-          {obj.total_area_ha != null && <Badge>{obj.total_area_ha} га</Badge>}
-          {obj.has_kindergarten && <Badge tone="accent">Детский сад в составе</Badge>}
-          {obj.occupancy && <Badge>{obj.occupancy}</Badge>}
+        <div className="grid grid-cols-2 divide-x divide-border border-t border-border sm:grid-cols-4">
+          <SummaryStat icon={Flame} label="Ранг пожара" value={resp.preassigned_rank ?? "—"} accent />
+          <SummaryStat
+            icon={Timer}
+            label="Прибытие"
+            value={resp.arrival_min != null ? String(resp.arrival_min) : "—"}
+            unit={resp.arrival_min != null ? "мин" : undefined}
+          />
+          <SummaryStat icon={Layers} label="Этажей · экспл." value={floors.length > 0 ? String(floors.length) : "—"} />
+          <SummaryStat
+            icon={Ruler}
+            label="Площадь"
+            value={obj.total_area_ha != null ? String(obj.total_area_ha) : "—"}
+            unit={obj.total_area_ha != null ? "га" : undefined}
+          />
         </div>
       </Card>
 
-      <div className="grid gap-5 lg:grid-cols-2">
-        {/* Response */}
-        <Card className="p-5">
+      <Tabs tabs={tabs} active={tab} onChange={setTab} />
+
+      {/* ── Обзор ── */}
+      {tab === "overview" && (
+        <div className="grid gap-5 fw-fade-in lg:grid-cols-2">
+          <Card className="p-5">
+            <SectionLabel className="mb-3">Характеристика объекта</SectionLabel>
+            <dl className="space-y-2 text-sm">
+              <Row label="Категория" value={obj.category} />
+              <Row label="Степень огнестойкости" value={obj.fire_resistance_degree} />
+              <Row
+                label="Общая площадь"
+                value={obj.total_area_ha != null ? `${obj.total_area_ha} га` : null}
+              />
+              <Row label="Назначение" value={obj.occupancy} />
+            </dl>
+          </Card>
+          {(obj.blocks?.length ?? 0) > 0 && (
+            <Card className="p-5">
+              <SectionLabel className="mb-3">Блоки / этажность</SectionLabel>
+              <ul className="space-y-2 text-sm">
+                {obj.blocks!.map((b, i) => (
+                  <li key={i} className="flex gap-3">
+                    <span className="w-9 shrink-0 font-semibold tabular text-fg">{b.id}</span>
+                    <span className="min-w-0 break-words text-muted">
+                      {[b.floors, b.notes].filter(Boolean).join(" · ")}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* ── Этажи и 3D ── */}
+      {tab === "floors" && floors.length > 0 && (
+        <div className="space-y-5 fw-fade-in">
+          <Card className="p-5">
+            <div className="flex items-center gap-2">
+              <Box className="h-3.5 w-3.5 text-faint" aria-hidden />
+              <SectionLabel>3D-модель объекта</SectionLabel>
+            </div>
+            <p className="mt-1 text-xs text-muted">
+              Этажи по экспликации. Вращайте мышью, колесо — зум, клик по этажу —
+              показать его помещения ниже.
+            </p>
+            <div className="mt-3 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
+              <Building3D
+                floors={floors3d}
+                selected={floorIdx}
+                onSelect={setFloorIdx}
+                className="h-[360px] w-full rounded-lg border border-border bg-surface-2/40"
+              />
+              <div className="text-sm">
+                <div className="text-faint">Выбран этаж</div>
+                <div className="mt-0.5 text-lg font-semibold text-fg">{floor?.floor ?? "—"}</div>
+                <div className="mt-1 text-xs text-muted">{floor?.rooms?.length ?? 0} помещений</div>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <SectionLabel>План этажа · экспликация</SectionLabel>
+              <span className="text-2xs text-faint">
+                Схематическая планировка по площадям — не архитектурный чертёж
+              </span>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {floors.map((f, i) => (
+                <button
+                  key={i}
+                  onClick={() => setFloorIdx(i)}
+                  className={cn(
+                    "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors duration-[var(--dur-fast)]",
+                    i === floorIdx
+                      ? "border-accent/40 bg-accent-weak text-accent"
+                      : "border-border bg-surface-2 text-muted hover:text-fg",
+                  )}
+                >
+                  {f.floor ?? `Этаж ${i + 1}`}
+                </button>
+              ))}
+            </div>
+            {floor && (
+              <>
+                <FloorPlan2D key={floorIdx} rooms={floor.rooms ?? []} className="mt-4" />
+                <details className="mt-4 group">
+                  <summary className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-muted transition-colors hover:text-fg">
+                    <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" aria-hidden />
+                    Таблица помещений ({floor.rooms?.length ?? 0})
+                  </summary>
+                  <FloorTable floor={floor} />
+                </details>
+              </>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {/* ── Реагирование ── */}
+      {tab === "response" && (
+        <Card className="p-5 fw-fade-in">
           <SectionLabel className="mb-3">Реагирование</SectionLabel>
           <dl className="space-y-2 text-sm">
             <Row label="Ближайшая ПЧ" value={resp.nearest_station} />
@@ -525,109 +720,19 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
             <Row label="Ранг пожара" value={resp.preassigned_rank} />
           </dl>
         </Card>
-
-        {/* Blocks */}
-        {(obj.blocks?.length ?? 0) > 0 && (
-          <Card className="p-5">
-            <SectionLabel className="mb-3">Блоки / этажность</SectionLabel>
-            <ul className="space-y-1.5 text-sm">
-              {obj.blocks!.map((b, i) => (
-                <li key={i} className="flex gap-3">
-                  <span className="w-10 shrink-0 font-medium text-fg">{b.id}</span>
-                  <span className="text-muted">
-                    {[b.floors, b.notes].filter(Boolean).join(" · ")}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        )}
-      </div>
-
-      {/* 3D model — procedural massing, click a floor to inspect it */}
-      {floors.length > 0 && (
-        <Card className="p-5">
-          <div className="flex items-center gap-2">
-            <Box className="h-3.5 w-3.5 text-faint" aria-hidden />
-            <SectionLabel>3D-модель объекта</SectionLabel>
-          </div>
-          <p className="mt-1 text-xs text-muted">
-            Этажи по экспликации. Вращайте мышью, колесо — зум, клик по этажу —
-            показать его помещения ниже.
-          </p>
-          <div className="mt-3 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
-            <Building3D
-              floors={floors3d}
-              selected={floorIdx}
-              onSelect={setFloorIdx}
-              className="h-[360px] w-full rounded-lg border border-border bg-surface-2/40"
-            />
-            <div className="text-sm">
-              <div className="text-faint">Выбран этаж</div>
-              <div className="mt-0.5 text-lg font-semibold text-fg">
-                {floor?.floor ?? "—"}
-              </div>
-              <div className="mt-1 text-xs text-muted">
-                {floor?.rooms?.length ?? 0} помещений
-              </div>
-            </div>
-          </div>
-        </Card>
       )}
 
-      {/* Floor plan / экспликация — the building plan content */}
-      {floors.length > 0 && (
-        <Card className="p-5">
-          <SectionLabel className="mb-3">План объекта · поэтажная экспликация</SectionLabel>
-          <div className="flex flex-wrap gap-1.5">
-            {floors.map((f, i) => (
-              <button
-                key={i}
-                onClick={() => setFloorIdx(i)}
-                className={cn(
-                  "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
-                  i === floorIdx
-                    ? "border-accent/40 bg-accent-weak text-accent"
-                    : "border-border bg-surface-2 text-muted hover:text-fg",
-                )}
-              >
-                {f.floor ?? `Этаж ${i + 1}`}
-              </button>
-            ))}
-          </div>
-          {floor && (
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-2xs uppercase tracking-wider text-faint">
-                    <th className="py-2 pr-3 font-medium">Помещение</th>
-                    <th className="py-2 pr-3 font-medium">Тип</th>
-                    <th className="py-2 text-right font-medium">Площадь, м²</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {floor.rooms!.map((r, i) => (
-                    <tr key={i} className="border-b border-border/60 last:border-0">
-                      <td className="py-1.5 pr-3 text-fg">{r.name ?? "—"}</td>
-                      <td className="py-1.5 pr-3 text-muted">{r.type ?? ""}</td>
-                      <td className="py-1.5 text-right tabular text-muted">{r.area_m2 ?? ""}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* Water sources */}
-      {(ex.water_sources?.length ?? 0) > 0 && (
-        <Card className="p-5">
+      {/* ── Водоисточники ── */}
+      {tab === "water" && (
+        <Card className="p-5 fw-fade-in">
           <SectionLabel className="mb-3">Водоисточники</SectionLabel>
-          <ul className="space-y-1.5 text-sm">
-            {ex.water_sources!.map((w, i) => (
-              <li key={i} className="flex items-baseline justify-between gap-3">
-                <span className="text-fg">
+          <ul className="divide-y divide-border/60 text-sm">
+            {water.map((w, i) => (
+              <li
+                key={i}
+                className="flex items-baseline justify-between gap-3 py-2 first:pt-0 last:pb-0"
+              >
+                <span className="min-w-0 break-words text-fg">
                   {w.type}
                   {w.note && <span className="text-faint"> · {w.note}</span>}
                 </span>
@@ -640,23 +745,192 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
         </Card>
       )}
 
-      {/* Force calc */}
-      {ex.force_calc && Object.keys(ex.force_calc).length > 0 && (
-        <Card className="p-5">
-          <SectionLabel className="mb-3">Расчёт сил и средств</SectionLabel>
-          <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
-            {Object.entries(ex.force_calc).map(([k, v]) => (
-              <div key={k} className="flex gap-3 text-sm">
-                <dt className="min-w-0 flex-1 text-faint">{k}</dt>
-                <dd className="shrink-0 text-fg">
-                  {typeof v === "object" ? JSON.stringify(v) : String(v)}
-                </dd>
-              </div>
+      {/* ── Расчёт сил и средств ── */}
+      {tab === "force" && ex.force_calc && <ForceCalcView fc={ex.force_calc} />}
+
+      {/* ── Контакты ── */}
+      {tab === "contacts" && (
+        <Card className="p-5 fw-fade-in">
+          <SectionLabel className="mb-3">Контакты и ответственные</SectionLabel>
+          <ul className="divide-y divide-border/60">
+            {contacts.map((c, i) => (
+              <li
+                key={i}
+                className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2.5 first:pt-0 last:pb-0"
+              >
+                <div className="min-w-0">
+                  <div className="break-words text-sm text-fg">{c.name || c.role}</div>
+                  {c.name && c.role && <div className="text-xs text-faint">{c.role}</div>}
+                </div>
+                {c.phone && (
+                  <a
+                    href={`tel:${c.phone.replace(/[^\d+]/g, "")}`}
+                    className="inline-flex shrink-0 items-center gap-1.5 text-sm text-accent hover:underline"
+                  >
+                    <Phone className="h-3.5 w-3.5" aria-hidden />
+                    {c.phone}
+                  </a>
+                )}
+              </li>
             ))}
-          </dl>
+          </ul>
         </Card>
       )}
     </div>
+  );
+}
+
+/** A single metric in the summary header strip. */
+function SummaryStat({
+  icon: Icon,
+  label,
+  value,
+  unit,
+  accent,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  unit?: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className="px-4 py-3">
+      <div className="flex items-center gap-1.5 text-2xs uppercase tracking-wider text-faint">
+        <Icon className="h-3.5 w-3.5" aria-hidden />
+        <span className="truncate">{label}</span>
+      </div>
+      <div className="mt-1 flex items-baseline gap-1">
+        <span
+          className={cn(
+            "text-xl font-semibold leading-none tabular",
+            accent ? "text-accent" : "text-fg",
+          )}
+        >
+          {value}
+        </span>
+        {unit && <span className="text-xs text-muted">{unit}</span>}
+      </div>
+    </div>
+  );
+}
+
+/** Floor explication table — rooms with type + area. */
+function FloorTable({ floor }: { floor: FloorPlan }) {
+  return (
+    <div className="mt-4 overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border text-left text-2xs uppercase tracking-wider text-faint">
+            <th className="py-2 pr-3 font-medium">Помещение</th>
+            <th className="py-2 pr-3 font-medium">Тип</th>
+            <th className="py-2 text-right font-medium">Площадь, м²</th>
+          </tr>
+        </thead>
+        <tbody>
+          {floor.rooms!.map((r, i) => (
+            <tr key={i} className="border-b border-border/60 last:border-0">
+              <td className="py-1.5 pr-3 text-fg">{r.name ?? "—"}</td>
+              <td className="py-1.5 pr-3 text-muted">{r.type ?? ""}</td>
+              <td className="py-1.5 text-right tabular text-muted">{r.area_m2 ?? ""}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ─── Force calculation (Расчёт сил и средств) ───────────────────────────── */
+
+// snake_case → human label (+ unit for numeric metrics). Order = display order.
+const FORCE_FIELDS: Record<string, { label: string; unit?: string; num?: boolean }> = {
+  T_svobodnogo_razvitiya_min: { label: "Своб. развитие пожара", unit: "мин", num: true },
+  T_sledovaniya_min: { label: "Время следования", unit: "мин", num: true },
+  L_sv_m: { label: "Путь огня Lсв", unit: "м", num: true },
+  S_pozhara_m2: { label: "Площадь пожара", unit: "м²", num: true },
+  S_tusheniya_m2: { label: "Площадь тушения", unit: "м²", num: true },
+  intensivnost_l_s_m2: { label: "Интенсивность", unit: "л/с·м²", num: true },
+  Qtr_tushenie_l_s: { label: "Qтр на тушение", unit: "л/с", num: true },
+  Qtr_zashchita_l_s: { label: "Qтр на защиту", unit: "л/с", num: true },
+  Qtr_total_l_s: { label: "Qтр общий", unit: "л/с", num: true },
+  Qf_fakticheskiy_l_s: { label: "Qф фактический", unit: "л/с", num: true },
+  scenario: { label: "Сценарий" },
+  T_components: { label: "Слагаемые времени" },
+  stvoly: { label: "Стволы" },
+  pozharnyh_mashin: { label: "Пожарные машины" },
+  lichnyy_sostav: { label: "Личный состав" },
+  otdeleniy: { label: "Отделений" },
+  privlekaemye_sily: { label: "Привлекаемые силы" },
+  source: { label: "Источник" },
+  note_2020: { label: "Примечание (ред. 2020)" },
+};
+
+// force_calc keys whose values are long provenance text — folded by default.
+const FORCE_SECONDARY = new Set(["source", "note_2020"]);
+
+function ForceCalcView({ fc }: { fc: Record<string, unknown> }) {
+  const meta = (k: string) => FORCE_FIELDS[k] ?? { label: k.replace(/_/g, " ") };
+  const entries = Object.entries(fc).filter(([, v]) => v != null && v !== "");
+  const order = Object.keys(FORCE_FIELDS);
+  const sortKey = (k: string) => {
+    const i = order.indexOf(k);
+    return i === -1 ? order.length : i;
+  };
+  const isNum = ([k, v]: [string, unknown]) =>
+    FORCE_FIELDS[k]?.num === true || (!FORCE_FIELDS[k] && typeof v === "number");
+  const nums = entries.filter(isNum).sort(([a], [b]) => sortKey(a) - sortKey(b));
+  const texts = entries.filter((e) => !isNum(e)).sort(([a], [b]) => sortKey(a) - sortKey(b));
+  // Long provenance notes fold away by default — keep the calc readable.
+  const primary = texts.filter(([k]) => !FORCE_SECONDARY.has(k));
+  const secondary = texts.filter(([k]) => FORCE_SECONDARY.has(k));
+
+  const asText = (v: unknown) => (typeof v === "object" ? JSON.stringify(v) : String(v));
+
+  return (
+    <Card className="p-5 fw-fade-in">
+      <SectionLabel className="mb-3">Расчёт сил и средств</SectionLabel>
+
+      {nums.length > 0 && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          {nums.map(([k, v]) => (
+            <div key={k} className="rounded-lg border border-border bg-surface-2 px-3 py-2.5">
+              <div className="text-2xs uppercase tracking-wider text-faint">{meta(k).label}</div>
+              <div className="mt-1 text-lg font-semibold tabular text-fg">
+                {String(v)}
+                {meta(k).unit && (
+                  <span className="ml-1 text-xs font-normal text-muted">{meta(k).unit}</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {primary.length > 0 && (
+        <dl className="mt-4 space-y-2.5">
+          {primary.map(([k, v]) => (
+            <div key={k} className="grid gap-0.5 sm:grid-cols-[180px_1fr] sm:gap-4">
+              <dt className="text-sm text-faint">{meta(k).label}</dt>
+              <dd className="min-w-0 break-words text-sm text-fg">{asText(v)}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      {secondary.length > 0 && (
+        <Collapsible title="Источник и примечания" className="mt-4">
+          <dl className="space-y-2.5">
+            {secondary.map(([k, v]) => (
+              <div key={k} className="grid gap-0.5 sm:grid-cols-[180px_1fr] sm:gap-4">
+                <dt className="text-sm text-faint">{meta(k).label}</dt>
+                <dd className="min-w-0 break-words text-sm text-fg">{asText(v)}</dd>
+              </div>
+            ))}
+          </dl>
+        </Collapsible>
+      )}
+    </Card>
   );
 }
 

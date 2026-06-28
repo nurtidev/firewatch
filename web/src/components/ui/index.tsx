@@ -7,6 +7,7 @@ import {
   AlertCircle,
   ShieldCheck,
   Info,
+  ChevronDown,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -442,6 +443,130 @@ export function EmptyState({
         <div className="mt-1 max-w-sm text-xs text-muted">{description}</div>
       )}
       {action && <div className="mt-4">{action}</div>}
+    </div>
+  );
+}
+
+/* ============================== Tabs ============================== */
+
+export type TabItem = {
+  id: string;
+  label: React.ReactNode;
+  icon?: LucideIcon;
+  /** optional count chip (info scent — how much is behind the tab) */
+  count?: number;
+};
+
+/**
+ * Segmented tab bar — keyboard-navigable (←/→/Home/End), roving tabindex.
+ * Controlled: parent owns `active` and conditionally renders the matching panel.
+ */
+export function Tabs({
+  tabs,
+  active,
+  onChange,
+  className,
+}: {
+  tabs: TabItem[];
+  active: string;
+  onChange: (id: string) => void;
+  className?: string;
+}) {
+  const onKey = (e: React.KeyboardEvent) => {
+    const i = tabs.findIndex((t) => t.id === active);
+    if (i < 0) return;
+    let next = i;
+    if (e.key === "ArrowRight") next = (i + 1) % tabs.length;
+    else if (e.key === "ArrowLeft") next = (i - 1 + tabs.length) % tabs.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = tabs.length - 1;
+    else return;
+    e.preventDefault();
+    onChange(tabs[next].id);
+  };
+  return (
+    <div
+      role="tablist"
+      aria-orientation="horizontal"
+      onKeyDown={onKey}
+      className={cn(
+        "flex flex-wrap gap-1 rounded-lg border border-border bg-surface p-1",
+        className,
+      )}
+    >
+      {tabs.map((t) => {
+        const selected = t.id === active;
+        const Icon = t.icon;
+        return (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={selected}
+            tabIndex={selected ? 0 : -1}
+            onClick={() => onChange(t.id)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-[var(--dur-fast)]",
+              selected
+                ? "bg-surface-3 text-fg shadow-card"
+                : "text-muted hover:bg-surface-2 hover:text-fg",
+            )}
+          >
+            {Icon && <Icon className="h-3.5 w-3.5" aria-hidden />}
+            {t.label}
+            {t.count != null && (
+              <span
+                className={cn(
+                  "ml-0.5 rounded px-1 text-2xs tabular",
+                  selected ? "bg-surface-2 text-muted" : "text-faint",
+                )}
+              >
+                {t.count}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ============================== Collapsible ============================== */
+
+/** Disclosure for long, secondary content (source notes, provenance). */
+export function Collapsible({
+  title,
+  children,
+  defaultOpen = false,
+  className,
+}: {
+  title: React.ReactNode;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+  className?: string;
+}) {
+  const [open, setOpen] = React.useState(defaultOpen);
+  return (
+    <div className={cn("rounded-lg border border-border bg-surface-2", className)}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left text-sm font-medium text-fg transition-colors duration-[var(--dur-fast)] hover:bg-surface-3 rounded-lg"
+      >
+        <span className="min-w-0">{title}</span>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 shrink-0 text-faint transition-transform duration-[var(--dur-fast)]",
+            open && "rotate-180",
+          )}
+          aria-hidden
+        />
+      </button>
+      {open && (
+        <div className="border-t border-border px-3.5 py-3 text-sm leading-relaxed text-muted">
+          {children}
+        </div>
+      )}
     </div>
   );
 }
