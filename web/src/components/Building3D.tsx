@@ -40,8 +40,12 @@ export default function Building3D({
     const scene = new THREE.Scene();
     const totalH = floors.length * (FLOOR_H + GAP);
 
+    // Frame the whole stack regardless of floor count: pull the camera back far
+    // enough that a tall tower (цоколь→тех, ~19 floors) fits in the 45° fov,
+    // while short stacks stay governed by the footprint.
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
-    camera.position.set(W * 2.4, totalH * 0.7 + 6, W * 2.4);
+    const orbitDist = Math.max(W * 2.4, totalH * 0.95);
+    camera.position.set(orbitDist, totalH * 0.55, orbitDist);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -77,7 +81,7 @@ export default function Building3D({
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.target.set(0, totalH * 0.45, 0);
+    controls.target.set(0, totalH * 0.5, 0);
     controls.maxPolarAngle = Math.PI / 2 - 0.02; // don't go under ground
 
     // Click → select floor.
@@ -103,7 +107,11 @@ export default function Building3D({
     const resize = () => {
       const w = el.clientWidth || 1;
       const h = el.clientHeight || 1;
-      renderer.setSize(w, h, false);
+      // updateStyle MUST stay true: on HiDPI/Retina (devicePixelRatio = 2) the
+      // canvas needs an explicit CSS size, otherwise its layout width = the
+      // device-pixel buffer width, which feeds back through the grid and blows
+      // the canvas up to millions of px — the model renders off-screen (blank).
+      renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
     };
