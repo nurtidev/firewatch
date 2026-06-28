@@ -1,8 +1,11 @@
+import datetime
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.access import has_full_access
 from app.audit import audit, client_ip
 from app.auth import create_token, decode_token, verify_password
 from app.db import get_db
@@ -15,13 +18,40 @@ class LoginRequest(BaseModel):
     password: str
 
 
-def current_user(authorization: str | None = Header(default=None)) -> dict:
-    """Decode the Bearer token; raise 401 if missing/invalid."""
+class RevokeRequest(BaseModel):
+    username: str
+
+
+def current_user(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Decode the Bearer token; raise 401 if missing/invalid/revoked.
+
+    Beyond signature/expiry, the user must still exist and the token must have
+    been issued at or after the user's sessions_revoked_at — that timestamp is
+    how an admin (or the user) forcibly terminates all active sessions.
+    """
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(401, "Требуется авторизация")
     payload = decode_token(authorization.split(" ", 1)[1])
     if payload is None:
         raise HTTPException(401, "Недействительный токен")
+
+    row = db.execute(
+        text("SELECT sessions_revoked_at FROM users WHERE username = :u"),
+        {"u": payload["sub"]},
+    ).mappings().first()
+    if row is None:
+        raise HTTPException(401, "Недействительный токен")
+    revoked_at = row["sessions_revoked_at"]
+    if revoked_at is not None:
+        iat = datetime.datetime.fromtimestamp(
+            payload["iat"], tz=datetime.timezone.utc
+        )
+        if iat < revoked_at:
+            raise HTTPException(401, "Сессия завершена, требуется повторный вход")
+
     return {
         "username": payload["sub"],
         "role": payload["role"],
@@ -65,3 +95,56 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)) -
 @router.get("/me")
 def me(user: dict = Depends(current_user)) -> dict:
     return user
+
+
+def _revoke_sessions(db: Session, username: str) -> bool:
+    """Stamp sessions_revoked_at = now() for a user. Returns False if no such user."""
+    res = db.execute(
+        text("UPDATE users SET sessions_revoked_at = now() WHERE username = :u"),
+        {"u": username},
+    )
+    db.commit()
+    return res.rowcount > 0
+
+
+@router.post("/revoke")
+def revoke_sessions(
+    body: RevokeRequest,
+    request: Request,
+    user: dict = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Принудительно завершить все сессии пользователя.
+
+    Администратор/руководство может завершить сессии любого пользователя; любой
+    пользователь может завершить только свои собственные сессии.
+    """
+    target = body.username
+    if target != user["username"] and not has_full_access(user):
+        raise HTTPException(403, "Недостаточно прав для завершения чужих сессий")
+
+    if not _revoke_sessions(db, target):
+        raise HTTPException(404, "Пользователь не найден")
+
+    audit(
+        action="auth.revoke", username=user["username"], role=user["role"],
+        method="POST", path="/auth/revoke", status_code=200,
+        ip=client_ip(request), detail={"target": target},
+    )
+    return {"ok": True, "revoked": target}
+
+
+@router.post("/logout")
+def logout(
+    request: Request,
+    user: dict = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Завершить все собственные сессии вызывающего (logout на всех устройствах)."""
+    _revoke_sessions(db, user["username"])
+    audit(
+        action="auth.revoke", username=user["username"], role=user["role"],
+        method="POST", path="/auth/logout", status_code=200,
+        ip=client_ip(request), detail={"target": user["username"]},
+    )
+    return {"ok": True, "revoked": user["username"]}
