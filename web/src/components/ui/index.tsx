@@ -146,6 +146,53 @@ export function ScoreBadge({
   );
 }
 
+/* ============================== Banner ============================== */
+
+type BannerTone = "warning" | "info" | "critical";
+
+const BANNER_TONE: Record<BannerTone, { sev: SeverityMeta; icon: LucideIcon }> = {
+  warning: { sev: SEVERITY.elevated, icon: AlertTriangle },
+  info: { sev: SEVERITY.info, icon: Info },
+  critical: { sev: SEVERITY.critical, icon: AlertOctagon },
+};
+
+/** Inline callout for context-wide notices (e.g. demo data, degraded mode). */
+export function Banner({
+  tone = "warning",
+  title,
+  children,
+  icon,
+  className,
+}: {
+  tone?: BannerTone;
+  title?: React.ReactNode;
+  children?: React.ReactNode;
+  icon?: LucideIcon;
+  className?: string;
+}) {
+  const { sev, icon: ToneIcon } = BANNER_TONE[tone];
+  const Icon = icon ?? ToneIcon;
+  return (
+    <div
+      role="note"
+      className={cn(
+        "flex items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-xs",
+        sev.bg,
+        sev.border,
+        className,
+      )}
+    >
+      <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", sev.text)} aria-hidden />
+      <div className="min-w-0">
+        {title && <div className={cn("font-semibold", sev.text)}>{title}</div>}
+        {children && (
+          <div className={cn("text-muted", Boolean(title) && "mt-0.5")}>{children}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ============================== Badge ============================== */
 
 export function Badge({

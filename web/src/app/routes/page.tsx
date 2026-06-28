@@ -10,6 +10,7 @@ import {
   AlertOctagon,
   CalendarDays,
   User,
+  Camera,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch, useAuth } from "@/lib/auth";
@@ -44,6 +45,8 @@ type Stop = {
   last_inspected: string | null;
   note: string | null;
   status: "pending" | "done" | "violation";
+  overdue?: boolean;
+  overdue_label?: string;
 };
 type Route = {
   inspector: Inspector;
@@ -53,7 +56,7 @@ type Route = {
   done: number;
   total: number;
 };
-type ChecklistItem = { key: string; label: string };
+type ChecklistItem = { key: string; label: string; code?: string; group?: string };
 
 /* ───────────────────────────── Status map ───────────────────────── */
 
@@ -282,12 +285,53 @@ function StopRow({
 }) {
   const [marks, setMarks] = useState<Record<string, boolean>>({});
   const [note, setNote] = useState("");
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function uploadPhotos(files: FileList | null) {
+    if (!files?.length) return;
+    setUploading(true);
+    setError(null);
+    try {
+      for (const file of Array.from(files)) {
+        const fd = new FormData();
+        fd.append("file", file);
+        const r = await apiFetch(`/routes/visit/photo`, { method: "POST", body: fd });
+        if (!r.ok) throw new Error("Не удалось загрузить фото");
+        const d = await r.json();
+        setPhotos((p) => [...p, d.id as string]);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка загрузки фото");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function save(status: "done" | "violation") {
+    setError(null);
+    let violations: { code: string }[] | undefined;
+    if (status === "violation") {
+      // Unchecked checklist items become coded violations.
+      violations = checklist
+        .filter((c) => c.code && !marks[c.key])
+        .map((c) => ({ code: c.code as string }));
+      if (!violations.length) {
+        setError(
+          "Отметьте галочками пройденные пункты — непройденные станут нарушениями. Сейчас нарушений нет.",
+        );
+        return;
+      }
+      if (!photos.length) {
+        setError("Приложите хотя бы одно фото-доказательство нарушения.");
+        return;
+      }
+    }
     setSaving(true);
     try {
-      await apiFetch(`/routes/visit`, {
+      const r = await apiFetch(`/routes/visit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -295,19 +339,27 @@ function StopRow({
           building_id: stop.building_id,
           status,
           checklist: marks,
+          violations,
+          evidence_photos: photos.length ? photos : undefined,
           note: note || null,
         }),
       });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d.detail || "Не удалось сохранить визит");
+      }
       onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка сохранения");
     } finally {
       setSaving(false);
     }
   }
 
-  const hot = stop.score >= 85;
+  const scoreSev = scoreSeverity(stop.score);
+  const hot = scoreSev.key === "critical";
   const isDone = stop.status !== "pending";
   const stopSeverity = STOP_STATUS_SEVERITY[stop.status];
-  const scoreSev = scoreSeverity(stop.score);
 
   return (
     <li
@@ -360,6 +412,9 @@ function StopRow({
             {[stop.type_label, stop.note].filter(Boolean).join(" · ")}
             {stop.last_inspected && (
               <span> · посл. {stop.last_inspected}</span>
+            )}
+            {stop.overdue && stop.overdue_label && (
+              <span className="text-elevated"> · {stop.overdue_label}</span>
             )}
           </p>
         </div>
@@ -417,7 +472,11 @@ function StopRow({
         <div className="border-t border-border px-4 pb-4 pt-3 fw-fade-in">
           {checklist.length > 0 && (
             <>
-              <SectionLabel className="mb-2">Чек-лист осмотра</SectionLabel>
+              <SectionLabel className="mb-1">Чек-лист осмотра</SectionLabel>
+              <p className="mb-2 text-2xs text-faint">
+                Отметьте пройденные пункты. Непройденные при фиксации нарушения
+                станут нарушениями с кодом нормы.
+              </p>
               <div className="space-y-2">
                 {checklist.map((c) => (
                   <label
@@ -432,7 +491,10 @@ function StopRow({
                       }
                       className="h-4 w-4 cursor-pointer rounded accent-[var(--color-accent)]"
                     />
-                    {c.label}
+                    <span className="flex-1">{c.label}</span>
+                    {c.code && (
+                      <span className="shrink-0 text-2xs tabular text-faint">{c.code}</span>
+                    )}
                   </label>
                 ))}
               </div>
@@ -450,12 +512,47 @@ function StopRow({
             </Field>
           </div>
 
+          {/* Photo evidence — required for a violation (legal protocol attachment) */}
+          <div className="mt-3">
+            <SectionLabel className="mb-1.5">
+              Фото-доказательства {photos.length > 0 && `· ${photos.length}`}
+            </SectionLabel>
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border-strong bg-surface-2 px-3 py-1.5 text-xs text-fg hover:bg-surface-3">
+              <Camera className="h-3.5 w-3.5" aria-hidden />
+              {uploading ? "Загрузка…" : "Добавить фото"}
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                multiple
+                className="hidden"
+                disabled={uploading}
+                onChange={(e) => {
+                  void uploadPhotos(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            {photos.length > 0 && (
+              <span className="ml-2 text-2xs text-normal">
+                ✓ приложено {photos.length}
+              </span>
+            )}
+          </div>
+
+          {error && (
+            <p className="mt-3 flex items-start gap-1.5 text-xs text-critical">
+              <AlertOctagon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+              {error}
+            </p>
+          )}
+
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               variant="success"
               size="md"
               onClick={() => save("done")}
-              disabled={saving}
+              disabled={saving || uploading}
               aria-label="Отметить как выполнено"
             >
               <ClipboardCheck className="h-4 w-4" />
@@ -465,7 +562,7 @@ function StopRow({
               variant="danger"
               size="md"
               onClick={() => save("violation")}
-              disabled={saving}
+              disabled={saving || uploading}
               aria-label="Зафиксировать нарушение"
             >
               <AlertOctagon className="h-4 w-4" />

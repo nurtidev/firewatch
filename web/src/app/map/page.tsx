@@ -7,7 +7,9 @@ import AppShell from "@/components/AppShell";
 import BuildingPanel from "@/components/BuildingPanel";
 import type { MapFilters } from "@/components/RiskMap";
 import { SEVERITY } from "@/lib/risk";
+import { DEMO_DATA, DEMO_NOTICE_SHORT } from "@/lib/demo";
 import { Field, Select, SectionLabel } from "@/components/ui";
+import { AlertTriangle } from "lucide-react";
 
 // MapLibre touches `window`, so render the map client-side only.
 const RiskMap = dynamic(() => import("@/components/RiskMap"), { ssr: false });
@@ -28,17 +30,18 @@ const DISTRICTS = [
 ];
 const RISKS = [
   ["", "Любой риск"],
-  ["high", "Высокий (71–100)"],
-  ["mid", "Средний (36–70)"],
-  ["low", "Низкий (0–35)"],
+  ["high", "Высокий (40+)"],
+  ["mid", "Средний (20–39)"],
+  ["low", "Низкий (0–19)"],
 ];
 
 // Legend items derived from SEVERITY tokens — color IS data.
-// Bands align to scoreBand/scoreSeverity thresholds.
+// Bands align to scoreBand/scoreSeverity thresholds (lib/risk.ts).
 const LEGEND = [
-  { sev: SEVERITY.normal,   range: "0–35",   label: "Низкий" },
-  { sev: SEVERITY.elevated, range: "36–70",  label: "Средний" },
-  { sev: SEVERITY.high,     range: "71–100", label: "Высокий" },
+  { sev: SEVERITY.normal,   range: "0–19",   label: "Низкий" },
+  { sev: SEVERITY.elevated, range: "20–39",  label: "Средний" },
+  { sev: SEVERITY.high,     range: "40–59",  label: "Высокий" },
+  { sev: SEVERITY.critical, range: "60–100", label: "Критический" },
 ] as const;
 
 export default function MapPage() {
@@ -81,6 +84,14 @@ export default function MapPage() {
           <div className="border-t border-border px-4 pb-4 pt-3">
             {/* Subtitle */}
             <p className="text-2xs text-faint">Астана · ДЧС РК</p>
+
+            {/* Demo-data notice — synthetic risk, must be visible on the map */}
+            {DEMO_DATA && (
+              <div className="mt-2 flex items-start gap-1.5 rounded-md border border-elevated/40 bg-elevated-bg px-2 py-1.5 text-2xs text-elevated">
+                <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden />
+                <span>{DEMO_NOTICE_SHORT}</span>
+              </div>
+            )}
 
             {/* Risk legend */}
             <div className="mt-3" role="list" aria-label="Легенда риска">

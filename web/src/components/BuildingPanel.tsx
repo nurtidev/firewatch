@@ -5,11 +5,13 @@ import {
   X,
   Building2,
   AlertOctagon,
+  AlertTriangle,
   ServerCrash,
   BarChart2,
 } from "lucide-react";
 import { apiFetch } from "@/lib/auth";
-import { scoreSeverity, SEVERITY } from "@/lib/risk";
+import { scoreSeverity, SEVERITY, featureLabel } from "@/lib/risk";
+import { DEMO_DATA, DEMO_NOTICE_SHORT } from "@/lib/demo";
 import {
   SectionLabel,
   StatusChip,
@@ -198,6 +200,12 @@ export default function BuildingPanel({
                   max={100}
                   severity={sev}
                 />
+                {DEMO_DATA && (
+                  <p className="mt-2 flex items-center gap-1.5 text-2xs text-elevated">
+                    <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+                    {DEMO_NOTICE_SHORT}
+                  </p>
+                )}
               </div>
             )}
 
@@ -238,7 +246,7 @@ export default function BuildingPanel({
                     return (
                       <li key={f.feature}>
                         <div className="flex items-baseline justify-between gap-2 text-xs">
-                          <span className="text-muted">{f.feature}</span>
+                          <span className="text-muted">{featureLabel(f.feature)}</span>
                           <span
                             className={cn(
                               "tabular font-medium",

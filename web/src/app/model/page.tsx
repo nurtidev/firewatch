@@ -3,9 +3,12 @@
 import { useEffect, useState } from "react";
 import { Brain, Target, Gauge, Layers, TrendingUp } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import DemoBanner from "@/components/DemoBanner";
 import { apiFetch } from "@/lib/auth";
+import { featureLabel } from "@/lib/risk";
 import {
   Badge,
+  Banner,
   Card,
   EmptyState,
   MetricCard,
@@ -74,6 +77,8 @@ export default function ModelPage() {
           }
         />
 
+        <DemoBanner />
+
         {error && (
           <EmptyState
             tone="error"
@@ -93,6 +98,10 @@ export default function ModelPage() {
 
         {m && (
           <>
+            {/* Management summary — translates the headline Lift into a sentence
+                a commander can act on, instead of leaving them with raw AUC. */}
+            <ManagementSummary metrics={m} />
+
             {/* Headline metrics */}
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <MetricCard
@@ -190,18 +199,30 @@ export default function ModelPage() {
                 <FeatureImportance data={m.feature_importance_gain} />
               </Card>
             </div>
-
-            <p className="text-xs text-faint">
-              Текущая сборка обучена на синтетическом наборе с фиксированным seed
-              (плейсхолдер до передачи исторических данных ДЧС). Контракт признаков
-              и пайплайн идентичны для реальных данных — цифры подтверждают
-              работоспособность модели, не оперативную точность. Сборка отклоняется,
-              если ROC-AUC опускается ниже порога.
-            </p>
           </>
         )}
       </div>
     </AppShell>
+  );
+}
+
+function ManagementSummary({ metrics }: { metrics: Metrics }) {
+  // Use the smallest reported fraction (the most selective top-N%) — that is the
+  // operating point a leader cares about: "if we inspect the top X%, how many
+  // fires do we catch?"
+  const top = [...metrics.lift].sort((a, b) => a.fraction - b.fraction)[0];
+  if (!top) return null;
+  const coverage = Math.round(top.fraction * 100);
+  const caught = Math.round(top.recall_captured * 10);
+  return (
+    <Banner tone="info" icon={Target} title="Что это даёт службе">
+      Проверяя {coverage}% самых рисковых объектов, модель выявляет{" "}
+      <span className="font-semibold text-fg">{caught} из 10</span> зданий, где
+      случится пожар — в{" "}
+      <span className="font-semibold text-fg">×{top.lift.toFixed(1)}</span> раз
+      результативнее случайного обхода. Это позволяет сфокусировать инспекторов
+      там, где риск выше всего.
+    </Banner>
   );
 }
 
@@ -213,7 +234,7 @@ function FeatureImportance({ data }: { data: Record<string, number> }) {
       {entries.map(([name, value]) => (
         <div key={name}>
           <div className="flex items-baseline justify-between text-xs">
-            <span className="text-muted">{name}</span>
+            <span className="text-muted">{featureLabel(name)}</span>
             <span className="tabular text-faint">{value.toFixed(1)}</span>
           </div>
           <ProgressBar value={(value / max) * 100} className="mt-1" />

@@ -65,18 +65,50 @@ export const SEVERITY: Record<Severity, SeverityMeta> = {
   },
 };
 
-/** Risk score 0–100 → severity. The canonical thresholds for the whole app. */
+/**
+ * Risk score 0–100 → severity. The canonical thresholds for the whole app.
+ *
+ * Anchored to the calibrated score distribution, NOT to round numbers: scores
+ * are right-skewed (median ~9, p95 ~64, p99 ~83), so the old ≥85 "critical" cut
+ * captured <1% of stock and left the highest-attention band effectively empty.
+ * These operating points keep every band populated (critical ≈ top ~6%, high ≈
+ * next ~10%, elevated ≈ next ~20%) so the ranking is actionable. Re-check these
+ * against the real distribution after retraining on ДЧС data.
+ * Keep in sync with: api RISK_BANDS, chat SCHEMA_DOC, map legend/filter.
+ */
 export function scoreSeverity(score: number): SeverityMeta {
-  if (score >= 85) return SEVERITY.critical;
-  if (score >= 71) return SEVERITY.high;
-  if (score >= 36) return SEVERITY.elevated;
+  if (score >= 60) return SEVERITY.critical;
+  if (score >= 40) return SEVERITY.high;
+  if (score >= 20) return SEVERITY.elevated;
   return SEVERITY.normal;
 }
 
 /** Short risk band label, e.g. for legends. */
 export function scoreBand(score: number): string {
-  if (score >= 85) return "Критический";
-  if (score >= 71) return "Высокий";
-  if (score >= 36) return "Средний";
+  if (score >= 60) return "Критический";
+  if (score >= 40) return "Высокий";
+  if (score >= 20) return "Средний";
   return "Низкий";
+}
+
+/**
+ * Human-readable Russian labels for the model's feature names. Single source for
+ * the building panel (SHAP) and the model page (feature importance) — an
+ * inspector must never see `wooden_floors`, only «Деревянные перекрытия».
+ */
+export const FEATURE_LABELS: Record<string, string> = {
+  age_years: "Возраст здания",
+  floors: "Этажность",
+  wooden_floors: "Деревянные перекрытия",
+  has_fire_alarm: "Пожарная сигнализация",
+  incidents_300m_3y: "Инциденты рядом (300 м / 3 г.)",
+  block_density: "Плотность застройки",
+  winter_season: "Зимний период",
+  nearest_hydrant_m: "Расстояние до гидранта",
+  capital_repair_recent: "Недавний капремонт",
+};
+
+/** Translate a feature name, falling back to the raw name if unmapped. */
+export function featureLabel(name: string): string {
+  return FEATURE_LABELS[name] ?? name;
 }
