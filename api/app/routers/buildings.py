@@ -148,6 +148,8 @@ def building_detail(
     if not has_full_access(user) and row["district"] != user.get("district"):
         raise HTTPException(status_code=404, detail="building not found")
 
+    card = _building_card(building_id, db)
+
     audit(
         action="read.building",
         username=user.get("username"),
@@ -172,4 +174,34 @@ def building_detail(
         "model_version": row["model_version"],
         "explanation": row["explanation"] or [],
         "computed_at": row["computed_at"].isoformat() if row["computed_at"] else None,
+        "card": card,
+    }
+
+
+def _building_card(building_id: int, db: Session) -> dict | None:
+    """Compact summary of the operational card (ПТП) linked to a building, for the
+    detail panel. Returns None if the building has no card. Tolerates both the
+    AI-extracted shape and the structured ПТП shape."""
+    row = db.execute(
+        text(
+            "SELECT id, filename, extracted FROM operational_cards "
+            "WHERE building_id = :id ORDER BY created_at DESC LIMIT 1"
+        ),
+        {"id": building_id},
+    ).mappings().first()
+    if row is None:
+        return None
+    ex = row["extracted"] or {}
+    obj = ex.get("object") or {}
+    resp = ex.get("response") or {}
+    water = ex.get("water_sources") or []
+    return {
+        "id": row["id"],
+        "filename": row["filename"],
+        "object_name": obj.get("name") or ex.get("address"),
+        "nearest_station": resp.get("nearest_station"),
+        "distance_km": resp.get("distance_km"),
+        "arrival_min": resp.get("arrival_min"),
+        "rank": resp.get("preassigned_rank"),
+        "water_sources": len(water) or None,
     }

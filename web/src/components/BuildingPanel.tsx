@@ -8,6 +8,8 @@ import {
   AlertTriangle,
   ServerCrash,
   BarChart2,
+  FileText,
+  Navigation,
 } from "lucide-react";
 import { apiFetch } from "@/lib/auth";
 import { scoreSeverity, SEVERITY, featureLabel } from "@/lib/risk";
@@ -23,6 +25,16 @@ import {
 import { cn } from "@/lib/cn";
 
 type Factor = { feature: string; value: number };
+type Card = {
+  id: number;
+  filename: string;
+  object_name: string | null;
+  nearest_station: string | null;
+  distance_km: number | null;
+  arrival_min: number | null;
+  rank: string | null;
+  water_sources: number | null;
+};
 type Detail = {
   id: number;
   address: string;
@@ -32,6 +44,7 @@ type Detail = {
   score: number | null;
   model_version: string | null;
   explanation: Factor[];
+  card: Card | null;
 };
 
 type PanelState = "idle" | "loading" | "loaded" | "error";
@@ -300,6 +313,45 @@ export default function BuildingPanel({
                     />
                     снижает риск
                   </span>
+                </div>
+              </div>
+            )}
+
+            {/* Operational card (ПТП) linked to this building */}
+            {data.card && (
+              <div className="mt-6">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-3.5 w-3.5 text-faint" aria-hidden />
+                  <SectionLabel>Оперативная карточка (ПТП)</SectionLabel>
+                </div>
+                <div className="mt-3 rounded-lg border border-border bg-surface-2/50 p-3.5">
+                  {data.card.object_name && (
+                    <p className="text-sm font-medium leading-snug text-fg">
+                      {data.card.object_name}
+                    </p>
+                  )}
+                  {(data.card.nearest_station || data.card.arrival_min != null) && (
+                    <p className="mt-1.5 flex items-start gap-1.5 text-xs text-muted">
+                      <Navigation className="mt-0.5 h-3 w-3 shrink-0 text-faint" aria-hidden />
+                      <span>
+                        {data.card.nearest_station}
+                        {data.card.distance_km != null && ` · ${data.card.distance_km} км`}
+                        {data.card.arrival_min != null && ` · прибытие ${data.card.arrival_min} мин`}
+                      </span>
+                    </p>
+                  )}
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {data.card.rank && (
+                      <span className="rounded-md border border-high/40 bg-high-bg px-2 py-0.5 text-2xs font-medium text-high">
+                        Ранг {data.card.rank}
+                      </span>
+                    )}
+                    {data.card.water_sources != null && (
+                      <span className="rounded-md border border-border bg-surface-2 px-2 py-0.5 text-2xs text-muted">
+                        Водоисточников: {data.card.water_sources}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
