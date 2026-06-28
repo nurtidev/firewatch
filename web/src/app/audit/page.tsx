@@ -52,16 +52,32 @@ type AuditData = {
 const ACTION_LABEL: Record<string, string> = {
   "login.success": "Успешный вход",
   "login.failed": "Неудачный вход",
+  "read.card": "Просмотр карточки (ПДн)",
+  "read.card_file": "Скачивание файла (ПДн)",
+  "read.building": "Просмотр объекта",
+  "chat.query": "AI-аналитик: запрос",
+  "chat.query.failed": "AI-аналитик: отклонён",
 };
-const ACTION_OPTIONS = ["", "login.success", "login.failed"];
+const ACTION_OPTIONS = [
+  "",
+  "login.success",
+  "login.failed",
+  "read.card",
+  "read.card_file",
+  "read.building",
+  "chat.query",
+  "chat.query.failed",
+];
 const LIMITS = [50, 100, 200, 500];
 
 /** Severity of an event: status code first, then action semantics. */
 function eventSeverity(e: AuditEvent): SeverityMeta {
   const s = e.status_code ?? 0;
   if (s >= 500 || e.action === "login.failed") return SEVERITY.critical;
-  if (s >= 400) return SEVERITY.high;
+  if (s >= 400 || e.action === "chat.query.failed") return SEVERITY.high;
   if (e.method === "DELETE") return SEVERITY.high;
+  // Reads of personal data are notable for accountability, not errors.
+  if (e.action === "read.card" || e.action === "read.card_file") return SEVERITY.elevated;
   if (e.action === "login.success") return SEVERITY.normal;
   return SEVERITY.info;
 }
@@ -309,7 +325,10 @@ export default function AuditPage() {
                       {data.events.map((e) => {
                         const sev = eventSeverity(e);
                         const t = fmtTime(e.ts);
-                        const isLogin = e.action.startsWith("login");
+                        const isLogin =
+                          e.action.startsWith("login") ||
+                          e.action.startsWith("read.") ||
+                          e.action.startsWith("chat.");
                         return (
                           <tr
                             key={e.id}
@@ -374,8 +393,9 @@ export default function AuditPage() {
 
             <p className="mt-3 flex items-center gap-1.5 text-2xs text-faint">
               <LogIn className="h-3 w-3" />
-              Записываются все входы и изменяющие операции (POST/PUT/PATCH/DELETE).
-              Запись аудита не блокирует бизнес-запрос.
+              Записываются входы, изменяющие операции, чтение персональных данных
+              (карточки, объекты) и запросы AI-аналитика. Журнал неизменяем
+              (append-only, WORM).
             </p>
           </>
         )}

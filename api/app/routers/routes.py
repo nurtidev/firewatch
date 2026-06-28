@@ -1,8 +1,10 @@
+import re
 import uuid
 from datetime import date
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -16,6 +18,10 @@ router = APIRouter(tags=["inspections"], dependencies=[Depends(current_user)])
 
 # Evidence photos accepted for an inspection visit.
 PHOTO_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+_EXT_MEDIA = {".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp"}
+# Generated names only: visit_<32 hex>.<ext> — guards the serve route against
+# path traversal / reading arbitrary files from the uploads dir.
+_PHOTO_NAME = re.compile(r"^visit_[0-9a-f]{32}\.(png|jpg|webp)$")
 
 # Working-day slots (lunch 12:30–14:00 skipped), up to 6 stops.
 SLOTS = ["08:30", "10:00", "11:30", "14:00", "15:30", "17:00"]
@@ -242,6 +248,18 @@ async def upload_visit_photo(file: UploadFile) -> dict:
     name = f"visit_{uuid.uuid4().hex}{PHOTO_TYPES[file.content_type]}"
     (Path(settings.uploads_dir) / name).write_bytes(data)
     return {"id": name}
+
+
+@router.get("/routes/visit/photo/{photo_id}")
+def get_visit_photo(photo_id: str) -> FileResponse:
+    """Serve an evidence photo. Auth is enforced at the router; the name pattern
+    blocks path traversal and limits reads to generated photo files."""
+    if not _PHOTO_NAME.match(photo_id):
+        raise HTTPException(404, "Файл не найден")
+    path = Path(settings.uploads_dir) / photo_id
+    if not path.exists():
+        raise HTTPException(404, "Файл не найден")
+    return FileResponse(path, media_type=_EXT_MEDIA[path.suffix])
 
 
 @router.post("/routes/visit")

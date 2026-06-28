@@ -8,7 +8,12 @@ from app.access import enforce_building_scope, has_full_access
 from app.auth import create_token, decode_token, hash_password, verify_password
 from app.chat import ChatError, validate_sql
 from app.routers.forces import ForcesRequest, calc
-from app.routers.routes import VisitRequest, Violation, record_visit
+from app.routers.routes import (
+    VisitRequest,
+    Violation,
+    get_visit_photo,
+    record_visit,
+)
 
 # --- chat: read-only SQL guard ------------------------------------------------
 
@@ -168,3 +173,13 @@ def test_visit_violation_requires_photo():
         record_visit(body, db=None)  # type: ignore[arg-type]
     assert e.value.status_code == 422
     assert "фото" in e.value.detail.lower()
+
+
+@pytest.mark.parametrize(
+    "bad_id",
+    ["../../etc/passwd", "visit_xyz.png", "evil.png", "visit_" + "a" * 32 + ".gif"],
+)
+def test_visit_photo_rejects_unsafe_names(bad_id):
+    with pytest.raises(HTTPException) as e:
+        get_visit_photo(bad_id)
+    assert e.value.status_code == 404
