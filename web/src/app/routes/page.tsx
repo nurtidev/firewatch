@@ -28,8 +28,22 @@ import {
   EmptyState,
   ScoreBadge,
   StatusChip,
+  Banner,
 } from "@/components/ui";
 import { cn } from "@/lib/cn";
+import {
+  cacheRoute,
+  cacheChecklist,
+  readCachedRoute,
+  readCachedChecklist,
+  enqueueVisit,
+  queueCount,
+  flushQueue,
+  fileToDataUrl,
+  isOnline,
+  MAX_PHOTO_BYTES,
+  type VisitPayload,
+} from "@/lib/offline";
 
 /* ───────────────────────────── Types ───────────────────────────── */
 
@@ -84,12 +98,28 @@ export default function RoutesPage() {
   const [routeLoading, setRouteLoading] = useState(false);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [openStop, setOpenStop] = useState<number | null>(null);
+  // Offline UX: whether the shown route came from cache, how many visits are
+  // pending sync, and a transient "synced" flash after a successful flush.
+  const [offline, setOffline] = useState(false);
+  const [pending, setPending] = useState(0);
+  const [justSynced, setJustSynced] = useState(false);
+
+  const refreshPending = useCallback(() => {
+    setPending(queueCount(selected ?? undefined));
+  }, [selected]);
 
   useEffect(() => {
     apiFetch(`/routes/checklist`)
-      .then((r) => r.json())
-      .then(setChecklist)
-      .catch(() => {});
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("checklist"))))
+      .then((data: ChecklistItem[]) => {
+        setChecklist(data);
+        cacheChecklist(data);
+      })
+      .catch(() => {
+        // Offline / failed — fall back to the last cached checklist.
+        const cached = readCachedChecklist<ChecklistItem[]>();
+        if (cached) setChecklist(cached);
+      });
   }, []);
 
   useEffect(() => {
@@ -105,22 +135,55 @@ export default function RoutesPage() {
 
   const loadRoute = useCallback(() => {
     if (selected == null) return;
+    const inspectorId = selected;
     setRouteLoading(true);
-    apiFetch(`/routes/today?inspector_id=${selected}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
+    refreshPending();
+    apiFetch(`/routes/today?inspector_id=${inspectorId}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("route"))))
+      .then((data: Route | null) => {
         setRoute(data);
+        setOffline(false);
+        if (data) cacheRoute(inspectorId, data);
         setRouteLoading(false);
       })
       .catch(() => {
-        setRoute(null);
+        // Network failed — show the last cached route, if any, in offline mode.
+        const cached = readCachedRoute<Route>(inspectorId);
+        setRoute(cached);
+        setOffline(Boolean(cached) || !isOnline());
         setRouteLoading(false);
       });
-  }, [selected]);
+  }, [selected, refreshPending]);
 
   useEffect(() => {
     loadRoute();
   }, [loadRoute]);
+
+  // Sync queued visits on page load and whenever connectivity returns.
+  useEffect(() => {
+    if (selected == null) return;
+    let cancelled = false;
+
+    async function sync() {
+      if (queueCount() === 0) return;
+      const { synced } = await flushQueue();
+      if (cancelled) return;
+      refreshPending();
+      if (synced > 0) {
+        setJustSynced(true);
+        setTimeout(() => setJustSynced(false), 3000);
+        loadRoute(); // pull authoritative state after a successful flush
+      }
+    }
+
+    void sync();
+    const onOnline = () => void sync();
+    window.addEventListener("online", onOnline);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("online", onOnline);
+    };
+  }, [selected, loadRoute, refreshPending]);
 
   const progressSeverity =
     route && route.stops.some((s) => s.status === "violation")
@@ -159,6 +222,13 @@ export default function RoutesPage() {
             ) : undefined
           }
         />
+
+        {/* Offline notice — shown route is from the local cache */}
+        {offline && (
+          <Banner tone="warning" className="mt-4">
+            Офлайн-режим · показан сохранённый маршрут
+          </Banner>
+        )}
 
         {/* Loading state */}
         {routeLoading && (
@@ -209,6 +279,17 @@ export default function RoutesPage() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                  {/* Sync status — pending visits awaiting upload / fresh-sync flash */}
+                  {pending > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-md border border-elevated/30 bg-elevated-bg px-2 py-0.5 text-xs font-medium text-elevated">
+                      Не синхронизировано · {pending}
+                    </span>
+                  )}
+                  {justSynced && pending === 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-md border border-normal/30 bg-normal-bg px-2 py-0.5 text-xs font-medium text-normal">
+                      Синхронизировано
+                    </span>
+                  )}
                   <SectionLabel>Прогресс</SectionLabel>
                   <span className="tabular text-lg font-semibold text-fg">
                     <span style={{ color: progressSeverity.cssVar }}>{route.done}</span>
@@ -253,6 +334,25 @@ export default function RoutesPage() {
                       setOpenStop(null);
                       loadRoute();
                     }}
+                    onQueued={(status) => {
+                      // Offline: mark the stop locally and bump the pending counter
+                      // without touching the network.
+                      setOpenStop(null);
+                      setRoute((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              done: prev.done + 1,
+                              stops: prev.stops.map((st) =>
+                                st.building_id === s.building_id
+                                  ? { ...st, status }
+                                  : st,
+                              ),
+                            }
+                          : prev,
+                      );
+                      refreshPending();
+                    }}
                   />
                 ))}
               </ol>
@@ -274,6 +374,7 @@ function StopRow({
   open,
   onToggle,
   onSaved,
+  onQueued,
 }: {
   stop: Stop;
   checklist: ChecklistItem[];
@@ -282,13 +383,19 @@ function StopRow({
   open: boolean;
   onToggle: () => void;
   onSaved: () => void;
+  onQueued: (status: "done" | "violation") => void;
 }) {
   const [marks, setMarks] = useState<Record<string, boolean>>({});
   const [note, setNote] = useState("");
+  // Photos already uploaded to the server (online path) and their evidence ids.
   const [photos, setPhotos] = useState<string[]>([]);
+  // Photos captured while offline, held as data URLs until the queue flushes.
+  const [offlinePhotos, setOfflinePhotos] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const photoCount = photos.length + offlinePhotos.length;
 
   async function uploadPhotos(files: FileList | null) {
     if (!files?.length) return;
@@ -296,12 +403,28 @@ function StopRow({
     setError(null);
     try {
       for (const file of Array.from(files)) {
-        const fd = new FormData();
-        fd.append("file", file);
-        const r = await apiFetch(`/routes/visit/photo`, { method: "POST", body: fd });
-        if (!r.ok) throw new Error("Не удалось загрузить фото");
-        const d = await r.json();
-        setPhotos((p) => [...p, d.id as string]);
+        if (file.size > MAX_PHOTO_BYTES) {
+          setError("Фото больше 2 МБ — уменьшите размер перед добавлением.");
+          continue;
+        }
+        // Offline: stash the photo locally; it uploads on reconnect.
+        if (!isOnline()) {
+          const dataUrl = await fileToDataUrl(file);
+          setOfflinePhotos((p) => [...p, dataUrl]);
+          continue;
+        }
+        try {
+          const fd = new FormData();
+          fd.append("file", file);
+          const r = await apiFetch(`/routes/visit/photo`, { method: "POST", body: fd });
+          if (!r.ok) throw new Error("upload failed");
+          const d = await r.json();
+          setPhotos((p) => [...p, d.id as string]);
+        } catch {
+          // Network died mid-session — fall back to offline storage.
+          const dataUrl = await fileToDataUrl(file);
+          setOfflinePhotos((p) => [...p, dataUrl]);
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка загрузки фото");
@@ -324,24 +447,40 @@ function StopRow({
         );
         return;
       }
-      if (!photos.length) {
+      if (!photoCount) {
         setError("Приложите хотя бы одно фото-доказательство нарушения.");
         return;
       }
     }
+
+    const payload: VisitPayload = {
+      inspector_id: inspectorId,
+      building_id: stop.building_id,
+      status,
+      checklist: marks,
+      violations,
+      note: note || null,
+    };
+
+    // Offline (or photos captured offline still pending upload): queue + mark.
+    if (!isOnline() || offlinePhotos.length > 0) {
+      const ok = enqueueVisit(payload, offlinePhotos, photos);
+      if (!ok) {
+        setError("Не удалось сохранить офлайн — переполнено хранилище устройства.");
+        return;
+      }
+      onQueued(status);
+      return;
+    }
+
     setSaving(true);
     try {
       const r = await apiFetch(`/routes/visit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          inspector_id: inspectorId,
-          building_id: stop.building_id,
-          status,
-          checklist: marks,
-          violations,
+          ...payload,
           evidence_photos: photos.length ? photos : undefined,
-          note: note || null,
         }),
       });
       if (!r.ok) {
@@ -349,8 +488,15 @@ function StopRow({
         throw new Error(d.detail || "Не удалось сохранить визит");
       }
       onSaved();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Ошибка сохранения");
+    } catch {
+      // POST failed (likely network) — queue it instead of losing the visit.
+      // Already-uploaded photo ids ride along so evidence is preserved on flush.
+      const ok = enqueueVisit(payload, offlinePhotos, photos);
+      if (!ok) {
+        setError("Не удалось сохранить — переполнено хранилище устройства.");
+        return;
+      }
+      onQueued(status);
     } finally {
       setSaving(false);
     }
@@ -515,7 +661,7 @@ function StopRow({
           {/* Photo evidence — required for a violation (legal protocol attachment) */}
           <div className="mt-3">
             <SectionLabel className="mb-1.5">
-              Фото-доказательства {photos.length > 0 && `· ${photos.length}`}
+              Фото-доказательства {photoCount > 0 && `· ${photoCount}`}
             </SectionLabel>
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border-strong bg-surface-2 px-3 py-1.5 text-xs text-fg hover:bg-surface-3">
               <Camera className="h-3.5 w-3.5" aria-hidden />
@@ -533,9 +679,10 @@ function StopRow({
                 }}
               />
             </label>
-            {photos.length > 0 && (
+            {photoCount > 0 && (
               <span className="ml-2 text-2xs text-normal">
-                ✓ приложено {photos.length}
+                ✓ приложено {photoCount}
+                {offlinePhotos.length > 0 && " · будет загружено при связи"}
               </span>
             )}
           </div>
