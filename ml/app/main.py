@@ -3,7 +3,14 @@ import os
 from fastapi import FastAPI, HTTPException, Response
 
 from app.schemas import BuildingFeatures, RiskPrediction
-from app.scorer import MODEL_LOADED, MODEL_VERSION, metrics, score, score_batch
+from app.scorer import (
+    MODEL_LOADED,
+    MODEL_VERSION,
+    feature_baseline,
+    metrics,
+    score,
+    score_batch,
+)
 
 app = FastAPI(title="FireWatch ML", version="1.0.0")
 
@@ -34,7 +41,11 @@ def model() -> dict:
     m = metrics()
     if m is None:
         raise HTTPException(404, "Метрики недоступны (модель не обучена в этой сборке)")
-    return {"model_version": MODEL_VERSION, "metrics": m}
+    return {
+        "model_version": MODEL_VERSION,
+        "metrics": m,
+        "feature_baseline": feature_baseline(),
+    }
 
 
 @app.post("/predict", response_model=RiskPrediction)

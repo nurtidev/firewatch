@@ -89,13 +89,12 @@ def features_for(b: dict) -> dict:
     }
 
 
-def _score_chunk(client: httpx.Client, upsert, batch: list[dict]) -> int:
+def _score_chunk(client: httpx.Client, upsert, batch: list[dict], payload: list[dict]) -> int:
     """Score one chunk and upsert it. Retries once on transient ML/DB errors;
     raises if it still fails so the caller can record the failed range."""
     last_err: Exception | None = None
     for attempt in (1, 2):
         try:
-            payload = [features_for(dict(b)) for b in batch]
             resp = client.post("/predict/batch", json=payload)
             resp.raise_for_status()
             preds = resp.json()
@@ -166,11 +165,19 @@ def _run(_lock_conn) -> None:
 
     done = 0
     failed_ranges: list[tuple[int, int]] = []
+    feature_sums: dict[str, float] = {}
+    scored = 0
     with httpx.Client(base_url=settings.ml_url, timeout=120) as client:
+        baseline = _fetch_baseline(client)
         for start in range(0, total, CHUNK):
             batch = buildings[start : start + CHUNK]
+            payload = [features_for(dict(b)) for b in batch]
+            for feats in payload:  # accumulate live feature means for drift check
+                for k, v in feats.items():
+                    feature_sums[k] = feature_sums.get(k, 0.0) + float(v)
+            scored += len(payload)
             try:
-                done += _score_chunk(client, upsert, batch)
+                done += _score_chunk(client, upsert, batch, payload)
             except Exception as err:  # noqa: BLE001 - keep going, report at end
                 failed_ranges.append((start, start + len(batch)))
                 print(f"  ! skipping buildings [{start}:{start + len(batch)}]: {err}")
@@ -178,6 +185,8 @@ def _run(_lock_conn) -> None:
             print(f"  {done}/{total}")
 
     _log_score_distribution()
+    if baseline and scored:
+        _log_feature_drift({k: v / scored for k, v in feature_sums.items()}, baseline)
 
     if failed_ranges:
         skipped = sum(b - a for a, b in failed_ranges)
@@ -187,6 +196,36 @@ def _run(_lock_conn) -> None:
         )
         raise SystemExit(1)
     print(f"risk computation complete: {done}/{total} updated")
+
+
+def _fetch_baseline(client: httpx.Client) -> dict | None:
+    """Training-set feature reference (mean/std) from the ML service, for drift."""
+    try:
+        resp = client.get("/model")
+        resp.raise_for_status()
+        return resp.json().get("feature_baseline")
+    except Exception as err:  # noqa: BLE001 - drift check is best-effort
+        print(f"[drift] baseline unavailable: {err}")
+        return None
+
+
+def _log_feature_drift(live_means: dict[str, float], baseline: dict) -> None:
+    """Compare this run's feature means to the training baseline in σ-units.
+
+    A large shift means the live inputs diverged from what the model was trained
+    on — retrain/investigate before trusting scores. |z|>1 is flagged.
+    """
+    flagged = []
+    for name, ref in baseline.items():
+        if name not in live_means:
+            continue
+        z = (live_means[name] - ref["mean"]) / ref["std"]
+        if abs(z) > 1.0:
+            flagged.append(f"{name} z={z:+.2f}")
+    if flagged:
+        print(f"[drift] FEATURE SHIFT vs baseline: {', '.join(flagged)} — проверьте данные/переобучение")
+    else:
+        print("[drift] features within 1σ of training baseline")
 
 
 def _log_score_distribution() -> None:

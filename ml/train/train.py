@@ -24,7 +24,7 @@ import sys
 
 import numpy as np
 import xgboost as xgb
-from sklearn.linear_model import LogisticRegression
+from sklearn.isotonic import IsotonicRegression
 from sklearn.model_selection import train_test_split
 
 from app.features import (
@@ -86,20 +86,35 @@ def main() -> None:
         verbose_eval=False,
     )
 
-    # Platt scaling: fit a 1-D logistic on calibration-split margins.
+    # Isotonic calibration: non-parametric, monotone fit on calibration-split
+    # margins. Unlike Platt (a·m+b → sigmoid, ≈ identity here so "before/after"
+    # was meaningless), isotonic actually corrects the reliability curve, so the
+    # calibrated Brier genuinely improves over raw.
     margin_cal = booster.predict(_dmatrix(X_cal), output_margin=True)
-    platt = LogisticRegression(C=1e6, solver="lbfgs")
-    platt.fit(margin_cal.reshape(-1, 1), y_cal)
-    platt_a = float(platt.coef_[0][0])
-    platt_b = float(platt.intercept_[0])
+    iso = IsotonicRegression(out_of_bounds="clip")
+    iso.fit(margin_cal, y_cal)
+    iso_x = [float(v) for v in iso.X_thresholds_]
+    iso_y = [float(v) for v in iso.y_thresholds_]
 
     def calibrated(X) -> np.ndarray:
         m = booster.predict(_dmatrix(X), output_margin=True)
-        return 1.0 / (1.0 + np.exp(-(platt_a * m + platt_b)))
+        return iso.predict(m)
 
     proba_raw_test = booster.predict(_dmatrix(X_test))
     proba_cal_test = calibrated(X_test)
     metrics = evaluate(np.asarray(y_test), proba_raw_test, proba_cal_test)
+
+    # Reference feature distribution (training set) for drift detection. The
+    # scoring job compares each run's live feature means against these in σ-units
+    # and warns on a large shift — the earliest signal real inputs diverged from
+    # what the model was trained on. Std floored to avoid divide-by-zero.
+    feature_baseline = {
+        name: {
+            "mean": round(float(X[name].mean()), 6),
+            "std": round(float(max(X[name].std(), 1e-6)), 6),
+        }
+        for name in FEATURE_ORDER
+    }
 
     importance = booster.get_score(importance_type="gain")
     metrics["feature_importance_gain"] = {
@@ -126,8 +141,10 @@ def main() -> None:
                 "source": source,
                 "seed": SEED,
                 "feature_order": FEATURE_ORDER,
-                "platt_a": platt_a,
-                "platt_b": platt_b,
+                "calibration": "isotonic",
+                "iso_x": iso_x,
+                "iso_y": iso_y,
+                "feature_baseline": feature_baseline,
                 "base_rate": metrics["base_rate"],
                 "best_iteration": int(getattr(booster, "best_iteration", NUM_ROUNDS)),
             },
