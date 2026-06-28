@@ -20,11 +20,20 @@ router = APIRouter(
 )
 
 # Object presets: Vл — линейная скорость распространения (м/мин), Jтр — требуемая
-# интенсивность подачи воды (л/(с·м²)).
+# интенсивность подачи воды (л/(с·м²)). `agent` — огнетушащее вещество, `note` —
+# тактическая особенность. Разбито подробнее, чем «жилое/общественное/пром»: разные
+# подклассы дают разные Vл/Jтр и тактику (находка: библиотека, больница и ГСМ-склад
+# не должны считаться одинаково).
 PRESETS = [
-    {"key": "residential", "label": "Жилое / административное", "vl": 1.0, "jtr": 0.06},
-    {"key": "public", "label": "Общественное (с массовым пребыванием)", "vl": 1.0, "jtr": 0.10},
-    {"key": "industrial", "label": "Производственное / склад", "vl": 1.5, "jtr": 0.20},
+    {"key": "residential", "label": "Жилое / административное", "vl": 1.0, "jtr": 0.06, "agent": "вода", "note": ""},
+    {"key": "public", "label": "Общественное (учреждение)", "vl": 1.0, "jtr": 0.10, "agent": "вода", "note": ""},
+    {"key": "public_mass", "label": "Массовое пребывание (ТЦ, зрелищные)", "vl": 1.2, "jtr": 0.12, "agent": "вода", "note": "Приоритет — эвакуация людей"},
+    {"key": "medical", "label": "Лечебное со стационаром (Ф1.1)", "vl": 0.8, "jtr": 0.10, "agent": "вода", "note": "Маломобильные — усиленное ГДЗС"},
+    {"key": "education", "label": "Детское / учебное (Ф1.1, Ф4.1)", "vl": 1.0, "jtr": 0.10, "agent": "вода", "note": "Дети — приоритет эвакуации"},
+    {"key": "industrial", "label": "Производственное (кат. В)", "vl": 1.5, "jtr": 0.20, "agent": "вода", "note": ""},
+    {"key": "warehouse", "label": "Склад ТМЦ", "vl": 1.5, "jtr": 0.20, "agent": "вода", "note": "Высокая пожарная нагрузка"},
+    {"key": "flammable", "label": "ГСМ / ЛВЖ (кат. А-Б)", "vl": 3.0, "jtr": 0.20, "agent": "пена", "note": "Вода неэффективна — пенная атака, угроза вскипания/выброса"},
+    {"key": "cable", "label": "Электроустановки / кабельные", "vl": 1.1, "jtr": 0.20, "agent": "порошок/CO₂", "note": "Снять напряжение до подачи воды"},
 ]
 
 # Ствол: расход (л/с)
@@ -53,8 +62,18 @@ class ForcesRequest(BaseModel):
     distance_km: float = Field(1.0, ge=0)
     travel_speed_kmh: float = Field(40.0, gt=0)
     hose_lay_m: float = Field(100.0, ge=0, description="Длина рукавной линии, м")
+    # Tactical conditions — drive ГДЗС, deployment time and head.
+    floor: int = Field(1, ge=-3, le=50, description="Этаж пожара (отриц. = подвал)")
+    smoke: bool = Field(False, description="Сильное задымление / работа в НДС")
     # Logistics
     supply_per_truck: float = Field(40.0, gt=0, description="Подача воды одной АЦ, л/с")
+    calc_time_min: int = Field(10, ge=1, le=360, description="Расчётное время тушения, мин")
+    water_source_lps: float | None = Field(
+        None, ge=0, description="Доступная подача водоисточника/гидрантов, л/с"
+    )
+    def_intensity_ratio: float = Field(
+        0.25, gt=0, le=1, description="Доля интенсивности на защиту (зависит от конструкций)"
+    )
 
 
 def _rank(squads: int) -> str:
@@ -76,9 +95,14 @@ def presets() -> dict:
 def calc(req: ForcesRequest) -> dict:
     q_barrel = BARREL_Q.get(req.barrel, 3.7)
 
+    warnings: list[str] = []
+
     # 1) Время свободного развития пожара (до подачи первых средств)
     t_travel = 60 * req.distance_km / req.travel_speed_kmh
-    t_deploy = 0.035 * req.hose_lay_m  # Тр.с.с — боевое развёртывание
+    # Боевое развёртывание: прокладка рукавов + подъём на этаж пожара (подвал —
+    # спуск + работа в НДС), что заметно увеличивает время на высоте/в подземье.
+    climb_levels = abs(req.floor) - 1 if req.floor != 0 else 0
+    t_deploy = 0.035 * req.hose_lay_m + max(0, climb_levels) * 1.0
     t_free = (
         req.detection_min
         + req.report_min
@@ -107,9 +131,10 @@ def calc(req: ForcesRequest) -> dict:
             else s_fire
         )
 
-    # 4) Требуемый расход воды (тушение + защита, защита ≈ ¼ интенсивности)
+    # 4) Требуемый расход воды (тушение + защита). Доля защиты зависит от
+    # конструкций/угрозы вертикального распространения — параметр, а не жёсткая ¼.
     q_req_ext = s_ext * req.jtr
-    q_req_def = s_ext * (req.jtr / 4)
+    q_req_def = s_ext * (req.jtr * req.def_intensity_ratio)
     q_req = q_req_ext + q_req_def
 
     # 5) Число стволов
@@ -124,24 +149,58 @@ def calc(req: ForcesRequest) -> dict:
     # 7) Число пожарных машин (АЦ)
     n_trucks = math.ceil(q_act / req.supply_per_truck)
 
-    # 8) Личный состав
+    # 8) Звенья ГДЗС — не фикс. 3 чел., а по обстановке. Высота (≥4 эт.), подвал и
+    # задымление требуют дополнительных звеньев и ОБЯЗАТЕЛЬНОГО резервного звена;
+    # пост безопасности — на каждое работающее звено.
+    hard_conditions = req.smoke or req.floor >= 4 or req.floor < 0
+    working_links = 1 + (1 if req.smoke else 0) + (1 if (req.floor >= 4 or req.floor < 0) else 0)
+    reserve_links = 1 if hard_conditions else 0
+    gdzs_links = working_links + reserve_links
+    gdzs_people = gdzs_links * 3
+    safety_post = working_links  # постовой на каждое работающее звено
+    if hard_conditions:
+        warnings.append(
+            f"Сложные условия (этаж {req.floor}"
+            f"{', задымление' if req.smoke else ''}) — "
+            f"{working_links} звена ГДЗС + резерв, пост безопасности на каждое звено"
+        )
+
+    # 9) Личный состав
     people_parts = {
         "ствольщики (тушение, ×3)": n_ext * 3,
         "ствольщики (защита, ×2)": n_def * 2,
         "водители АЦ": n_trucks,
-        "звено ГДЗС / разведка": 3,
-        "пост безопасности": 2,
+        "звенья ГДЗС (×3)": gdzs_people,
+        "пост безопасности": safety_post,
         "связной": 1,
         "работа с водоисточником": 1,
     }
     n_people = sum(people_parts.values())
 
-    # 9) Отделения и ранг пожара
-    n_squads = math.ceil(n_people / 4)
+    # 10) Отделения и ранг пожара. Отделение на основном АЦ — 5 чел. (нач. караула/
+    # командир + водитель + ствольщики); деление на 4 занижало число отделений и ранг.
+    n_squads = math.ceil(n_people / 5)
     rank = _rank(n_squads)
 
-    # 10) Объём воды на расчётное время тушения (10 мин)
-    water_liters = round(q_act * 10 * 60)
+    # 11) Вода: расход × расчётное время + нормативный 3-кратный запас (на полное
+    # тушение, дотушивание и перекачку/подвоз). Проверка достаточности водоисточника.
+    water_calc = round(q_act * req.calc_time_min * 60)
+    water_supply_required = round(water_calc * 3)
+    source_ok = None
+    if req.water_source_lps is not None:
+        source_ok = req.water_source_lps >= q_act
+        if not source_ok:
+            warnings.append(
+                f"Водоисточник даёт {round(req.water_source_lps, 1)} л/с < требуемых "
+                f"{round(q_act, 1)} л/с — организовать подвоз/перекачку воды"
+            )
+
+    # 12) Напор: подача на верхние этажи требует повышенного давления/перекачки.
+    if req.floor >= 8:
+        warnings.append(
+            f"Этаж {req.floor}: подача воды на высоту — повышенный напор, "
+            "при необходимости перекачка через АЦ (в две ступени)"
+        )
 
     r2 = lambda x: round(x, 2)  # noqa: E731
     return {
@@ -169,8 +228,14 @@ def calc(req: ForcesRequest) -> dict:
             "trucks": n_trucks,
             "personnel": n_people,
             "personnel_breakdown": people_parts,
+            "gdzs_links": gdzs_links,
             "squads": n_squads,
             "rank": rank,
-            "water_liters_10min": water_liters,
+            "water_liters_calc": water_calc,
+            "water_liters_required": water_supply_required,
+            "water_source_ok": source_ok,
+            # back-compat alias (расчётное время по умолчанию 10 мин)
+            "water_liters_10min": water_calc,
+            "warnings": warnings,
         },
     }
