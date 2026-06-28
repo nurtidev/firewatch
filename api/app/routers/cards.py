@@ -105,9 +105,9 @@ def list_cards(
             """
             SELECT c.id, c.filename, c.created_at,
                    COALESCE(
+                       c.extracted->'object'->>'name',
                        c.extracted->>'address',
-                       c.extracted->'object'->>'address',
-                       c.extracted->'object'->>'name'
+                       c.extracted->'object'->>'address'
                    ) AS address,
                    count(p.id) AS prescriptions
             FROM operational_cards c
