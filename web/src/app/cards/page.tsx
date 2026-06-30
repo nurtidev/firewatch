@@ -23,6 +23,7 @@ import {
   Timer,
   Ruler,
   Baby,
+  Map,
   type LucideIcon,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
@@ -30,6 +31,8 @@ import AppShell from "@/components/AppShell";
 // Three.js touches WebGL/window — load client-side only.
 const Building3D = dynamic(() => import("@/components/Building3D"), { ssr: false });
 import FloorPlan2D from "@/components/FloorPlan2D";
+import SchemeGallery from "@/components/SchemeGallery";
+import { schemesForObject, totalSchemePages } from "@/data/schemes";
 import { apiFetch, apiSrc } from "@/lib/auth";
 import { SEVERITY, type Severity } from "@/lib/risk";
 import {
@@ -529,12 +532,18 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
   const [floorIdx, setFloorIdx] = useState(0);
   const floor = floors[floorIdx];
 
+  // Реальные схемы ДЧС (оцифрованный Visio) по объекту, если есть.
+  const schemes = useMemo(() => schemesForObject(obj.name), [obj.name]);
+
   // Surface a tab only when it carries content — no empty sections.
   const tabs: TabItem[] = (
     [
       { id: "overview", label: "Обзор", icon: Building2 },
       floors.length > 0 && {
         id: "floors", label: "Этажи и 3D", icon: Layers, count: floors.length,
+      },
+      schemes && {
+        id: "schemes", label: "Схемы ДЧС", icon: Map, count: totalSchemePages(schemes),
       },
       hasResponse && { id: "response", label: "Реагирование", icon: Truck },
       water.length > 0 && {
@@ -702,6 +711,9 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
           </Card>
         </div>
       )}
+
+      {/* ── Схемы ДЧС ── */}
+      {tab === "schemes" && schemes && <SchemeGallery schemes={schemes} />}
 
       {/* ── Реагирование ── */}
       {tab === "response" && (
