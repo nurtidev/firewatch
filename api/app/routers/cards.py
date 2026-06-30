@@ -158,6 +158,11 @@ def _card_detail(card_id: int, db: Session) -> dict:
         {"id": card_id},
     ).mappings().all()
 
+    # Tell the client whether the original document is actually retrievable, so it
+    # can render a placeholder instead of an iframe pointing at a 404.
+    file_path = card["file_path"]
+    has_file = bool(file_path) and Path(file_path).exists()
+
     return {
         "id": card["id"],
         "filename": card["filename"],
@@ -166,6 +171,7 @@ def _card_detail(card_id: int, db: Session) -> dict:
         "created_at": card["created_at"].isoformat(),
         "extracted": card["extracted"],
         "prescriptions": [dict(p) for p in presc],
+        "has_file": has_file,
     }
 
 
@@ -180,7 +186,9 @@ def get_card_file(
         text("SELECT file_path, media_type FROM operational_cards WHERE id = :id"),
         {"id": card_id},
     ).mappings().first()
-    if row is None or not Path(row["file_path"]).exists():
+    # file_path is NULL for JSON-seeded cards, and the path may be missing if the
+    # stored file was never persisted (e.g. uploaded before a volume was mounted).
+    if row is None or not row["file_path"] or not Path(row["file_path"]).exists():
         raise HTTPException(404, "Файл не найден")
     audit(
         action="read.card_file",

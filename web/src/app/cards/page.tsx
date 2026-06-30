@@ -66,6 +66,7 @@ type ProcessedCard = {
   created_at: string;
   extracted: Record<string, unknown>;
   prescriptions: Prescription[];
+  has_file?: boolean;
 };
 
 type CardListItem = {
@@ -349,7 +350,16 @@ export default function CardsPage() {
                 </span>
               </div>
               <div className="flex-1 p-3">
-                {card.media_type === "application/pdf" ? (
+                {card.has_file === false ? (
+                  <div className="flex h-[560px] w-full flex-col items-center justify-center gap-2 rounded-sm border border-dashed border-border px-6 text-center">
+                    <FileText className="h-7 w-7 text-faint" aria-hidden />
+                    <p className="text-sm text-muted">Оригинал недоступен</p>
+                    <p className="max-w-[280px] text-xs text-faint">
+                      Файл не сохранён на сервере. Извлечённые ИИ данные показаны
+                      справа.
+                    </p>
+                  </div>
+                ) : card.media_type === "application/pdf" ? (
                   <iframe
                     src={apiSrc(`/cards/${card.id}/file`)}
                     className="h-[560px] w-full rounded-sm bg-white"
