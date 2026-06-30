@@ -98,7 +98,11 @@ export async function apiFetch(
   return res;
 }
 
-/** URL for <img>/<iframe> sources (file endpoint is unauthenticated). */
+/** URL for <img>/<iframe> sources. These can't set an Authorization header, so
+ *  the bearer token is passed as a `?token=` query param (see current_user). */
 export function apiSrc(path: string): string {
-  return `${API_URL}${path}`;
+  const token = authToken();
+  if (!token) return `${API_URL}${path}`;
+  const sep = path.includes("?") ? "&" : "?";
+  return `${API_URL}${path}${sep}token=${encodeURIComponent(token)}`;
 }

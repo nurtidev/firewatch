@@ -23,18 +23,28 @@ class RevokeRequest(BaseModel):
 
 
 def current_user(
+    request: Request,
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> dict:
     """Decode the Bearer token; raise 401 if missing/invalid/revoked.
 
+    The token is taken from the Authorization header, or — as a fallback — from
+    a `?token=` query param. The latter exists for <img>/<iframe> sources (e.g.
+    GET /cards/{id}/file) that cannot set request headers; enumeration is still
+    blocked because a valid signed token is required either way.
+
     Beyond signature/expiry, the user must still exist and the token must have
     been issued at or after the user's sessions_revoked_at — that timestamp is
     how an admin (or the user) forcibly terminates all active sessions.
     """
-    if not authorization or not authorization.lower().startswith("bearer "):
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1]
+    else:
+        token = request.query_params.get("token")
+    if not token:
         raise HTTPException(401, "Требуется авторизация")
-    payload = decode_token(authorization.split(" ", 1)[1])
+    payload = decode_token(token)
     if payload is None:
         raise HTTPException(401, "Недействительный токен")
 
