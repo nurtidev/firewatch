@@ -11,6 +11,7 @@ import {
   Clock,
   MapPin,
   ScanLine,
+  Trash2,
   ChevronRight,
   Box,
   Building2,
@@ -201,6 +202,19 @@ export default function CardsPage() {
   async function openCard(id: number) {
     const res = await apiFetch(`/cards/${id}`);
     if (res.ok) setCard(await res.json());
+  }
+
+  async function deleteCard(id: number, label: string) {
+    if (!window.confirm(`Удалить карточку «${label}»? Действие необратимо.`)) return;
+    setError(null);
+    const res = await apiFetch(`/cards/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      if (card?.id === id) setCard(null);
+      refreshList();
+    } else {
+      const msg = await res.json().catch(() => ({}));
+      setError((msg as { detail?: string }).detail || `Не удалось удалить (${res.status})`);
+    }
   }
 
   function handleFileChange() {
@@ -468,10 +482,13 @@ export default function CardsPage() {
             ) : (
               <ul className="divide-y divide-border" role="list">
                 {list.map((c) => (
-                  <li key={c.id}>
+                  <li
+                    key={c.id}
+                    className="group flex items-center transition-colors duration-[var(--dur-fast)] hover:bg-surface-2"
+                  >
                     <button
                       onClick={() => openCard(c.id)}
-                      className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-[var(--dur-fast)] hover:bg-surface-2"
+                      className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"
                       aria-label={`Открыть карточку: ${c.address || c.filename}`}
                     >
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface-3 text-faint group-hover:text-muted">
@@ -509,6 +526,14 @@ export default function CardsPage() {
                         )}
                         <ChevronRight className="h-4 w-4 text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-muted" />
                       </div>
+                    </button>
+                    <button
+                      onClick={() => deleteCard(c.id, c.address || c.filename)}
+                      className="mr-3 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-faint opacity-0 transition-[opacity,color] duration-[var(--dur-fast)] hover:bg-critical-bg hover:text-critical focus-visible:opacity-100 group-hover:opacity-100"
+                      aria-label={`Удалить карточку: ${c.address || c.filename}`}
+                      title="Удалить карточку"
+                    >
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </li>
                 ))}
