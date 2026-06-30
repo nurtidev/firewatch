@@ -65,12 +65,36 @@ export const OBJECT_SCHEMES: Record<string, ObjectSchemes> = {
       // (этажные схемы + СО «Евразия-2» + 6-МКР), поэтому не включён под Хайвилл.
     ],
   },
+  alanda: {
+    object: "ЖК «Аланда»",
+    groups: [
+      {
+        id: "scheme",
+        label: "Схемы объекта",
+        source: "Жк Аланда схема.vsd",
+        pages: pages("/schemes/alanda/scheme", 1, 19, "Схема"),
+      },
+    ],
+  },
+  evraziya: {
+    object: "ТРЦ «Евразия-3»",
+    groups: [
+      {
+        id: "scheme",
+        label: "Схемы объекта",
+        source: "Евразия-3 визио.vsd",
+        pages: pages("/schemes/evraziya/scheme", 1, 6, "Схема"),
+      },
+    ],
+  },
 };
 
 /** Подобрать схемы по названию объекта из ПТП (нечёткое сопоставление). */
 export function schemesForObject(name?: string): ObjectSchemes | null {
   if (!name) return null;
   if (/хайвилл|hayvill|highvill/i.test(name)) return OBJECT_SCHEMES.hayvill;
+  if (/аланда|alanda/i.test(name)) return OBJECT_SCHEMES.alanda;
+  if (/евразия|evrazi/i.test(name)) return OBJECT_SCHEMES.evraziya;
   return null;
 }
 
