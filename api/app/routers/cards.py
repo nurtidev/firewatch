@@ -203,6 +203,43 @@ def get_card_file(
     return FileResponse(row["file_path"], media_type=row["media_type"])
 
 
+@router.delete("/{card_id}")
+def delete_card(
+    card_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(current_user),
+) -> dict:
+    row = db.execute(
+        text("SELECT file_path FROM operational_cards WHERE id = :id"),
+        {"id": card_id},
+    ).mappings().first()
+    if row is None:
+        raise HTTPException(404, "Карточка не найдена")
+
+    # prescriptions has no ON DELETE CASCADE — remove children first, then the card.
+    db.execute(text("DELETE FROM prescriptions WHERE card_id = :id"), {"id": card_id})
+    db.execute(text("DELETE FROM operational_cards WHERE id = :id"), {"id": card_id})
+    db.commit()
+
+    # Best-effort cleanup of the stored original on the uploads volume.
+    if row["file_path"]:
+        Path(row["file_path"]).unlink(missing_ok=True)
+
+    # Card holds ПДн (contacts) — deletion must be auditable.
+    audit(
+        action="delete.card",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="DELETE",
+        path=f"/cards/{card_id}",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"card_id": card_id},
+    )
+    return {"ok": True, "deleted": card_id}
+
+
 def _json(obj: dict) -> str:
     import json
 
