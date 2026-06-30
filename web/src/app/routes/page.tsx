@@ -3,14 +3,18 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   MapPin,
-  ChevronDown,
-  ChevronUp,
+  ChevronRight,
   ClipboardCheck,
   Route,
   AlertOctagon,
   CalendarDays,
   User,
   Camera,
+  ArrowLeft,
+  Check,
+  X,
+  CloudOff,
+  RefreshCw,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch, useAuth } from "@/lib/auth";
@@ -29,6 +33,7 @@ import {
   ScoreBadge,
   StatusChip,
   Banner,
+  Tabs,
 } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import {
@@ -72,6 +77,8 @@ type Route = {
 };
 type ChecklistItem = { key: string; label: string; code?: string; group?: string };
 
+type Filter = "all" | "pending" | "done";
+
 /* ───────────────────────────── Status map ───────────────────────── */
 
 const STOP_STATUS_SEVERITY = {
@@ -98,6 +105,7 @@ export default function RoutesPage() {
   const [routeLoading, setRouteLoading] = useState(false);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [openStop, setOpenStop] = useState<number | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
   // Offline UX: whether the shown route came from cache, how many visits are
   // pending sync, and a transient "synced" flash after a successful flush.
   const [offline, setOffline] = useState(false);
@@ -185,10 +193,8 @@ export default function RoutesPage() {
     };
   }, [selected, loadRoute, refreshPending]);
 
-  const progressSeverity =
-    route && route.stops.some((s) => s.status === "violation")
-      ? SEVERITY.critical
-      : SEVERITY.normal;
+  const hasViolation = route?.stops.some((s) => s.status === "violation") ?? false;
+  const progressSeverity = hasViolation ? SEVERITY.critical : SEVERITY.normal;
 
   const formattedDate = route
     ? new Date(route.date).toLocaleDateString("ru", {
@@ -198,9 +204,23 @@ export default function RoutesPage() {
       })
     : "";
 
+  const pendingCount = route?.stops.filter((s) => s.status === "pending").length ?? 0;
+  const doneCount = route ? route.total - pendingCount : 0;
+  const visibleStops =
+    route?.stops.filter((s) =>
+      filter === "all"
+        ? true
+        : filter === "pending"
+          ? s.status === "pending"
+          : s.status !== "pending",
+    ) ?? [];
+
+  const activeStop =
+    openStop != null ? route?.stops.find((s) => s.building_id === openStop) ?? null : null;
+
   return (
     <AppShell>
-      <div className="mx-auto max-w-[1400px] p-5 sm:p-7 lg:p-8">
+      <div className="mx-auto max-w-[1400px] p-4 sm:p-7 lg:p-8">
         <PageHeader
           title={isInspector ? "Мой маршрут" : "План инспекций"}
           subtitle="Маршрут на день · приоритет по риску, сроку проверки и географии"
@@ -225,22 +245,19 @@ export default function RoutesPage() {
 
         {/* Offline notice — shown route is from the local cache */}
         {offline && (
-          <Banner tone="warning" className="mt-4">
-            Офлайн-режим · показан сохранённый маршрут
+          <Banner tone="warning" icon={CloudOff} className="mt-4">
+            Офлайн-режим · показан сохранённый маршрут. Отметки сохранятся на
+            устройстве и отправятся при связи.
           </Banner>
         )}
 
         {/* Loading state */}
         {routeLoading && (
           <div className="mt-6 space-y-3">
-            <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <Skeleton key={i} className="h-16 w-full" />
-              ))}
-            </div>
-            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-10 w-full" />
             {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-14 w-full" />
+              <Skeleton key={i} className="h-[72px] w-full" />
             ))}
           </div>
         )}
@@ -257,131 +274,255 @@ export default function RoutesPage() {
 
         {/* Route */}
         {!routeLoading && route && (
-          <div className="mt-6 fw-fade-in">
-            {/* Route meta card */}
-            <Card className="p-4">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex flex-wrap gap-4">
-                  <div className="flex items-center gap-2">
+          <div className="mt-4 fw-fade-in sm:mt-6">
+            {/* Sticky progress header — always visible while scrolling the list */}
+            <div className="sticky top-0 z-20 -mx-4 mb-3 border-b border-border bg-bg/95 px-4 py-3 backdrop-blur sm:static sm:mx-0 sm:mb-4 sm:rounded-lg sm:border sm:bg-surface sm:px-4 sm:shadow-card">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="flex items-center gap-1.5 text-sm capitalize text-fg">
                     <CalendarDays className="h-4 w-4 text-faint" aria-hidden />
-                    <span className="text-sm capitalize text-fg">{formattedDate}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
+                    {formattedDate}
+                  </span>
+                  <span className="flex items-center gap-1.5 text-sm text-muted">
                     <MapPin className="h-4 w-4 text-faint" aria-hidden />
-                    <span className="text-sm text-muted">{route.district} р-н</span>
-                  </div>
+                    {route.district} р-н
+                  </span>
                   {!isInspector && (
-                    <div className="flex items-center gap-2">
+                    <span className="flex items-center gap-1.5 text-sm text-muted">
                       <User className="h-4 w-4 text-faint" aria-hidden />
-                      <span className="text-sm text-muted">{route.inspector.name}</span>
-                    </div>
+                      {route.inspector.name}
+                    </span>
                   )}
                 </div>
-
-                <div className="flex items-center gap-3">
-                  {/* Sync status — pending visits awaiting upload / fresh-sync flash */}
-                  {pending > 0 && (
-                    <span className="inline-flex items-center gap-1 rounded-md border border-elevated/30 bg-elevated-bg px-2 py-0.5 text-xs font-medium text-elevated">
-                      Не синхронизировано · {pending}
-                    </span>
-                  )}
-                  {justSynced && pending === 0 && (
-                    <span className="inline-flex items-center gap-1 rounded-md border border-normal/30 bg-normal-bg px-2 py-0.5 text-xs font-medium text-normal">
-                      Синхронизировано
-                    </span>
-                  )}
-                  <SectionLabel>Прогресс</SectionLabel>
-                  <span className="tabular text-lg font-semibold text-fg">
+                <div className="shrink-0 text-right">
+                  <div className="text-lg font-semibold tabular leading-none">
                     <span style={{ color: progressSeverity.cssVar }}>{route.done}</span>
                     <span className="text-faint"> / {route.total}</span>
-                  </span>
+                  </div>
+                  <div className="mt-0.5 text-2xs text-faint">проверено</div>
                 </div>
               </div>
-
               <ProgressBar
-                className="mt-3"
+                className="mt-2.5"
                 value={route.done}
                 max={route.total}
                 severity={progressSeverity}
               />
-            </Card>
+              {/* Sync status */}
+              {(pending > 0 || (justSynced && pending === 0)) && (
+                <div className="mt-2 flex items-center gap-2 text-2xs">
+                  {pending > 0 ? (
+                    <span className="inline-flex items-center gap-1 font-medium text-elevated">
+                      <CloudOff className="h-3.5 w-3.5" aria-hidden /> Не отправлено · {pending}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 font-medium text-normal">
+                      <Check className="h-3.5 w-3.5" aria-hidden /> Синхронизировано
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* Empty stops */}
-            {route.stops.length === 0 && (
+            {route.stops.length === 0 ? (
               <EmptyState
                 className="mt-4"
                 icon={ClipboardCheck}
                 title="Нет объектов в маршруте"
                 description="Список объектов для проверки пуст."
               />
-            )}
+            ) : (
+              <>
+                {/* Filter */}
+                <Tabs
+                  className="mb-3"
+                  active={filter}
+                  onChange={(id) => setFilter(id as Filter)}
+                  tabs={[
+                    { id: "all", label: "Все", count: route.total },
+                    { id: "pending", label: "Осталось", count: pendingCount },
+                    { id: "done", label: "Готово", count: doneCount },
+                  ]}
+                />
 
-            {/* Stops list */}
-            {route.stops.length > 0 && (
-              <ol className="mt-4 space-y-2" aria-label="Список объектов маршрута">
-                {route.stops.map((s) => (
-                  <StopRow
-                    key={s.building_id}
-                    stop={s}
-                    checklist={checklist}
-                    inspectorId={route.inspector.id}
-                    canMark={isInspector}
-                    open={openStop === s.building_id}
-                    onToggle={() =>
-                      setOpenStop(openStop === s.building_id ? null : s.building_id)
+                {/* Stops list */}
+                {visibleStops.length === 0 ? (
+                  <EmptyState
+                    className="mt-4"
+                    icon={filter === "done" ? ClipboardCheck : Check}
+                    title={filter === "done" ? "Пока ничего не проверено" : "Всё проверено"}
+                    description={
+                      filter === "done"
+                        ? "Отмеченные объекты появятся здесь."
+                        : "Все объекты маршрута отмечены. Отличная работа!"
                     }
-                    onSaved={() => {
-                      setOpenStop(null);
-                      loadRoute();
-                    }}
-                    onQueued={(status) => {
-                      // Offline: mark the stop locally and bump the pending counter
-                      // without touching the network.
-                      setOpenStop(null);
-                      setRoute((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              done: prev.done + 1,
-                              stops: prev.stops.map((st) =>
-                                st.building_id === s.building_id
-                                  ? { ...st, status }
-                                  : st,
-                              ),
-                            }
-                          : prev,
-                      );
-                      refreshPending();
-                    }}
                   />
-                ))}
-              </ol>
+                ) : (
+                  <ol className="space-y-2.5" aria-label="Список объектов маршрута">
+                    {visibleStops.map((s) => (
+                      <StopCard
+                        key={s.building_id}
+                        stop={s}
+                        canMark={isInspector}
+                        onOpen={() => setOpenStop(s.building_id)}
+                      />
+                    ))}
+                  </ol>
+                )}
+              </>
             )}
           </div>
         )}
       </div>
+
+      {/* Full-screen object sheet — inspector marks the object here */}
+      {isInspector && activeStop && activeStop.status === "pending" && route && (
+        <ObjectSheet
+          stop={activeStop}
+          checklist={checklist}
+          inspectorId={route.inspector.id}
+          onClose={() => setOpenStop(null)}
+          onSaved={() => {
+            setOpenStop(null);
+            loadRoute();
+          }}
+          onQueued={(status) => {
+            // Offline: mark the stop locally and bump the pending counter
+            // without touching the network.
+            const bid = activeStop.building_id;
+            setOpenStop(null);
+            setRoute((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    done: prev.done + 1,
+                    stops: prev.stops.map((st) =>
+                      st.building_id === bid ? { ...st, status } : st,
+                    ),
+                  }
+                : prev,
+            );
+            refreshPending();
+          }}
+        />
+      )}
     </AppShell>
   );
 }
 
-/* ───────────────────────────── StopRow ─────────────────────────── */
+/* ───────────────────────────── StopCard ────────────────────────── */
 
-function StopRow({
+function StopCard({
+  stop,
+  canMark,
+  onOpen,
+}: {
+  stop: Stop;
+  canMark: boolean;
+  onOpen: () => void;
+}) {
+  const scoreSev = scoreSeverity(stop.score);
+  const hot = scoreSev.key === "critical";
+  const isDone = stop.status !== "pending";
+  const stopSeverity = STOP_STATUS_SEVERITY[stop.status];
+  const actionable = canMark && !isDone;
+
+  const meta = [stop.type_label, stop.last_inspected && `посл. ${stop.last_inspected}`]
+    .filter(Boolean)
+    .join(" · ");
+
+  const inner = (
+    <>
+      {/* Order / status badge */}
+      <span
+        className={cn(
+          "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold tabular",
+          isDone
+            ? cn(stopSeverity.bg, stopSeverity.text)
+            : hot
+              ? "bg-critical-bg text-critical"
+              : "bg-surface-3 text-muted",
+        )}
+        aria-hidden
+      >
+        {isDone ? (stop.status === "done" ? <Check className="h-5 w-5" /> : "!") : stop.order}
+      </span>
+
+      {/* Address + meta */}
+      <div className="min-w-0 flex-1">
+        <p className={cn("truncate text-[15px] font-medium", isDone ? "text-muted" : "text-fg")}>
+          {stop.address}
+        </p>
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-faint">
+          <span className="tabular text-muted">{stop.time}</span>
+          {meta && <span className="truncate">· {meta}</span>}
+          {stop.overdue && stop.overdue_label && (
+            <span className="font-medium text-elevated">· {stop.overdue_label}</span>
+          )}
+        </p>
+      </div>
+
+      {/* Right rail — always-visible score + status */}
+      <div className="flex shrink-0 flex-col items-end gap-1.5">
+        <ScoreBadge score={stop.score} severity={scoreSev} />
+        <StatusChip
+          severity={stopSeverity}
+          label={STOP_STATUS_LABEL[stop.status]}
+          icon={false}
+          className="px-1.5 py-0 text-2xs"
+        />
+      </div>
+
+      {actionable && (
+        <ChevronRight className="h-5 w-5 shrink-0 text-faint" aria-hidden />
+      )}
+    </>
+  );
+
+  const base =
+    "flex w-full items-center gap-3 rounded-lg border px-3 py-3 text-left transition-colors duration-[var(--dur-fast)]";
+  const tone = isDone ? "border-border bg-surface/50" : "border-border bg-surface";
+  const accent =
+    hot && !isDone
+      ? { borderLeftWidth: "3px", borderLeftColor: scoreSev.cssVar }
+      : undefined;
+
+  return (
+    <li>
+      {actionable ? (
+        <button
+          type="button"
+          onClick={onOpen}
+          style={accent}
+          className={cn(base, tone, "min-h-[68px] hover:border-border-strong hover:bg-surface-2 active:bg-surface-3")}
+          aria-label={`Открыть объект: ${stop.address}`}
+        >
+          {inner}
+        </button>
+      ) : (
+        <div style={accent} className={cn(base, tone, "min-h-[68px]")}>
+          {inner}
+        </div>
+      )}
+    </li>
+  );
+}
+
+/* ───────────────────────────── ObjectSheet ─────────────────────── */
+
+function ObjectSheet({
   stop,
   checklist,
   inspectorId,
-  canMark,
-  open,
-  onToggle,
+  onClose,
   onSaved,
   onQueued,
 }: {
   stop: Stop;
   checklist: ChecklistItem[];
   inspectorId: number;
-  canMark: boolean;
-  open: boolean;
-  onToggle: () => void;
+  onClose: () => void;
   onSaved: () => void;
   onQueued: (status: "done" | "violation") => void;
 }) {
@@ -396,6 +537,7 @@ function StopRow({
   const [error, setError] = useState<string | null>(null);
 
   const photoCount = photos.length + offlinePhotos.length;
+  const scoreSev = scoreSeverity(stop.score);
 
   async function uploadPhotos(files: FileList | null) {
     if (!files?.length) return;
@@ -502,222 +644,213 @@ function StopRow({
     }
   }
 
-  const scoreSev = scoreSeverity(stop.score);
-  const hot = scoreSev.key === "critical";
-  const isDone = stop.status !== "pending";
-  const stopSeverity = STOP_STATUS_SEVERITY[stop.status];
+  const passedCount = checklist.filter((c) => marks[c.key]).length;
+  const busy = saving || uploading;
 
   return (
-    <li
-      className={cn(
-        "rounded-lg border transition-colors duration-[var(--dur-fast)]",
-        isDone
-          ? "border-border bg-surface/50"
-          : hot
-            ? "border-border bg-surface"
-            : "border-border bg-surface",
-      )}
-      style={
-        hot && !isDone
-          ? { borderLeftWidth: "3px", borderLeftColor: scoreSev.cssVar }
-          : undefined
-      }
+    <div
+      className="fixed inset-0 z-50 flex flex-col bg-bg fw-fade-in"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Осмотр объекта: ${stop.address}`}
     >
-      {/* Row header */}
-      <div className="flex items-center gap-3 px-4 py-3">
-        {/* Order badge */}
-        <span
-          className={cn(
-            "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular",
-            isDone
-              ? cn(stopSeverity.bg, stopSeverity.text)
-              : hot
-                ? "bg-critical-bg text-critical"
-                : "bg-surface-3 text-muted",
-          )}
-          aria-label={`Объект №${stop.order}`}
-        >
-          {isDone
-            ? stop.status === "done"
-              ? "✓"
-              : "!"
-            : stop.order}
-        </span>
-
-        {/* Address + meta */}
-        <div className="min-w-0 flex-1">
-          <p
-            className={cn(
-              "truncate text-sm font-medium",
-              isDone ? "text-muted" : "text-fg",
-            )}
+      {/* Header */}
+      <header className="shrink-0 border-b border-border bg-surface">
+        <div className="flex items-center gap-2 px-2 py-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg"
+            aria-label="Назад к маршруту"
           >
-            {stop.address}
-          </p>
-          <p className="mt-0.5 truncate text-xs text-faint">
-            {[stop.type_label, stop.note].filter(Boolean).join(" · ")}
-            {stop.last_inspected && (
-              <span> · посл. {stop.last_inspected}</span>
-            )}
-            {stop.overdue && stop.overdue_label && (
-              <span className="text-elevated"> · {stop.overdue_label}</span>
-            )}
-          </p>
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[15px] font-semibold text-fg">{stop.address}</p>
+            <p className="truncate text-xs text-faint">
+              {[stop.type_label, stop.year_built && `${stop.year_built} г.`]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          </div>
+          <ScoreBadge score={stop.score} severity={scoreSev} className="shrink-0" />
         </div>
+      </header>
 
-        {/* Score badge */}
-        <ScoreBadge score={stop.score} severity={scoreSev} className="hidden sm:inline-flex" />
-
-        {/* Status chip */}
-        <StatusChip
-          severity={stopSeverity}
-          label={STOP_STATUS_LABEL[stop.status]}
-          className="hidden md:inline-flex"
-        />
-
-        {/* Time */}
-        <span className="w-11 shrink-0 text-right text-xs tabular text-faint">
-          {stop.time}
-        </span>
-
-        {/* Toggle button */}
-        {canMark && !isDone && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={onToggle}
-            aria-expanded={open}
-            aria-label={open ? "Свернуть форму" : "Отметить объект"}
-          >
-            {open ? (
-              <>
-                <ChevronUp className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Свернуть</span>
-              </>
-            ) : (
-              <>
-                <ChevronDown className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Отметить</span>
-              </>
-            )}
-          </Button>
-        )}
-
-        {/* Completed — show status on mobile */}
-        {isDone && (
-          <StatusChip
-            severity={stopSeverity}
-            label={STOP_STATUS_LABEL[stop.status]}
-            className="md:hidden"
-          />
-        )}
-      </div>
-
-      {/* Expanded form */}
-      {canMark && open && (
-        <div className="border-t border-border px-4 pb-4 pt-3 fw-fade-in">
+      {/* Scrollable body */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+        <div className="mx-auto max-w-2xl space-y-5">
+          {/* Checklist */}
           {checklist.length > 0 && (
-            <>
-              <SectionLabel className="mb-1">Чек-лист осмотра</SectionLabel>
-              <p className="mb-2 text-2xs text-faint">
-                Отметьте пройденные пункты. Непройденные при фиксации нарушения
-                станут нарушениями с кодом нормы.
+            <section>
+              <div className="mb-2 flex items-center justify-between">
+                <SectionLabel>Чек-лист осмотра</SectionLabel>
+                <span className="text-2xs tabular text-faint">
+                  {passedCount} / {checklist.length} отмечено
+                </span>
+              </div>
+              <p className="mb-2.5 text-2xs leading-relaxed text-faint">
+                Отметьте пройденные пункты. Непройденные при фиксации нарушения станут
+                нарушениями с кодом нормы.
               </p>
               <div className="space-y-2">
                 {checklist.map((c) => (
                   <label
                     key={c.key}
-                    className="flex cursor-pointer items-center gap-2.5 text-sm text-fg"
+                    className="flex min-h-[52px] cursor-pointer items-center gap-3 rounded-lg border border-border bg-surface-2 px-3.5 py-2.5 transition-colors has-[:checked]:border-normal/40 has-[:checked]:bg-normal-bg active:bg-surface-3"
                   >
                     <input
                       type="checkbox"
                       checked={!!marks[c.key]}
-                      onChange={(e) =>
-                        setMarks((m) => ({ ...m, [c.key]: e.target.checked }))
-                      }
-                      className="h-4 w-4 cursor-pointer rounded accent-[var(--color-accent)]"
+                      onChange={(e) => setMarks((m) => ({ ...m, [c.key]: e.target.checked }))}
+                      className="h-6 w-6 shrink-0 cursor-pointer rounded accent-[var(--color-normal)]"
                     />
-                    <span className="flex-1">{c.label}</span>
+                    <span className="flex-1 text-sm text-fg">{c.label}</span>
                     {c.code && (
                       <span className="shrink-0 text-2xs tabular text-faint">{c.code}</span>
                     )}
                   </label>
                 ))}
               </div>
-            </>
+            </section>
           )}
 
-          <div className="mt-3">
+          {/* Note */}
+          <section>
             <Field label="Примечание">
               <Textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="Описание результатов осмотра или нарушения"
-                rows={2}
+                rows={3}
               />
             </Field>
-          </div>
+          </section>
 
-          {/* Photo evidence — required for a violation (legal protocol attachment) */}
-          <div className="mt-3">
-            <SectionLabel className="mb-1.5">
+          {/* Photo evidence */}
+          <section>
+            <SectionLabel className="mb-2">
               Фото-доказательства {photoCount > 0 && `· ${photoCount}`}
             </SectionLabel>
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border-strong bg-surface-2 px-3 py-1.5 text-xs text-fg hover:bg-surface-3">
-              <Camera className="h-3.5 w-3.5" aria-hidden />
-              {uploading ? "Загрузка…" : "Добавить фото"}
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                multiple
-                className="hidden"
-                disabled={uploading}
-                onChange={(e) => {
-                  void uploadPhotos(e.target.files);
-                  e.target.value = "";
-                }}
-              />
-            </label>
-            {photoCount > 0 && (
-              <span className="ml-2 text-2xs text-normal">
-                ✓ приложено {photoCount}
-                {offlinePhotos.length > 0 && " · будет загружено при связи"}
-              </span>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-2.5">
+              {/* Offline photos — real thumbnails */}
+              {offlinePhotos.map((url, i) => (
+                <PhotoTile key={`off-${i}`} pending onRemove={() => setOfflinePhotos((p) => p.filter((_, j) => j !== i))}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={url} alt={`Фото ${i + 1}`} className="h-full w-full object-cover" />
+                </PhotoTile>
+              ))}
+              {/* Server-uploaded photos — confirmed tile */}
+              {photos.map((id, i) => (
+                <PhotoTile key={`up-${id}`} onRemove={() => setPhotos((p) => p.filter((_, j) => j !== i))}>
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-1 bg-normal-bg text-normal">
+                    <Check className="h-5 w-5" />
+                    <span className="text-2xs">загружено</span>
+                  </div>
+                </PhotoTile>
+              ))}
+              {/* Add button */}
+              <label
+                className={cn(
+                  "flex aspect-square cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border-strong bg-surface-2 text-faint hover:border-faint hover:text-muted",
+                  uploading && "pointer-events-none opacity-60",
+                )}
+              >
+                {uploading ? (
+                  <RefreshCw className="h-5 w-5 animate-spin" aria-hidden />
+                ) : (
+                  <Camera className="h-5 w-5" aria-hidden />
+                )}
+                <span className="text-2xs">{uploading ? "Загрузка" : "Добавить"}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  multiple
+                  className="hidden"
+                  disabled={uploading}
+                  onChange={(e) => {
+                    void uploadPhotos(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
+            {offlinePhotos.length > 0 && (
+              <p className="mt-2 text-2xs text-elevated">
+                Часть фото будет загружена при появлении связи.
+              </p>
             )}
-          </div>
+          </section>
+        </div>
+      </div>
 
+      {/* Sticky action bar */}
+      <footer
+        className="shrink-0 border-t border-border bg-surface px-4 pt-3"
+        style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+      >
+        <div className="mx-auto max-w-2xl">
           {error && (
-            <p className="mt-3 flex items-start gap-1.5 text-xs text-critical">
-              <AlertOctagon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+            <p className="mb-2.5 flex items-start gap-1.5 text-xs text-critical" role="alert">
+              <AlertOctagon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
               {error}
             </p>
           )}
-
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="flex gap-2.5">
             <Button
               variant="success"
-              size="md"
+              size="xl"
               onClick={() => save("done")}
-              disabled={saving || uploading}
-              aria-label="Отметить как выполнено"
+              disabled={busy}
+              className="flex-1"
             >
-              <ClipboardCheck className="h-4 w-4" />
+              <ClipboardCheck className="h-5 w-5" />
               Выполнено
             </Button>
             <Button
               variant="danger"
-              size="md"
+              size="xl"
               onClick={() => save("violation")}
-              disabled={saving || uploading}
-              aria-label="Зафиксировать нарушение"
+              disabled={busy}
+              className="flex-1"
             >
-              <AlertOctagon className="h-4 w-4" />
-              Зафиксировать нарушение
+              <AlertOctagon className="h-5 w-5" />
+              Нарушение
             </Button>
           </div>
         </div>
+      </footer>
+    </div>
+  );
+}
+
+/* Photo thumbnail tile with a remove control. */
+function PhotoTile({
+  children,
+  pending,
+  onRemove,
+}: {
+  children: React.ReactNode;
+  pending?: boolean;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="relative aspect-square overflow-hidden rounded-lg border border-border">
+      {children}
+      {pending && (
+        <span className="absolute bottom-1 left-1 rounded bg-bg/80 px-1 text-2xs text-elevated backdrop-blur">
+          ожидает
+        </span>
       )}
-    </li>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-bg/80 text-fg backdrop-blur hover:bg-critical hover:text-white"
+        aria-label="Удалить фото"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
   );
 }

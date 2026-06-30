@@ -279,7 +279,7 @@ export function MetricCard({
 /* ============================== Button ============================== */
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "success";
-type ButtonSize = "sm" | "md";
+type ButtonSize = "sm" | "md" | "lg" | "xl";
 
 const BTN_BASE =
   "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors duration-[var(--dur-fast)] disabled:pointer-events-none disabled:opacity-50 whitespace-nowrap";
@@ -291,9 +291,13 @@ const BTN_VARIANT: Record<ButtonVariant, string> = {
   danger: "bg-critical text-white hover:opacity-90",
   success: "bg-normal text-accent-fg hover:opacity-90",
 };
+// sm/md = dense desktop. lg/xl = field touch targets (≥44px) — one-handed use on
+// a phone; the WCAG 2.5.5 / mobile-ergonomics minimum is 44px.
 const BTN_SIZE: Record<ButtonSize, string> = {
   sm: "h-8 px-2.5 text-xs",
   md: "h-9 px-3.5 text-sm",
+  lg: "h-11 px-4 text-sm",
+  xl: "h-12 px-5 text-[15px]",
 };
 
 export function Button({
