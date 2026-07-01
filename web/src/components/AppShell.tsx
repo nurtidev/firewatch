@@ -22,6 +22,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { navForRole, ROLE_LABEL } from "@/lib/nav";
 import { cn } from "@/lib/cn";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const ICONS: Record<string, LucideIcon> = {
   "/dashboard": LayoutDashboard,
@@ -99,6 +100,7 @@ export default function AppShell({
             <Link
               key={item.href}
               href={item.href}
+              title={item.hint}
               aria-current={active ? "page" : undefined}
               className={cn(
                 "group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors duration-[var(--dur-fast)]",
@@ -134,6 +136,7 @@ export default function AppShell({
               {ROLE_LABEL[user.role]}
             </div>
           </div>
+          <ThemeToggle />
           <button
             onClick={() => {
               logout();
@@ -184,6 +187,7 @@ export default function AppShell({
           <div className="text-base font-bold tracking-tight">
             FireWatch<span className="text-accent">.</span>
           </div>
+          <ThemeToggle className="ml-auto" />
         </header>
 
         <main

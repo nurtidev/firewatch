@@ -2,42 +2,53 @@
 @import "maplibre-gl/dist/maplibre-gl.css";
 
 /* =========================================================================
-   FireWatch design system — mission-critical govtech, dark, dense, calm.
-   Tailwind v4 is CSS-first: @theme vars generate utilities
-   (--color-critical → bg-critical / text-critical / border-critical).
+   FireWatch design system — mission-critical govtech, dense, calm.
+   Dark is the default (control-room); light is a first-class alternative.
+
+   Tailwind v4 CSS-first: color utilities are generated from @theme, but the
+   values are indirected through semantic vars (--bg, --fg, …) so the whole
+   palette flips by swapping one class on <html> (.light). Severity HUES stay
+   identical across themes — "color IS data" — only their tinted surfaces flip.
    ========================================================================= */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Utilities reference the semantic vars (inline = no :root emission, so the
+   :root / .light blocks below fully own the values). */
+@theme inline {
+  --color-bg:            var(--bg);
+  --color-surface:       var(--surface);
+  --color-surface-2:     var(--surface-2);
+  --color-surface-3:     var(--surface-3);
+  --color-border:        var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-muted:         var(--muted);
+  --color-faint:         var(--faint);
+  --color-fg:            var(--fg);
+
+  --color-accent:        var(--accent);
+  --color-accent-hover:  var(--accent-hover);
+  --color-accent-weak:   var(--accent-weak);
+  --color-accent-fg:     var(--accent-fg);
+
+  --color-critical:      var(--critical);
+  --color-high:          var(--high);
+  --color-elevated:      var(--elevated);
+  --color-normal:        var(--normal);
+  --color-info:          var(--info);
+
+  --color-critical-bg:   var(--critical-bg);
+  --color-high-bg:       var(--high-bg);
+  --color-elevated-bg:   var(--elevated-bg);
+  --color-normal-bg:     var(--normal-bg);
+  --color-info-bg:       var(--info-bg);
+
+  --shadow-card:         var(--fw-shadow-card);
+  --shadow-pop:          var(--fw-shadow-pop);
+}
+
+/* Theme-independent tokens */
 @theme {
-  /* Neutral ramp — dark control-room base */
-  --color-bg:        #0a0a0b;   /* app background */
-  --color-surface:   #121215;   /* cards / panels */
-  --color-surface-2: #1a1a1f;   /* raised / hover */
-  --color-surface-3: #232329;   /* inputs / active row */
-  --color-border:    #27272d;   /* hairline dividers */
-  --color-border-strong: #34343c;
-  --color-muted:     #8b8b94;   /* secondary text */
-  --color-faint:     #5c5c64;   /* tertiary / meta */
-  --color-fg:        #ededf0;   /* primary text */
-
-  /* Brand — FireWatch orange */
-  --color-accent:        #ff5a1f;
-  --color-accent-hover:  #ff6f3c;
-  --color-accent-weak:   #2a1209;  /* tinted accent surface */
-  --color-accent-fg:     #0a0a0b;  /* text on accent fill */
-
-  /* Semantic status (severity scale) — color IS data */
-  --color-critical: #ff453a;  /* немедленная угроза */
-  --color-high:     #ff8c1a;  /* высокий риск */
-  --color-elevated: #ffd029;  /* повышенный */
-  --color-normal:   #2fce7e;  /* в норме */
-  --color-info:     #3d9bff;  /* справочно */
-
-  /* Status surfaces (chips/rows on dark) */
-  --color-critical-bg: #2a100e;
-  --color-high-bg:     #2a1a0a;
-  --color-elevated-bg: #292309;
-  --color-normal-bg:   #0c2418;
-  --color-info-bg:     #0c1d2b;
-
   /* Typography — wired from next/font in layout.tsx */
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: var(--font-mono-jb), ui-monospace, "SF Mono", Menlo, monospace;
@@ -59,14 +70,89 @@
   --radius-lg: 14px;
   --radius-xl: 18px;
 
-  /* Elevation — subtle on dark */
-  --shadow-card: 0 1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.35);
-  --shadow-pop:  0 10px 30px -6px rgba(0,0,0,.65), 0 2px 8px rgba(0,0,0,.4);
-
   /* Motion */
   --ease: cubic-bezier(.2, 0, 0, 1);
   --dur-fast: 140ms;
   --dur:      220ms;
+}
+
+/* =========================================================================
+   Palette — DARK (default). No class, or class="dark", on <html>.
+   ========================================================================= */
+:root {
+  color-scheme: dark;
+
+  /* Neutral ramp — dark control-room base */
+  --bg:            #0a0a0b;
+  --surface:       #121215;
+  --surface-2:     #1a1a1f;
+  --surface-3:     #232329;
+  --border:        #27272d;
+  --border-strong: #34343c;
+  --muted:         #8b8b94;
+  --faint:         #5c5c64;
+  --fg:            #ededf0;
+
+  /* Brand — FireWatch orange */
+  --accent:        #ff5a1f;
+  --accent-hover:  #ff6f3c;
+  --accent-weak:   #2a1209;
+  --accent-fg:     #0a0a0b;
+
+  /* Severity — color IS data (identical hue in light) */
+  --critical: #ff453a;
+  --high:     #ff8c1a;
+  --elevated: #ffd029;
+  --normal:   #2fce7e;
+  --info:     #3d9bff;
+
+  /* Severity surfaces — dark tints */
+  --critical-bg: #2a100e;
+  --high-bg:     #2a1a0a;
+  --elevated-bg: #292309;
+  --normal-bg:   #0c2418;
+  --info-bg:     #0c1d2b;
+
+  /* Elevation — deep on dark */
+  --fw-shadow-card: 0 1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.35);
+  --fw-shadow-pop:  0 10px 30px -6px rgba(0,0,0,.65), 0 2px 8px rgba(0,0,0,.4);
+
+  /* Legacy aliases — keep existing var() references alive */
+  --fw-bg: var(--bg);
+  --fw-accent: var(--accent);
+}
+
+/* =========================================================================
+   Palette — LIGHT. class="light" on <html> (set by the theme script).
+   Calm paper-white govtech: soft cool-gray canvas, white panels, ink text.
+   ========================================================================= */
+.light {
+  color-scheme: light;
+
+  --bg:            #f4f5f7;
+  --surface:       #ffffff;
+  --surface-2:     #eef0f3;
+  --surface-3:     #e4e7ec;
+  --border:        #e3e5ea;
+  --border-strong: #cfd2da;
+  --muted:         #55565f;
+  --faint:         #83858e;
+  --fg:            #17181c;
+
+  --accent:        #ff5a1f;
+  --accent-hover:  #f04d16;
+  --accent-weak:   #fff0e9;
+  --accent-fg:     #ffffff;
+
+  /* Severity hue unchanged; surfaces flip to light tints */
+  --critical-bg: #fdece9;
+  --high-bg:     #fcf0e0;
+  --elevated-bg: #fbf5d6;
+  --normal-bg:   #e2f6ec;
+  --info-bg:     #e6f0fc;
+
+  --fw-shadow-card: 0 1px 2px rgba(17,24,39,.06), 0 1px 3px rgba(17,24,39,.10);
+  --fw-shadow-pop:  0 12px 32px -8px rgba(17,24,39,.20), 0 2px 8px rgba(17,24,39,.10);
 }
 
 /* =========================================================================
@@ -90,12 +176,6 @@ body {
 /* Tabular numerals everywhere they read as data */
 .tabular { font-variant-numeric: tabular-nums; }
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-
-/* Legacy aliases — keep existing var() references alive */
-:root {
-  --fw-bg: var(--color-bg);
-  --fw-accent: var(--color-accent);
-}
 
 /* Focus — always visible, accent ring, never removed */
 :where(a, button, input, select, textarea, [tabindex]):focus-visible {
@@ -122,10 +202,18 @@ body {
 }
 *::-webkit-scrollbar-thumb:hover { background: var(--color-faint); }
 
-/* Native form controls inherit the dark palette */
+/* Native form controls inherit the active palette */
 input, select, textarea, button { font: inherit; }
 select option { background: var(--color-surface); color: var(--color-fg); }
 ::placeholder { color: var(--color-faint); }
+
+/* Theme transition — flip palette without a jarring snap */
+html.fw-theme-ready,
+html.fw-theme-ready * {
+  transition: background-color var(--dur) var(--ease),
+              border-color var(--dur) var(--ease),
+              color var(--dur) var(--ease);
+}
 
 /* =========================================================================
    Animations — purposeful only

@@ -27,6 +27,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { DEFAULT_ROUTE } from "@/lib/nav";
 import { cn } from "@/lib/cn";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 /* ── Content ─────────────────────────────────────────────────────────── */
 
@@ -145,7 +146,7 @@ const TRUST: { icon: LucideIcon; title: string; text: string }[] = [
 ];
 
 const STATS: { n: string; u?: string; l: string }[] = [
-  { n: "~250", u: "тыс.", l: "зданий в пилоте (Астана)" },
+  { n: "~250", u: "тыс.", l: "зданий Астаны — целевой охват" },
   { n: "30", u: "+", l: "признаков в модели риска" },
   { n: "6", l: "модулей в одной платформе" },
   { n: "30", u: "дней", l: "до пилота после LOI" },
@@ -179,29 +180,30 @@ export default function Landing() {
   const appLabel = user ? "Открыть платформу" : "Войти";
 
   return (
-    <div className="min-h-screen bg-[#fbfbfd] text-zinc-900">
+    <div className="min-h-screen bg-bg text-fg">
       {/* ── Header ── */}
       <header
         className={cn(
           "sticky top-0 z-50 backdrop-blur-xl transition-colors",
           scrolled
-            ? "border-b border-zinc-200 bg-[#fbfbfd]/80"
-            : "border-b border-transparent bg-[#fbfbfd]/60",
+            ? "border-b border-border bg-bg/80"
+            : "border-b border-transparent bg-bg/60",
         )}
       >
         <div className="mx-auto flex h-[66px] max-w-[1180px] items-center justify-between px-5 sm:px-6">
           <Brand />
-          <nav className="hidden items-center gap-8 text-sm font-medium text-zinc-600 md:flex">
+          <nav className="hidden items-center gap-8 text-sm font-medium text-muted md:flex">
             {NAV_LINKS.map((l) => (
-              <a key={l.href} href={l.href} className="transition-colors hover:text-zinc-900">
+              <a key={l.href} href={l.href} className="transition-colors hover:text-fg">
                 {l.label}
               </a>
             ))}
           </nav>
           <div className="flex items-center gap-2.5">
+            <ThemeToggle className="h-10 w-10 rounded-[12px] border border-border-strong" />
             <Link
               href={appHref}
-              className="hidden rounded-[12px] border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold shadow-sm transition-colors hover:border-zinc-400 sm:inline-flex"
+              className="hidden rounded-[12px] border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-fg shadow-card transition-colors hover:border-faint sm:inline-flex"
             >
               {appLabel}
             </Link>
@@ -210,7 +212,7 @@ export default function Landing() {
             </a>
             <button
               onClick={() => setMenu((v) => !v)}
-              className="grid h-10 w-10 place-items-center rounded-[12px] border border-zinc-300 text-zinc-700 md:hidden"
+              className="grid h-10 w-10 place-items-center rounded-[12px] border border-border-strong text-muted md:hidden"
               aria-label="Меню"
               aria-expanded={menu}
               aria-controls="mobile-nav"
@@ -221,21 +223,21 @@ export default function Landing() {
         </div>
         {/* Mobile menu */}
         {menu && (
-          <div id="mobile-nav" className="border-t border-zinc-200 bg-[#fbfbfd] px-5 py-4 md:hidden">
+          <div id="mobile-nav" className="border-t border-border bg-bg px-5 py-4 md:hidden">
             <nav className="flex flex-col gap-1">
               {NAV_LINKS.map((l) => (
                 <a
                   key={l.href}
                   href={l.href}
                   onClick={() => setMenu(false)}
-                  className="rounded-lg px-3 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+                  className="rounded-lg px-3 py-2.5 text-sm font-medium text-muted hover:bg-surface-2 hover:text-fg"
                 >
                   {l.label}
                 </a>
               ))}
               <Link
                 href={appHref}
-                className="mt-2 rounded-lg px-3 py-2.5 text-sm font-semibold text-zinc-900 hover:bg-zinc-100"
+                className="mt-2 rounded-lg px-3 py-2.5 text-sm font-semibold text-fg hover:bg-surface-2"
               >
                 {appLabel}
               </Link>
@@ -262,21 +264,21 @@ export default function Landing() {
         />
         <div className="relative mx-auto grid max-w-[1180px] items-center gap-12 lg:grid-cols-[1.05fr_.95fr] lg:gap-14">
           <div>
-            <span className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-2 py-1.5 pr-3.5 text-[12.5px] font-semibold text-zinc-600 shadow-sm">
+            <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-2 py-1.5 pr-3.5 text-[12.5px] font-semibold text-muted shadow-card">
               <span className="rounded-full bg-accent px-2.5 py-0.5 text-[11px] text-white">Пилот</span>
-              Астана · ~250 000 зданий под наблюдением
+              Астана · ~250 000 зданий — периметр пилота
             </span>
             <h1 className="mt-5 max-w-[12ch] text-[clamp(2.1rem,5vw,3.5rem)] font-extrabold leading-[1.04] tracking-tight">
               Пожары можно{" "}
               <span
                 className="bg-clip-text text-transparent"
-                style={{ backgroundImage: "linear-gradient(120deg,#0d0d12 40%,var(--color-accent) 115%)" }}
+                style={{ backgroundImage: "linear-gradient(120deg,var(--color-fg) 40%,var(--color-accent) 115%)" }}
               >
                 предсказывать
               </span>{" "}
               — до того, как они начнутся
             </h1>
-            <p className="mt-5 max-w-[540px] text-[clamp(1rem,2vw,1.2rem)] leading-relaxed text-zinc-500">
+            <p className="mt-5 max-w-[540px] text-[clamp(1rem,2vw,1.2rem)] leading-relaxed text-muted">
               FireWatch — предиктивная аналитика пожарной безопасности для ДЧС РК. Модель
               оценивает риск каждого здания, объясняет почему и направляет инспекторов туда,
               где это важнее всего.
@@ -289,7 +291,7 @@ export default function Landing() {
               </a>
               <a
                 href="#how"
-                className="inline-flex items-center gap-2 rounded-[12px] border border-zinc-300 bg-white px-6 py-3.5 text-[15px] font-semibold shadow-sm transition-colors hover:border-zinc-400"
+                className="inline-flex items-center gap-2 rounded-[12px] border border-border-strong bg-surface px-6 py-3.5 text-[15px] font-semibold text-fg shadow-card transition-colors hover:border-faint"
               >
                 Как это работает
               </a>
@@ -316,20 +318,20 @@ export default function Landing() {
           {PROBLEMS.map((p) => (
             <div
               key={p.title}
-              className="rounded-[14px] border border-zinc-200 bg-white p-6 shadow-sm"
+              className="rounded-[14px] border border-border bg-surface p-6 shadow-card"
             >
               <span className="mb-4 grid h-11 w-11 place-items-center rounded-xl bg-accent/10 text-accent">
                 <p.icon className="h-[22px] w-[22px]" strokeWidth={2} />
               </span>
               <h3 className="text-[17px] font-bold tracking-tight">{p.title}</h3>
-              <p className="mt-2.5 text-[14.5px] leading-relaxed text-zinc-500">{p.text}</p>
+              <p className="mt-2.5 text-[14.5px] leading-relaxed text-muted">{p.text}</p>
             </div>
           ))}
         </div>
       </Section>
 
       {/* ── How it works ── */}
-      <div className="bg-[#f4f4f7]">
+      <div className="bg-surface-2">
         <Section id="how">
           <SectionHead
             center
@@ -341,13 +343,13 @@ export default function Landing() {
             {STEPS.map((s, i) => (
               <div key={s.title} className="relative pt-5">
                 {i < STEPS.length - 1 && (
-                  <span className="absolute left-10 top-[26px] hidden h-0.5 w-full bg-gradient-to-r from-zinc-300 to-transparent sm:block" />
+                  <span className="absolute left-10 top-[26px] hidden h-0.5 w-full bg-gradient-to-r from-border-strong to-transparent sm:block" />
                 )}
                 <span className="text-[13px] font-extrabold tracking-wider text-accent">
                   {String(i + 1).padStart(2, "0")}
                 </span>
                 <h3 className="mt-3.5 text-[19px] font-bold tracking-tight">{s.title}</h3>
-                <p className="mt-2.5 text-[14.5px] leading-relaxed text-zinc-500">{s.text}</p>
+                <p className="mt-2.5 text-[14.5px] leading-relaxed text-muted">{s.text}</p>
               </div>
             ))}
           </div>
@@ -366,17 +368,17 @@ export default function Landing() {
           {MODULES.map((m) => (
             <div
               key={m.k}
-              className="group rounded-[14px] border border-zinc-200 bg-white p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md"
+              className="group rounded-[14px] border border-border bg-surface p-6 shadow-card transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-pop"
             >
               <div className="flex items-center gap-3">
                 <span className={cn("grid h-[42px] w-[42px] place-items-center rounded-xl", m.tint)}>
                   <m.icon className="h-5 w-5" strokeWidth={2} />
                 </span>
-                <span className="text-[11px] font-bold tracking-[0.1em] text-zinc-500">{m.k}</span>
+                <span className="text-[11px] font-bold tracking-[0.1em] text-muted">{m.k}</span>
               </div>
               <h3 className="mt-4 text-[16.5px] font-bold tracking-tight">{m.title}</h3>
-              <p className="mt-2.5 text-[12.5px] font-semibold text-[#c2410c]">{m.pain}</p>
-              <p className="mt-1.5 text-[14px] leading-relaxed text-zinc-500">{m.text}</p>
+              <p className="mt-2.5 text-[12.5px] font-semibold text-accent">{m.pain}</p>
+              <p className="mt-1.5 text-[14px] leading-relaxed text-muted">{m.text}</p>
             </div>
           ))}
         </div>
@@ -462,7 +464,7 @@ export default function Landing() {
       </section>
 
       {/* ── Footer ── */}
-      <footer className="border-t border-zinc-200 px-5 py-11 text-[13.5px] text-zinc-500 sm:px-6">
+      <footer className="border-t border-border px-5 py-11 text-[13.5px] text-muted sm:px-6">
         <div className="mx-auto flex max-w-[1180px] flex-wrap items-center justify-between gap-5">
           <Brand small />
           <div>Предиктивная пожарная безопасность · ДЧС РК · Астана</div>
@@ -518,7 +520,7 @@ function HeroStat({ n, l }: { n: string; l: string }) {
   return (
     <div className="flex flex-col">
       <span className="text-2xl font-extrabold tracking-tight tabular">{n}</span>
-      <span className="text-[12.5px] font-medium text-zinc-600">{l}</span>
+      <span className="text-[12.5px] font-medium text-muted">{l}</span>
     </div>
   );
 }
@@ -548,7 +550,7 @@ function SectionHead({
       <h2 className="mt-3.5 text-[clamp(1.6rem,3.6vw,2.5rem)] font-extrabold leading-tight tracking-tight">
         {title}
       </h2>
-      <p className="mt-4 text-[17px] leading-relaxed text-zinc-500">{sub}</p>
+      <p className="mt-4 text-[17px] leading-relaxed text-muted">{sub}</p>
     </div>
   );
 }
@@ -705,7 +707,7 @@ function FloatCard({
   return (
     <div
       className={cn(
-        "absolute flex items-center gap-3 rounded-[13px] border border-zinc-200 bg-white px-3.5 py-3 shadow-md",
+        "absolute flex items-center gap-3 rounded-[13px] border border-border bg-surface px-3.5 py-3 shadow-pop",
         className,
       )}
     >
@@ -713,8 +715,8 @@ function FloatCard({
         <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
       </span>
       <div>
-        <div className="text-[12px] font-bold leading-tight text-zinc-900">{title}</div>
-        <div className="text-[11px] text-zinc-500">{sub}</div>
+        <div className="text-[12px] font-bold leading-tight text-fg">{title}</div>
+        <div className="text-[11px] text-muted">{sub}</div>
       </div>
     </div>
   );
