@@ -108,7 +108,7 @@ export default function ModelPage() {
                 label="ROC-AUC"
                 value={m.roc_auc.toFixed(3)}
                 icon={Target}
-                hint="Различение «пожар / нет»"
+                hint="0.5 — случайно · 1.0 — идеал"
               />
               <MetricCard
                 label="PR-AUC"

@@ -21,11 +21,15 @@ TYPE_LABELS = {
 }
 
 
-# Risk-band SQL filters — kept in sync with lib/risk.ts scoreSeverity thresholds.
+# Risk-band SQL filters — kept in sync with lib/risk.ts scoreSeverity thresholds
+# (4 bands: low <20, mid 20–39, high 40–59, critical 60+). The map legend and the
+# filter dropdown MUST expose the same four bands, or "Высокий" silently includes
+# critical objects and reads as a broken filter.
 RISK_BANDS = {
     "low": "r.score < 20",
     "mid": "r.score BETWEEN 20 AND 39",
-    "high": "r.score >= 40",
+    "high": "r.score BETWEEN 40 AND 59",
+    "critical": "r.score >= 60",
 }
 
 

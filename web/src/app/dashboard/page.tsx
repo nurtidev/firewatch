@@ -24,6 +24,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import DemoBanner from "@/components/DemoBanner";
 import { apiFetch, useAuth } from "@/lib/auth";
 import { navForRole } from "@/lib/nav";
 import { scoreSeverity, SEVERITY } from "@/lib/risk";
@@ -130,6 +131,8 @@ export default function Dashboard() {
             </>
           }
         />
+
+        <DemoBanner className="mt-6" />
 
         {error ? (
           <EmptyState

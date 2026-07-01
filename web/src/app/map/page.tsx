@@ -28,9 +28,12 @@ const DISTRICTS = [
   "Байконырский",
   "Нуринский",
 ];
+// Same four bands as LEGEND and api RISK_BANDS — filter and legend must match,
+// otherwise "Высокий" silently includes critical objects and looks broken.
 const RISKS = [
   ["", "Любой риск"],
-  ["high", "Высокий (40+)"],
+  ["critical", "Критический (60+)"],
+  ["high", "Высокий (40–59)"],
   ["mid", "Средний (20–39)"],
   ["low", "Низкий (0–19)"],
 ];
@@ -164,7 +167,7 @@ export default function MapPage() {
 
             {/* Hint */}
             <p className="mt-3 text-2xs text-faint">
-              Нажмите на здание — карточка риска с SHAP-анализом
+              Нажмите на здание — карточка риска с разбором факторов
             </p>
           </div>
         )}
