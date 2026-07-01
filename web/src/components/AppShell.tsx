@@ -24,7 +24,7 @@ import { navForRole, ROLE_LABEL } from "@/lib/nav";
 import { cn } from "@/lib/cn";
 
 const ICONS: Record<string, LucideIcon> = {
-  "/": LayoutDashboard,
+  "/dashboard": LayoutDashboard,
   "/routes": Route,
   "/control": Activity,
   "/map": Map,
@@ -72,7 +72,7 @@ export default function AppShell({
     <div className="flex h-full flex-col">
       {/* Brand */}
       <div className="flex items-center justify-between px-5 pb-5 pt-5">
-        <Link href="/" className="block">
+        <Link href="/dashboard" className="block">
           <div className="text-lg font-bold tracking-tight">
             FireWatch<span className="text-accent">.</span>
           </div>
@@ -93,9 +93,7 @@ export default function AppShell({
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3" aria-label="Основная навигация">
         {items.map((item) => {
           const active =
-            item.href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(item.href);
+            pathname === item.href || pathname.startsWith(item.href + "/");
           const Icon = ICONS[item.href] ?? LayoutDashboard;
           return (
             <Link
