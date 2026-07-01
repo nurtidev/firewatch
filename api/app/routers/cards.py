@@ -3,8 +3,17 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+# Who may approve/reject a prescription. Leadership only reads dashboards — the
+# officer who signs off on an administrative act is the inspector/supervisor.
+REVIEW_ROLES = {"inspector", "supervisor", "admin"}
+
+
+class PrescriptionReview(BaseModel):
+    status: str  # "approved" | "rejected"
 
 from app.audit import audit, client_ip
 from app.config import settings
@@ -152,7 +161,8 @@ def _card_detail(card_id: int, db: Session) -> dict:
 
     presc = db.execute(
         text(
-            "SELECT issue, recommendation, deadline_days, severity "
+            "SELECT id, issue, recommendation, deadline_days, severity, "
+            "       status, reviewed_by, reviewed_at "
             "FROM prescriptions WHERE card_id = :id ORDER BY id"
         ),
         {"id": card_id},
@@ -170,7 +180,11 @@ def _card_detail(card_id: int, db: Session) -> dict:
         "status": card["status"],
         "created_at": card["created_at"].isoformat(),
         "extracted": card["extracted"],
-        "prescriptions": [dict(p) for p in presc],
+        "prescriptions": [
+            dict(p)
+            | {"reviewed_at": p["reviewed_at"].isoformat() if p["reviewed_at"] else None}
+            for p in presc
+        ],
         "has_file": has_file,
     }
 
@@ -238,6 +252,53 @@ def delete_card(
         detail={"card_id": card_id},
     )
     return {"ok": True, "deleted": card_id}
+
+
+@router.post("/{card_id}/prescriptions/{prescription_id}/review")
+def review_prescription(
+    card_id: int,
+    prescription_id: int,
+    body: PrescriptionReview,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(current_user),
+) -> dict:
+    """Confirm or reject an AI-generated prescription before it is acted on.
+
+    A prescription is an administrative act — it must not leave 'pending' without
+    a responsible officer's decision, which is recorded for audit.
+    """
+    if body.status not in ("approved", "rejected"):
+        raise HTTPException(400, "status должен быть 'approved' или 'rejected'")
+    if user.get("role") not in REVIEW_ROLES:
+        raise HTTPException(403, "Недостаточно прав для рассмотрения предписания")
+
+    updated = db.execute(
+        text(
+            """
+            UPDATE prescriptions
+               SET status = :st, reviewed_by = :by, reviewed_at = now()
+             WHERE id = :pid AND card_id = :cid
+            RETURNING id
+            """
+        ),
+        {"st": body.status, "by": user.get("username"), "pid": prescription_id, "cid": card_id},
+    ).scalar()
+    if updated is None:
+        raise HTTPException(404, "Предписание не найдено")
+    db.commit()
+
+    audit(
+        action="review.prescription",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="POST",
+        path=f"/cards/{card_id}/prescriptions/{prescription_id}/review",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"card_id": card_id, "prescription_id": prescription_id, "status": body.status},
+    )
+    return _card_detail(card_id, db)
 
 
 def _json(obj: dict) -> str:

@@ -6,10 +6,29 @@ instructed to use ONLY what is in the document — no invented data.
 """
 
 import base64
+import re
 
 import anthropic
 
 from app.config import settings
+
+# Phone-like runs: an optional leading + and 6+ digits with spaces/dashes/parens.
+# Used to strip responsible-person phone numbers out of the extracted `contacts`
+# field so they are never stored in clear (ПДн minimisation).
+_PHONE_RE = re.compile(r"\+?\d[\d\s\-()]{5,}\d")
+
+
+def _mask_contacts(value: str) -> str:
+    """Mask phone numbers in a contacts string, keeping the last 2 digits for
+    reference (e.g. «Начальник охраны +7 701 234-56-78» → «… +7 ***-**-78»)."""
+
+    def repl(m: re.Match) -> str:
+        digits = re.sub(r"\D", "", m.group())
+        if len(digits) < 6:  # too short to be a phone — leave as-is
+            return m.group()
+        return f"***-**-{digits[-2:]}"
+
+    return _PHONE_RE.sub(repl, value)
 
 EXTRACT_TOOL = {
     "name": "extract_card",
@@ -68,6 +87,9 @@ PROMPT = (
     "деревянные перекрытия, складирование в подвалах, неисправный гидрант, "
     "превышение норматива прибытия и т.п.) — с конкретной мерой, сроком "
     "устранения в днях и уровнем критичности. "
+    "В поле contacts НЕ приводи телефонные номера полностью — замаскируй их "
+    "(оставь только последние 2 цифры, например «+7 ***-**-78»); должность/роль "
+    "можно оставить. "
     "Верни результат через инструмент extract_card."
 )
 
@@ -99,5 +121,11 @@ def extract_card(data: bytes, media_type: str) -> dict:
 
     for block in msg.content:
         if block.type == "tool_use":
-            return block.input
+            result = block.input
+            # Belt-and-suspenders: even though the prompt asks Claude to mask
+            # phones, redact the stored value ourselves so ПДн never lands in the
+            # DB in clear if the model returns a full number anyway.
+            if settings.mask_pii and isinstance(result.get("contacts"), str):
+                result["contacts"] = _mask_contacts(result["contacts"])
+            return result
     raise RuntimeError("Claude не вернул структурированный результат")

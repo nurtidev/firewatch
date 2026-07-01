@@ -25,6 +25,10 @@ import {
   Ruler,
   Baby,
   Map,
+  Check,
+  X,
+  ShieldCheck,
+  Ban,
   type LucideIcon,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
@@ -53,11 +57,17 @@ import { cn } from "@/lib/cn";
 
 /* ─── Types ─────────────────────────────────────────────────────────────── */
 
+type PrescriptionStatus = "pending" | "approved" | "rejected";
+
 type Prescription = {
+  id: number;
   issue: string | null;
   recommendation: string;
   deadline_days: number | null;
   severity: string | null;
+  status: PrescriptionStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
 };
 
 type ProcessedCard = {
@@ -117,14 +127,14 @@ const FIELDS: [string, string][] = [
   ["address", "Адрес"],
   ["object_type", "Тип объекта"],
   ["category", "Категория"],
-  ["fire_resistance", "Огнестойкость"],
+  ["fire_resistance", "Степень огнестойкости"],
   ["floors", "Этажность / блоки"],
   ["year_built", "Год постройки"],
   ["construction", "Конструктив"],
-  ["fire_systems", "АПС / АУПТ"],
+  ["fire_systems", "Сигнализация / автотушение"],
   ["water_source", "Водоснабжение"],
-  ["nearest_station", "Ближайшая ПЧ"],
-  ["distance_to_station", "Расстояние до ПЧ"],
+  ["nearest_station", "Ближайшая пожарная часть"],
+  ["distance_to_station", "Расстояние до части"],
   ["arrival_time", "Время прибытия"],
   ["fire_rank", "Ранг пожара"],
   ["contacts", "Контакты"],
@@ -141,6 +151,32 @@ function prescriptionSeverity(s: string | null): (typeof SEVERITY)[Severity] {
   if (s === "medium") return SEVERITY.high;
   return SEVERITY.elevated;
 }
+
+/* ─── Prescription review status → chip meta ─────────────────────────────── */
+
+const PRESCRIPTION_STATUS: Record<
+  PrescriptionStatus,
+  { label: string; verb: string; icon: LucideIcon; cls: string }
+> = {
+  pending: {
+    label: "На подтверждении",
+    verb: "Ожидает решения инспектора",
+    icon: Clock,
+    cls: "border-elevated/40 bg-elevated-bg text-elevated",
+  },
+  approved: {
+    label: "Утверждено",
+    verb: "Утвердил",
+    icon: ShieldCheck,
+    cls: "border-normal/40 bg-normal-bg text-normal",
+  },
+  rejected: {
+    label: "Отклонено",
+    verb: "Отклонил",
+    icon: Ban,
+    cls: "border-critical/40 bg-critical-bg text-critical",
+  },
+};
 
 /* ─── Page ───────────────────────────────────────────────────────────────── */
 
@@ -202,6 +238,38 @@ export default function CardsPage() {
   async function openCard(id: number) {
     const res = await apiFetch(`/cards/${id}`);
     if (res.ok) setCard(await res.json());
+  }
+
+  const [reviewing, setReviewing] = useState<number | null>(null);
+
+  async function reviewPrescription(
+    cardId: number,
+    prescriptionId: number,
+    status: "approved" | "rejected",
+  ) {
+    setReviewing(prescriptionId);
+    setError(null);
+    try {
+      const res = await apiFetch(
+        `/cards/${cardId}/prescriptions/${prescriptionId}/review`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        },
+      );
+      if (res.ok) {
+        setCard(await res.json());
+      } else {
+        const msg = await res.json().catch(() => ({}));
+        setError(
+          (msg as { detail?: string }).detail ||
+            `Не удалось сохранить решение (${res.status})`,
+        );
+      }
+    } finally {
+      setReviewing(null);
+    }
   }
 
   async function deleteCard(id: number, label: string) {
@@ -415,19 +483,27 @@ export default function CardsPage() {
               {/* Prescriptions */}
               {card.prescriptions.length > 0 && (
                 <Card className="p-5">
-                  <div className="mb-4 flex items-center justify-between">
+                  <div className="mb-1 flex items-center justify-between">
                     <SectionLabel>Автопредписания</SectionLabel>
                     <Badge tone="accent">{card.prescriptions.length}</Badge>
                   </div>
+                  <p className="mb-4 text-xs text-muted">
+                    Сформированы ИИ по извлечённым данным. Предписание —
+                    административный акт: выдаётся владельцу только после
+                    подтверждения инспектором.
+                  </p>
                   <ol className="space-y-3">
-                    {card.prescriptions.map((p, i) => {
+                    {card.prescriptions.map((p) => {
                       const sev = prescriptionSeverity(p.severity);
+                      const st =
+                        PRESCRIPTION_STATUS[p.status] ??
+                        PRESCRIPTION_STATUS.pending;
                       return (
                         <li
-                          key={i}
+                          key={p.id}
                           className="rounded-md border border-border bg-surface-2 p-3"
                         >
-                          <div className="flex flex-wrap items-start gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <StatusChip severity={sev} />
                             {p.deadline_days != null && (
                               <span className="inline-flex items-center gap-1 text-xs text-faint">
@@ -435,11 +511,53 @@ export default function CardsPage() {
                                 <span className="tabular">{p.deadline_days} дн.</span>
                               </span>
                             )}
+                            <span
+                              className={cn(
+                                "ml-auto inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium",
+                                st.cls,
+                              )}
+                            >
+                              <st.icon className="h-3 w-3" />
+                              {st.label}
+                            </span>
                           </div>
                           {p.issue && (
                             <p className="mt-2 text-xs text-muted">{p.issue}</p>
                           )}
                           <p className="mt-1 text-sm text-fg">{p.recommendation}</p>
+
+                          {p.status === "pending" ? (
+                            <div className="mt-3 flex gap-2">
+                              <Button
+                                size="sm"
+                                variant="success"
+                                disabled={reviewing === p.id}
+                                onClick={() =>
+                                  reviewPrescription(card.id, p.id, "approved")
+                                }
+                              >
+                                <Check className="h-4 w-4" /> Утвердить
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={reviewing === p.id}
+                                onClick={() =>
+                                  reviewPrescription(card.id, p.id, "rejected")
+                                }
+                              >
+                                <X className="h-4 w-4" /> Отклонить
+                              </Button>
+                            </div>
+                          ) : (
+                            p.reviewed_by && (
+                              <p className="mt-2 text-2xs text-faint">
+                                {st.verb}: {p.reviewed_by}
+                                {p.reviewed_at &&
+                                  ` · ${new Date(p.reviewed_at).toLocaleString("ru")}`}
+                              </p>
+                            )
+                          )}
                         </li>
                       );
                     })}

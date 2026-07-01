@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     # Where uploaded operational-card files are stored (Module 03).
     uploads_dir: str = "/app/uploads"
 
+    # Module 03: mask phone numbers in the extracted `contacts` field before it is
+    # persisted/returned, so ПДн of responsible persons is not stored in clear.
+    # NOTE: the raw scan is still sent to the extraction vendor — masking here only
+    # minimises PII at rest; eliminating cross-border transmission is a separate
+    # legal/architecture track (on-prem/redacted model), not a code flag.
+    mask_pii: bool = True
+
     # Module 05: 10-min normative arrival → ~3.5 km road reach (straight-line
     # approximation until OSRM isochrones replace it).
     coverage_radius_m: int = 3500
