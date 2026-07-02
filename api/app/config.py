@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     database_url: str = _DEV_DB_URL
     anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-4-6"
+    anthropic_model: str = "claude-sonnet-5"
     ml_url: str = "http://ml:8000"
     overpass_url: str = "https://overpass-api.de/api/interpreter"
     jwt_secret: str = _DEV_JWT_SECRET

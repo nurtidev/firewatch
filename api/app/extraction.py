@@ -18,6 +18,48 @@ from app.config import settings
 _PHONE_RE = re.compile(r"\+?\d[\d\s\-()]{5,}\d")
 
 
+# Anthropic caps a single request at 32 MB; base64 inflates raw bytes ~1.37x, so
+# the PDF must stay under ~24 MB. Real ДЧС scans run 19–26 MB and would blow the
+# limit, so oversized PDFs are re-rendered at progressively lower DPI before
+# upload. Only scans (no text layer to lose) ever cross this threshold;
+# born-digital PDFs are small and pass through untouched.
+_MAX_PDF_BYTES = 20 * 1024 * 1024
+
+
+def _shrink_pdf_if_needed(data: bytes) -> bytes:
+    """Re-render an oversized scanned PDF at lower DPI until it fits Anthropic's
+    request limit. Returns the smallest result achieved, or the original bytes if
+    already small enough or if PyMuPDF is unavailable."""
+    if len(data) <= _MAX_PDF_BYTES:
+        return data
+    try:
+        import fitz  # PyMuPDF — heavy, imported lazily and only for large scans
+    except ImportError:
+        return data  # best effort: let the API reject it rather than crash import
+
+    src = fitz.open(stream=data, filetype="pdf")
+    smallest = data
+    try:
+        for dpi in (150, 120, 100, 72):
+            out = fitz.open()
+            try:
+                for page in src:
+                    pix = page.get_pixmap(dpi=dpi)
+                    jpeg = pix.tobytes(output="jpeg", jpg_quality=70)
+                    new_page = out.new_page(width=page.rect.width, height=page.rect.height)
+                    new_page.insert_image(page.rect, stream=jpeg)
+                buf = out.tobytes(deflate=True, garbage=4)
+            finally:
+                out.close()
+            if len(buf) < len(smallest):
+                smallest = buf
+            if len(buf) <= _MAX_PDF_BYTES:
+                break
+    finally:
+        src.close()
+    return smallest
+
+
 def _mask_contacts(value: str) -> str:
     """Mask phone numbers in a contacts string, keeping the last 2 digits for
     reference (e.g. «Начальник охраны +7 701 234-56-78» → «… +7 ***-**-78»)."""
@@ -98,13 +140,15 @@ def extract_card(data: bytes, media_type: str) -> dict:
     if not settings.anthropic_api_key:
         raise RuntimeError("ANTHROPIC_API_KEY не задан — извлечение недоступно")
 
-    b64 = base64.standard_b64encode(data).decode()
     if media_type == "application/pdf":
+        data = _shrink_pdf_if_needed(data)
+        b64 = base64.standard_b64encode(data).decode()
         source_block = {
             "type": "document",
             "source": {"type": "base64", "media_type": "application/pdf", "data": b64},
         }
     else:
+        b64 = base64.standard_b64encode(data).decode()
         source_block = {
             "type": "image",
             "source": {"type": "base64", "media_type": media_type, "data": b64},
