@@ -25,19 +25,23 @@ const EXPLICIT_KEY = "fw-theme-set"; // "1" once the user has toggled themselves
 
 /* Inline, render-blocking: runs before first paint to avoid FOUC.
    Resolution order: ?theme= query param → the user's explicit stored choice →
-   per-path default (landing "/" light, app dark). No default is persisted, so a
-   later visit to a different surface still gets that surface's default until the
-   user opts in. Kept in sync with applyTheme() / setTheme() below. */
+   per-path default (marketing landings light, app dark). The marketing surfaces
+   ("/", "/gov", "/business") are light-first (calm, welcoming); everything else
+   is the dark-first control room. No default is persisted, so a later visit to a
+   different surface still gets that surface's default until the user opts in.
+   Kept in sync with applyTheme() / setTheme() below. */
 export const THEME_INIT_SCRIPT = `
 (function () {
   try {
     var q = new URLSearchParams(location.search).get("theme");
     var explicit = localStorage.getItem("${EXPLICIT_KEY}") === "1";
     var stored = localStorage.getItem("${STORAGE_KEY}");
+    var p = location.pathname;
+    var lightFirst = (p === "/" || p === "/gov" || p === "/business");
     var t;
     if (q === "light" || q === "dark") t = q;
     else if (explicit && (stored === "light" || stored === "dark")) t = stored;
-    else t = (location.pathname === "/" ? "light" : "dark");
+    else t = (lightFirst ? "light" : "dark");
     var c = document.documentElement.classList;
     c.remove("light", "dark");
     c.add(t);
