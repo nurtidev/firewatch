@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.access import has_full_access
 from app.config import settings
 from app.db import get_db
 from app.routers.auth import current_user
@@ -200,7 +201,7 @@ def route_today(
                 "overdue_label": (
                     "Ранее не проверялся"
                     if never_inspected
-                    else f"Плановая срок просрочен на {days_since - interval} дн."
+                    else f"Плановый срок проверки просрочен на {days_since - interval} дн."
                     if overdue
                     else "В пределах норматива"
                 ),
@@ -322,8 +323,16 @@ def record_visit(body: VisitRequest, db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/routes/progress")
-def progress(size: int = 6, db: Session = Depends(get_db)) -> list[dict]:
+def progress(
+    size: int = 6,
+    db: Session = Depends(get_db),
+    user: dict = Depends(current_user),
+) -> list[dict]:
     """Live execution status across all inspectors (supervisor view)."""
+    if user.get("role") != "supervisor" and not has_full_access(user):
+        raise HTTPException(
+            403, "Контроль выполнения доступен супервайзеру и руководству"
+        )
     inspectors = db.execute(
         text("SELECT id, name, district FROM inspectors ORDER BY id")
     ).mappings().all()
