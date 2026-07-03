@@ -7,6 +7,7 @@ import { ArrowLeft, MousePointerClick } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { roomTypeMeta } from "@/lib/floorplan";
 import { planCenter } from "@/lib/realgeom";
+import { extrudePolygon, hexColor } from "@/lib/planGeometry";
 import type { RealFloorPlan, RealRoom } from "@/data/floorplans/hayvill";
 
 export type Floor3D = { label: string; hasRooms: boolean };
@@ -25,35 +26,8 @@ const TARGET_FOOTPRINT = 15;
 const TARGET_DETAIL = 22;
 const ROOM_WALL_M = 3; // extrusion height of a room volume, in plan metres
 
-/* ── geometry helpers (shared by stack + detail) ──────────────────────────── */
-
-/**
- * Extrude a plan polygon into a solid. Coordinates are centred on the plan bbox
- * (so the footprint sits on the stack axis) and scaled by `scale`; the solid
- * rises `depth` world-units along +Y from the mesh origin. The −90° X rotation is
- * baked into the geometry so meshes need no per-instance rotation and raycasting
- * stays trivial.
- */
-function extrudePolygon(
-  poly: [number, number][],
-  cx: number,
-  cy: number,
-  scale: number,
-  depth: number,
-): THREE.ExtrudeGeometry {
-  const shape = new THREE.Shape();
-  poly.forEach(([px, py], i) => {
-    const x = (px - cx) * scale;
-    const y = (py - cy) * scale;
-    if (i === 0) shape.moveTo(x, y);
-    else shape.lineTo(x, y);
-  });
-  const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false });
-  geo.rotateX(-Math.PI / 2); // plan XY (y-down) → world XZ; extrude → world +Y
-  return geo;
-}
-
-const hexColor = (css: string) => new THREE.Color(css);
+/* geometry helpers (extrudePolygon, hexColor) live in @/lib/planGeometry —
+   shared with the lightweight landing hero. */
 
 /* ── Public wrapper: stack ⇄ floor-detail with a way back ──────────────────── */
 

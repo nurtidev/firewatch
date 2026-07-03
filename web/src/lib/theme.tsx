@@ -1,10 +1,13 @@
 "use client";
 
 /* Dependency-free theme controller.
-   Dark is the default (mission-critical control-room); light is opt-in and
-   persisted in localStorage. The blocking script in layout.tsx sets the class
-   on <html> before paint, so there is no flash — this provider only mirrors
-   that state into React and writes changes back. */
+   Per-surface default: the marketing landing ("/") is light-first (calm,
+   welcoming), the mission-critical app is dark-first (control-room). Once the
+   user explicitly toggles, THAT choice is persisted and wins everywhere — the
+   per-path default only applies until then. A ?theme= query param always wins
+   for the current load. The blocking script in layout.tsx sets the class on
+   <html> before paint, so there is no flash — this provider only mirrors that
+   state into React and writes explicit changes back. */
 
 import {
   createContext,
@@ -18,16 +21,23 @@ import {
 export type Theme = "dark" | "light";
 
 const STORAGE_KEY = "fw-theme";
+const EXPLICIT_KEY = "fw-theme-set"; // "1" once the user has toggled themselves
 
 /* Inline, render-blocking: runs before first paint to avoid FOUC.
-   Kept in sync with applyTheme() below. */
+   Resolution order: ?theme= query param → the user's explicit stored choice →
+   per-path default (landing "/" light, app dark). No default is persisted, so a
+   later visit to a different surface still gets that surface's default until the
+   user opts in. Kept in sync with applyTheme() / setTheme() below. */
 export const THEME_INIT_SCRIPT = `
 (function () {
   try {
     var q = new URLSearchParams(location.search).get("theme");
-    var t = (q === "light" || q === "dark") ? q : localStorage.getItem("${STORAGE_KEY}");
-    if (t !== "light" && t !== "dark") t = "dark";
-    localStorage.setItem("${STORAGE_KEY}", t);
+    var explicit = localStorage.getItem("${EXPLICIT_KEY}") === "1";
+    var stored = localStorage.getItem("${STORAGE_KEY}");
+    var t;
+    if (q === "light" || q === "dark") t = q;
+    else if (explicit && (stored === "light" || stored === "dark")) t = stored;
+    else t = (location.pathname === "/" ? "light" : "dark");
     var c = document.documentElement.classList;
     c.remove("light", "dark");
     c.add(t);
@@ -66,7 +76,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setThemeState(t);
     applyTheme(t);
     try {
+      // An explicit choice is persisted and now wins over the per-path default.
       localStorage.setItem(STORAGE_KEY, t);
+      localStorage.setItem(EXPLICIT_KEY, "1");
     } catch {
       /* ignore */
     }

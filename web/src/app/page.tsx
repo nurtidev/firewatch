@@ -2,25 +2,26 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   Flame,
   ArrowRight,
   Menu,
   X,
-  Clock,
-  Building2,
-  EyeOff,
   Map,
   Brain,
   ScanLine,
   Route,
   Droplets,
   Sparkles,
+  Shapes,
+  Box,
+  Building2,
+  Layers,
+  ShieldCheck,
   BarChart3,
   FileCheck,
-  ShieldCheck,
   Lock,
-  AlertTriangle,
   Check,
   type LucideIcon,
 } from "lucide-react";
@@ -28,31 +29,103 @@ import { useAuth } from "@/lib/auth";
 import { DEFAULT_ROUTE } from "@/lib/nav";
 import { cn } from "@/lib/cn";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { roomTypeMeta } from "@/lib/floorplan";
+import { HAYVILL_FLOORPLANS, type RealFloorPlan } from "@/data/floorplans/hayvill";
+import FloorPlan2D from "@/components/FloorPlan2D";
 
-/* ── Content ─────────────────────────────────────────────────────────── */
+/* Three.js touches WebGL/window — load client-side only, behind a static-looking
+   skeleton so first paint is never blocked. */
+const LandingHero3D = dynamic(() => import("@/components/LandingHero3D"), {
+  ssr: false,
+  loading: () => <Hero3DSkeleton />,
+});
 
-const PROBLEMS: { icon: LucideIcon; title: string; text: string }[] = [
+/* ── Data helpers ────────────────────────────────────────────────────────── */
+
+const plan = (id: string): RealFloorPlan =>
+  HAYVILL_FLOORPLANS.find((p) => p.id === id) ?? HAYVILL_FLOORPLANS[0];
+
+const HERO_PLAN = plan("typical");
+const PIPELINE_PLAN = plan("apt-2k");
+
+/* ── Content ─────────────────────────────────────────────────────────────── */
+
+const PIPELINE: { icon: LucideIcon; k: string; title: string; text: string }[] = [
   {
-    icon: Clock,
-    title: "Реакция, а не профилактика",
-    text: "Выезд начинается, когда здание уже горит. Предотвратить дешевле и безопаснее, чем тушить — но для этого нужно знать заранее.",
+    icon: ScanLine,
+    k: "01",
+    title: "Бумажный ПТП или .vsd",
+    text: "Отсканированный план тушения, чертёж Visio или PDF-экспликация — исходник, который сегодня лежит в папке.",
   },
   {
-    icon: Building2,
-    title: "250 000 зданий — не охватить вручную",
-    text: "Инспекторов физически не хватает, чтобы проверить всё. Без приоритизации проверки идут «по списку», а не по реальному риску.",
+    icon: Shapes,
+    k: "02",
+    title: "Векторные полигоны",
+    text: "Стены и помещения восстанавливаются в калиброванную геометрию: каждая комната — многоугольник с площадью в м².",
   },
   {
-    icon: EyeOff,
-    title: "Решения вслепую",
-    text: "Данные о зданиях, гидрантах и инцидентах разрознены. Руководитель не видит общей картины и не может обосновать, куда направить силы.",
+    icon: Box,
+    k: "03",
+    title: "Интерактивный 3D-двойник",
+    text: "Помещения окрашены по назначению, кликабельны, вращаются. Тот самый двойник — в шапке этой страницы.",
+  },
+];
+
+const MODULES: {
+  k: string;
+  icon: LucideIcon;
+  title: string;
+  pain: string;
+  text: string;
+}[] = [
+  {
+    k: "01 · CORE",
+    icon: Map,
+    title: "Карта риска",
+    pain: "Где загорится вероятнее всего?",
+    text: "Каждое здание окрашено по оценке 0–100. Фильтры, клик → карточка с историей и SHAP-объяснением.",
+  },
+  {
+    k: "02 · ML",
+    icon: Brain,
+    title: "Прогноз и объяснение",
+    pain: "Почему именно 87 из 100?",
+    text: "XGBoost + SHAP: виден вклад каждого фактора. Ежедневный пересчёт по всему городу.",
+  },
+  {
+    k: "03 · AI",
+    icon: ScanLine,
+    title: "Оперкарточки и ПТП",
+    pain: "Час ручного ввода — в минуту",
+    text: "Скан ОК-1 / ПТП → ИИ извлекает поля и строит 2D/3D-план → автопредписания из нарушений.",
+  },
+  {
+    k: "04 · OPS",
+    icon: Route,
+    title: "План инспекций",
+    pain: "Кого проверять сегодня?",
+    text: "Маршрут на день по риску и сроку, мобильный чек-лист с фото, дашборд выполнения.",
+  },
+  {
+    k: "05 · INFRA",
+    icon: Droplets,
+    title: "Инфраструктура",
+    pain: "Куда не успеть за 10 минут?",
+    text: "Гидранты, части, изохроны прибытия и автоподсветка «слепых зон» покрытия.",
+  },
+  {
+    k: "06 · CHAT",
+    icon: Sparkles,
+    title: "ИИ-аналитик",
+    pain: "Ответ без ручных выгрузок",
+    text: "Вопрос на естественном языке → ответ строго из данных ДЧС, с указанием источников.",
   },
 ];
 
 const STEPS: { title: string; text: string }[] = [
   {
     title: "Сбор данных",
-    text: "Здания из OSM и кадастра, история инцидентов за 3 года, гидранты, пожарные части. Оперкарточки распознаёт Claude — строго из документа, без выдумок.",
+    text: "Здания из OSM и кадастра, история инцидентов за 3 года, гидранты, пожарные части. Оперкарточки распознаёт ИИ — строго из документа, без выдумок.",
   },
   {
     title: "Прогноз риска",
@@ -64,105 +137,41 @@ const STEPS: { title: string; text: string }[] = [
   },
 ];
 
-const MODULES: {
-  k: string;
-  icon: LucideIcon;
-  tint: string;
-  title: string;
-  pain: string;
-  text: string;
-}[] = [
-  {
-    k: "01 · CORE",
-    icon: Map,
-    tint: "bg-accent/10 text-accent",
-    title: "Карта риска",
-    pain: "Где загорится вероятнее всего?",
-    text: "Каждое здание окрашено по оценке 0–100. Фильтры, клик → карточка с историей и SHAP-объяснением.",
-  },
-  {
-    k: "02 · ML",
-    icon: Brain,
-    tint: "bg-info/10 text-info",
-    title: "Прогноз и объяснение",
-    pain: "Почему именно 87 из 100?",
-    text: "XGBoost + SHAP: виден вклад каждого фактора. Ежедневный пересчёт по всему городу.",
-  },
-  {
-    k: "03 · AI",
-    icon: ScanLine,
-    tint: "bg-violet-500/10 text-violet-600",
-    title: "Оперкарточки",
-    pain: "Час ручного ввода — в минуту",
-    text: "Скан ОК-1 → Claude извлекает поля → автопредписания из выявленных нарушений.",
-  },
-  {
-    k: "04 · OPS",
-    icon: Route,
-    tint: "bg-normal/10 text-emerald-600",
-    title: "План инспекций",
-    pain: "Кого проверять сегодня?",
-    text: "Маршрут на день по риску и сроку, мобильный чек-лист с фото, дашборд выполнения.",
-  },
-  {
-    k: "05 · INFRA",
-    icon: Droplets,
-    tint: "bg-sky-500/10 text-sky-600",
-    title: "Инфраструктура",
-    pain: "Куда не успеть за 10 минут?",
-    text: "Гидранты, части, изохроны прибытия и автоподсветка «слепых зон» покрытия.",
-  },
-  {
-    k: "06 · CHAT",
-    icon: Sparkles,
-    tint: "bg-accent/10 text-accent",
-    title: "ИИ-аналитик",
-    pain: "Ответ без ручных выгрузок",
-    text: "Вопрос на естественном языке → ответ строго из данных ДЧС, с указанием источников.",
-  },
-];
-
-const TRUST: { icon: LucideIcon; title: string; text: string }[] = [
-  {
-    icon: BarChart3,
-    title: "Объяснимая модель",
-    text: "SHAP показывает, какие факторы дали оценку. Никаких «чёрных ящиков».",
-  },
-  {
-    icon: FileCheck,
-    title: "ИИ не выдумывает",
-    text: "Claude извлекает поля только из документа, с флагом уверенности.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "Журнал аудита",
-    text: "Все действия фиксируются неизменяемо (WORM). Прослеживаемость решений.",
-  },
-  {
-    icon: Lock,
-    title: "Данные в РК",
-    text: "Роли, разграничение доступа, локализация данных под требования РК.",
-  },
-];
-
 const STATS: { n: string; u?: string; l: string }[] = [
-  { n: "~250", u: "тыс.", l: "зданий Астаны — целевой охват" },
-  { n: "30", u: "+", l: "признаков в модели риска" },
-  { n: "6", l: "модулей в одной платформе" },
-  { n: "30", u: "дней", l: "до пилота после LOI" },
+  { n: "4 505", l: "зданий на карте риска" },
+  { n: "1 128", l: "гидрантов в модели покрытия" },
+  { n: "3", l: "объекта с оцифрованными ПТП" },
+  { n: "81", l: "помещение в 3D-двойниках" },
+  { n: "8", l: "планов этажей оцифровано" },
+];
+
+const TRUST: { icon: LucideIcon; label: string }[] = [
+  { icon: BarChart3, label: "Объяснимая модель (SHAP)" },
+  { icon: FileCheck, label: "ИИ не выдумывает" },
+  { icon: ShieldCheck, label: "Журнал аудита (WORM)" },
+  { icon: Lock, label: "Данные в РК" },
+];
+
+const BUSINESS: string[] = [
+  "Аудит пожарной безопасности и план эвакуации",
+  "2D/3D-планы объекта — автогенерация из документов",
+  "Цифровой паспорт: планы, карточки и риск-оценка в одном портале",
+  "Предиктивная риск-оценка объекта — которой нет ни у кого в РК",
 ];
 
 const NAV_LINKS = [
-  { href: "#problem", label: "Проблема" },
+  { href: "#twin", label: "Цифровой двойник" },
+  { href: "#modules", label: "Платформа" },
   { href: "#how", label: "Как работает" },
-  { href: "#modules", label: "Модули" },
-  { href: "#trust", label: "Доверие" },
+  { href: "#business", label: "Для бизнеса" },
 ];
 
 const DEMO_MAILTO =
   "mailto:nurtilek.assankhan@gmail.com?subject=Запрос%20демо%20FireWatch";
+const BUSINESS_MAILTO =
+  "mailto:nurtilek.assankhan@gmail.com?subject=Оцифровка%20объекта%20—%20FireWatch";
 
-/* ── Page ────────────────────────────────────────────────────────────── */
+/* ── Page ────────────────────────────────────────────────────────────────── */
 
 export default function Landing() {
   const { user } = useAuth();
@@ -250,38 +259,41 @@ export default function Landing() {
       </header>
 
       {/* ── Hero ── */}
-      <section className="relative overflow-hidden px-5 pb-12 pt-14 sm:px-6 sm:pb-16 sm:pt-20">
-        {/* ambient glows */}
+      <section className="relative overflow-hidden px-5 pb-14 pt-14 sm:px-6 sm:pb-20 sm:pt-20">
+        {/* single, restrained accent glow */}
         <div
-          className="pointer-events-none absolute -right-32 -top-40 h-[520px] w-[520px] rounded-full opacity-50 blur-[80px]"
-          style={{ background: "radial-gradient(circle, rgba(255,90,31,.28), transparent 70%)" }}
+          className="pointer-events-none absolute -right-32 -top-40 h-[520px] w-[520px] rounded-full opacity-70 blur-[90px]"
+          style={{
+            background:
+              "radial-gradient(circle, color-mix(in oklab, var(--color-accent) 20%, transparent), transparent 70%)",
+          }}
           aria-hidden
         />
-        <div
-          className="pointer-events-none absolute -left-36 top-28 h-[420px] w-[420px] rounded-full opacity-50 blur-[80px]"
-          style={{ background: "radial-gradient(circle, rgba(61,155,255,.16), transparent 70%)" }}
-          aria-hidden
-        />
-        <div className="relative mx-auto grid max-w-[1180px] items-center gap-12 lg:grid-cols-[1.05fr_.95fr] lg:gap-14">
+        <div className="relative mx-auto grid max-w-[1180px] items-center gap-12 lg:grid-cols-[1.02fr_.98fr] lg:gap-16">
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-2 py-1.5 pr-3.5 text-[12.5px] font-semibold text-muted shadow-card">
-              <span className="rounded-full bg-accent px-2.5 py-0.5 text-[11px] text-white">Пилот</span>
-              Астана · ~250 000 зданий — периметр пилота
+              <span className="rounded-full bg-accent px-2.5 py-0.5 text-[11px] text-accent-fg">
+                Пилот
+              </span>
+              Астана · предиктивная пожарная безопасность
             </span>
-            <h1 className="mt-5 max-w-[12ch] text-[clamp(2.1rem,5vw,3.5rem)] font-extrabold leading-[1.04] tracking-tight">
-              Пожары можно{" "}
+            <h1 className="mt-5 text-[clamp(2.15rem,5vw,3.6rem)] font-extrabold leading-[1.05] tracking-tight">
+              Цифровой двойник объекта{" "}
               <span
                 className="bg-clip-text text-transparent"
-                style={{ backgroundImage: "linear-gradient(120deg,var(--color-fg) 40%,var(--color-accent) 115%)" }}
+                style={{
+                  backgroundImage:
+                    "linear-gradient(120deg,var(--color-fg) 45%,var(--color-accent) 120%)",
+                }}
               >
-                предсказывать
+                и прогноз риска
               </span>{" "}
-              — до того, как они начнутся
+              — до того, как загорится
             </h1>
             <p className="mt-5 max-w-[540px] text-[clamp(1rem,2vw,1.2rem)] leading-relaxed text-muted">
-              FireWatch — предиктивная аналитика пожарной безопасности для ДЧС РК. Модель
-              оценивает риск каждого здания, объясняет почему и направляет инспекторов туда,
-              где это важнее всего.
+              FireWatch превращает бумажный план тушения в интерактивный 3D-двойник, оценивает
+              риск каждого здания и объясняет почему — чтобы ДЧС действовал на опережение, а не
+              постфактум.
             </p>
             <div className="mt-8 flex flex-wrap gap-3.5">
               <a href={DEMO_MAILTO}>
@@ -290,7 +302,7 @@ export default function Landing() {
                 </PrimaryButton>
               </a>
               <a
-                href="#how"
+                href="#twin"
                 className="inline-flex items-center gap-2 rounded-[12px] border border-border-strong bg-surface px-6 py-3.5 text-[15px] font-semibold text-fg shadow-card transition-colors hover:border-faint"
               >
                 Как это работает
@@ -303,28 +315,137 @@ export default function Landing() {
             </div>
           </div>
 
-          <HeroPreview />
+          {/* Live interactive 3D floor */}
+          <div>
+            <div className="relative h-[400px] overflow-hidden rounded-[20px] border border-border bg-surface shadow-pop sm:h-[460px] lg:h-[500px]">
+              <LandingHero3D className="h-full w-full" />
+              <span className="pointer-events-none absolute right-3 top-3 rounded-[10px] border border-accent/30 bg-accent-weak px-2.5 py-1 text-[11px] font-semibold text-accent">
+                Реальная геометрия · 3D
+              </span>
+            </div>
+            <p className="mt-3 px-1 text-[12.5px] leading-relaxed text-faint">
+              Реальная геометрия типового этажа ЖК «Хайвилл-Астана» из оперативного плана
+              тушения. Вращайте, кликайте по помещениям.
+            </p>
+          </div>
         </div>
       </section>
 
-      {/* ── Problem ── */}
-      <Section id="problem">
-        <SectionHead
-          eyebrow="Проблема"
-          title="Сегодня с пожарами борются постфактум"
-          sub="Система реагирует, когда уже горит. Ресурсов на сплошные проверки не хватает, а решения принимаются без данных о том, где риск выше всего."
-        />
-        <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {PROBLEMS.map((p) => (
-            <div
-              key={p.title}
-              className="rounded-[14px] border border-border bg-surface p-6 shadow-card"
-            >
-              <span className="mb-4 grid h-11 w-11 place-items-center rounded-xl bg-accent/10 text-accent">
-                <p.icon className="h-[22px] w-[22px]" strokeWidth={2} />
+      {/* ── Trust / numbers strip ── */}
+      <Section id="numbers">
+        <div className="rounded-[20px] border border-border bg-surface p-7 shadow-card sm:p-9">
+          <div className="grid gap-8 sm:grid-cols-3 lg:grid-cols-5">
+            {STATS.map((s) => (
+              <div key={s.l}>
+                <div className="text-[clamp(1.9rem,4vw,2.6rem)] font-extrabold leading-none tracking-tight">
+                  <span className="tabular">{s.n}</span>
+                  {s.u && <span className="text-accent">{s.u}</span>}
+                </div>
+                <div className="mt-2.5 text-[13px] leading-snug text-muted">{s.l}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2.5 border-t border-border pt-6">
+            {TRUST.map((t) => (
+              <span key={t.label} className="inline-flex items-center gap-2 text-[13px] text-muted">
+                <t.icon className="h-4 w-4 text-accent" strokeWidth={2} aria-hidden />
+                {t.label}
               </span>
-              <h3 className="text-[17px] font-bold tracking-tight">{p.title}</h3>
-              <p className="mt-2.5 text-[14.5px] leading-relaxed text-muted">{p.text}</p>
+            ))}
+          </div>
+          <p className="mt-5 text-[12px] leading-relaxed text-faint">
+            Данные пилота (Астана). Риск-оценки рассчитаны на синтетических признаках и не отражают
+            реальное состояние объектов — до загрузки исторических данных ДЧС.
+          </p>
+        </div>
+      </Section>
+
+      {/* ── Paper ПТП → digital 3D twin (the differentiator) ── */}
+      <div className="bg-surface-2">
+        <Section id="twin">
+          <SectionHead
+            center
+            eyebrow="Оцифровка"
+            title="Из бумажного ПТП — в цифровой 3D-двойник"
+            sub="Планы тушения годами лежат в .vsd и сканах. Мы восстанавливаем из них реальную геометрию помещений — и она сразу становится интерактивной."
+          />
+          <div className="mt-14 grid items-stretch gap-5 md:grid-cols-3">
+            {PIPELINE.map((p, i) => (
+              <div key={p.k} className="relative flex flex-col">
+                {i < PIPELINE.length - 1 && (
+                  <span
+                    className="absolute right-[-14px] top-[86px] z-10 hidden h-6 w-6 place-items-center rounded-full border border-border bg-surface text-muted md:grid"
+                    aria-hidden
+                  >
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </span>
+                )}
+                <div className="flex h-full flex-col rounded-[16px] border border-border bg-surface p-4 shadow-card">
+                  <div className="relative aspect-[3/2] overflow-hidden rounded-[11px] border border-border bg-surface-2">
+                    {i === 2 ? (
+                      <div className="absolute inset-0 grid place-items-center p-3">
+                        <FloorPlan2D plan={PIPELINE_PLAN} compact className="w-full" />
+                      </div>
+                    ) : (
+                      <div className="absolute inset-0 p-3">
+                        <MiniPlan plan={PIPELINE_PLAN} mode={i === 0 ? "scan" : "vector"} />
+                      </div>
+                    )}
+                    {i === 0 && (
+                      <div
+                        className="pointer-events-none absolute inset-0 opacity-[0.5]"
+                        style={{
+                          backgroundImage:
+                            "repeating-linear-gradient(0deg, color-mix(in oklab, var(--color-faint) 22%, transparent) 0 1px, transparent 1px 4px)",
+                        }}
+                        aria-hidden
+                      />
+                    )}
+                  </div>
+                  <div className="mt-4 flex items-center gap-2.5">
+                    <span className="grid h-9 w-9 place-items-center rounded-[10px] border border-border bg-surface-2 text-fg">
+                      <p.icon className="h-[18px] w-[18px]" strokeWidth={1.9} />
+                    </span>
+                    <span className="text-[12px] font-bold tracking-[0.12em] text-accent">
+                      {p.k}
+                    </span>
+                  </div>
+                  <h3 className="mt-3 text-[16.5px] font-bold tracking-tight">{p.title}</h3>
+                  <p className="mt-2 text-[14px] leading-relaxed text-muted">{p.text}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="mt-6 text-center text-[12.5px] text-faint">
+            На примере поквартирной экспликации ЖК «Хайвилл-Астана». Полигоны калиброваны по
+            площадям из ПТП — это оцифровка реального документа, а не иллюстрация.
+          </p>
+        </Section>
+      </div>
+
+      {/* ── Modules ── */}
+      <Section id="modules">
+        <SectionHead
+          center
+          eyebrow="Платформа"
+          title="Шесть модулей — один контур безопасности"
+          sub="Каждый закрывает свою боль ведомства и работает с общими данными."
+        />
+        <div className="mt-12 grid gap-[18px] sm:grid-cols-2 lg:grid-cols-3">
+          {MODULES.map((m) => (
+            <div
+              key={m.k}
+              className="group rounded-[16px] border border-border bg-surface p-6 shadow-card transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-pop"
+            >
+              <div className="flex items-center gap-3">
+                <span className="grid h-[42px] w-[42px] place-items-center rounded-xl border border-border bg-surface-2 text-fg transition-colors group-hover:border-border-strong">
+                  <m.icon className="h-5 w-5" strokeWidth={1.9} />
+                </span>
+                <span className="text-[11px] font-bold tracking-[0.1em] text-faint">{m.k}</span>
+              </div>
+              <h3 className="mt-4 text-[16.5px] font-bold tracking-tight">{m.title}</h3>
+              <p className="mt-2.5 text-[12.5px] font-semibold text-accent">{m.pain}</p>
+              <p className="mt-1.5 text-[14px] leading-relaxed text-muted">{m.text}</p>
             </div>
           ))}
         </div>
@@ -356,95 +477,83 @@ export default function Landing() {
         </Section>
       </div>
 
-      {/* ── Modules ── */}
-      <Section id="modules">
-        <SectionHead
-          center
-          eyebrow="Платформа"
-          title="Шесть модулей — один контур безопасности"
-          sub="Каждый закрывает свою боль ведомства и работает с общими данными."
-        />
-        <div className="mt-12 grid gap-[18px] sm:grid-cols-2 lg:grid-cols-3">
-          {MODULES.map((m) => (
-            <div
-              key={m.k}
-              className="group rounded-[14px] border border-border bg-surface p-6 shadow-card transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-pop"
-            >
-              <div className="flex items-center gap-3">
-                <span className={cn("grid h-[42px] w-[42px] place-items-center rounded-xl", m.tint)}>
-                  <m.icon className="h-5 w-5" strokeWidth={2} />
-                </span>
-                <span className="text-[11px] font-bold tracking-[0.1em] text-muted">{m.k}</span>
-              </div>
-              <h3 className="mt-4 text-[16.5px] font-bold tracking-tight">{m.title}</h3>
-              <p className="mt-2.5 text-[12.5px] font-semibold text-accent">{m.pain}</p>
-              <p className="mt-1.5 text-[14px] leading-relaxed text-muted">{m.text}</p>
+      {/* ── For business objects ── */}
+      <Section id="business">
+        <div className="grid items-center gap-10 rounded-[24px] border border-border bg-surface p-7 shadow-card lg:grid-cols-[1.1fr_.9fr] lg:p-11">
+          <div>
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
+              Для объектов бизнеса
+            </span>
+            <h2 className="mt-3.5 text-[clamp(1.55rem,3.4vw,2.3rem)] font-extrabold leading-tight tracking-tight">
+              Цифровой паспорт объекта — ТРЦ, ЖК и офисам
+            </h2>
+            <p className="mt-4 max-w-[520px] text-[16px] leading-relaxed text-muted">
+              Не просто пакет документов, а объект с ИИ-извлечением, 2D/3D-планами и предиктивной
+              риск-картой. Конкуренты в РК делают то же вручную и без аналитики — мы быстрее и
+              нагляднее.
+            </p>
+            <ul className="mt-6 space-y-2.5">
+              {BUSINESS.map((b) => (
+                <li key={b} className="flex items-start gap-2.5 text-[14.5px] text-fg">
+                  <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent-weak text-accent">
+                    <Check className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
+                  </span>
+                  {b}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-8 flex flex-wrap items-center gap-4">
+              <a href={BUSINESS_MAILTO}>
+                <PrimaryButton className="px-6 py-3.5 text-[15px]">
+                  Обсудить оцифровку объекта <ArrowRight className="h-4 w-4" />
+                </PrimaryButton>
+              </a>
+              <span className="text-[13px] text-muted">
+                Пакет от <span className="font-semibold tabular text-fg">150 000 ₸</span> за объект ·
+                мониторинг от <span className="tabular">30 000 ₸</span>/мес
+              </span>
             </div>
-          ))}
+          </div>
+
+          {/* real apartment plan as the visual */}
+          <div className="rounded-[18px] border border-border bg-surface-2 p-4">
+            <div className="mb-3 flex items-center gap-2 text-[12px] font-medium text-muted">
+              <Building2 className="h-4 w-4 text-accent" aria-hidden />
+              Цифровой паспорт · план помещения
+            </div>
+            <FloorPlan2D plan={plan("apt-4k")} compact className="w-full" />
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11.5px] text-faint">
+              <span className="inline-flex items-center gap-1.5">
+                <Layers className="h-3.5 w-3.5" aria-hidden /> 2D / 3D-планы
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> Аудит ПБ
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <BarChart3 className="h-3.5 w-3.5" aria-hidden /> Риск-оценка
+              </span>
+            </div>
+          </div>
         </div>
       </Section>
 
-      {/* ── Trust (dark) ── */}
-      <section
-        id="trust"
-        className="bg-gradient-to-b from-zinc-950 to-[#121215] px-5 py-20 text-zinc-100 sm:px-6 sm:py-24"
-      >
-        <div className="mx-auto max-w-[1180px]">
-          <div className="max-w-[680px]">
-            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
-              Почему этому можно доверять
-            </span>
-            <h2 className="mt-3.5 text-[clamp(1.6rem,3.6vw,2.5rem)] font-extrabold leading-tight tracking-tight text-white">
-              Госуровень ответственности — заложен в систему
-            </h2>
-            <p className="mt-4 text-[17px] leading-relaxed text-zinc-400">
-              Прогноз, который нельзя проверить, бесполезен для ведомства. Каждое решение
-              объяснимо и прослеживаемо.
-            </p>
-          </div>
-          <div className="mt-12 grid gap-[18px] sm:grid-cols-2 lg:grid-cols-4">
-            {TRUST.map((t) => (
-              <div
-                key={t.title}
-                className="rounded-[14px] border border-white/10 bg-white/[0.03] p-6"
-              >
-                <span className="mb-4 grid h-10 w-10 place-items-center rounded-xl bg-accent/15 text-accent">
-                  <t.icon className="h-[18px] w-[18px]" strokeWidth={2} />
-                </span>
-                <h3 className="text-[15.5px] font-bold text-white">{t.title}</h3>
-                <p className="mt-2 text-[13.5px] leading-relaxed text-zinc-400">{t.text}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-16 grid gap-6 border-t border-white/10 pt-11 sm:grid-cols-2 lg:grid-cols-4">
-            {STATS.map((s) => (
-              <div key={s.l}>
-                <div className="text-[38px] font-extrabold leading-none tracking-tight text-white">
-                  <span className="tabular">{s.n}</span>
-                  {s.u && <span className="text-[20px] text-accent">{s.u}</span>}
-                </div>
-                <div className="mt-2 text-[13px] text-zinc-400">{s.l}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── CTA ── */}
-      <section className="px-5 py-24 sm:px-6">
-        <div className="relative mx-auto max-w-[1180px] overflow-hidden rounded-[28px] border border-zinc-800 bg-gradient-to-br from-[#16161a] to-[#0a0a0b] px-6 py-16 text-center sm:px-12">
+      {/* ── Final CTA ── */}
+      <section className="px-5 pb-24 sm:px-6">
+        <div className="relative mx-auto max-w-[1180px] overflow-hidden rounded-[28px] border border-border bg-surface px-6 py-16 text-center shadow-card sm:px-12">
           <div
-            className="pointer-events-none absolute -top-28 left-1/2 h-[300px] w-[600px] -translate-x-1/2 blur-[50px]"
-            style={{ background: "radial-gradient(ellipse, rgba(255,90,31,.3), transparent 70%)" }}
+            className="pointer-events-none absolute -top-28 left-1/2 h-[320px] w-[620px] -translate-x-1/2 opacity-80 blur-[70px]"
+            style={{
+              background:
+                "radial-gradient(ellipse, color-mix(in oklab, var(--color-accent) 22%, transparent), transparent 70%)",
+            }}
             aria-hidden
           />
-          <h2 className="relative text-[clamp(1.6rem,3.6vw,2.4rem)] font-extrabold leading-tight tracking-tight text-white">
+          <h2 className="relative text-[clamp(1.6rem,3.6vw,2.4rem)] font-extrabold leading-tight tracking-tight">
             Покажем FireWatch на данных вашего региона
           </h2>
-          <p className="relative mx-auto mt-4 max-w-[520px] text-[17px] text-zinc-400">
-            Демо за 30 минут: карта риска, прогноз модели и маршрут инспектора на реальном
-            городе.
+          <p className="relative mx-auto mt-4 max-w-[520px] text-[17px] text-muted">
+            Демо за 30 минут: карта риска, прогноз модели, маршрут инспектора и 3D-двойник объекта
+            на реальном городе.
           </p>
           <div className="relative mt-8 flex flex-wrap justify-center gap-3.5">
             <a href={DEMO_MAILTO}>
@@ -452,12 +561,12 @@ export default function Landing() {
             </a>
             <Link
               href={appHref}
-              className="inline-flex items-center gap-2 rounded-[12px] border border-zinc-700 bg-transparent px-6 py-3.5 text-[15px] font-semibold text-white transition-colors hover:border-zinc-500"
+              className="inline-flex items-center gap-2 rounded-[12px] border border-border-strong bg-surface px-6 py-3.5 text-[15px] font-semibold text-fg transition-colors hover:border-faint"
             >
               {appLabel}
             </Link>
           </div>
-          <p className="relative mt-5 text-[13px] text-zinc-500">
+          <p className="relative mt-5 text-[13px] text-faint">
             Без обязательств · 30 минут · на данных вашего региона
           </p>
         </div>
@@ -475,17 +584,20 @@ export default function Landing() {
   );
 }
 
-/* ── Pieces ──────────────────────────────────────────────────────────── */
+/* ── Pieces ──────────────────────────────────────────────────────────────── */
 
 function Brand({ small }: { small?: boolean }) {
   return (
     <div className="flex items-center gap-2.5 font-extrabold tracking-tight">
       <span
         className={cn(
-          "grid place-items-center rounded-[9px] bg-gradient-to-br from-accent to-[#e6440f] text-white",
+          "grid place-items-center rounded-[9px] bg-gradient-to-br from-accent to-accent-hover text-white",
           small ? "h-[26px] w-[26px]" : "h-[30px] w-[30px]",
         )}
-        style={{ boxShadow: "0 6px 16px -4px rgba(255,90,31,.55)" }}
+        style={{
+          boxShadow:
+            "0 6px 16px -4px color-mix(in oklab, var(--color-accent) 55%, transparent)",
+        }}
       >
         <Flame className={small ? "h-3.5 w-3.5" : "h-[17px] w-[17px]"} fill="currentColor" strokeWidth={0} />
       </span>
@@ -506,10 +618,12 @@ function PrimaryButton({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-2 rounded-[12px] bg-gradient-to-b from-accent to-[#e6440f] px-[18px] py-2.5 text-sm font-semibold text-white transition-shadow",
+        "inline-flex items-center gap-2 rounded-[12px] bg-accent px-[18px] py-2.5 text-sm font-semibold text-accent-fg transition-colors hover:bg-accent-hover",
         className,
       )}
-      style={{ boxShadow: "0 8px 20px -6px rgba(255,90,31,.5)" }}
+      style={{
+        boxShadow: "0 8px 20px -6px color-mix(in oklab, var(--color-accent) 45%, transparent)",
+      }}
     >
       {children}
     </span>
@@ -555,168 +669,73 @@ function SectionHead({
   );
 }
 
-/* Dark product preview — risk map + scored building + SHAP */
-function HeroPreview() {
+/**
+ * Small SVG of a real calibrated plan for the pipeline steps.
+ *  • scan   — monochrome zoning boxes (the "before": a flat document).
+ *  • vector — polygon outlines in accent (the "vectorised" middle state).
+ * Room-type colouring (the "after") is handled by <FloorPlan2D compact /> so the
+ * single source of type colours (ROOM_TYPE_META) is never duplicated here.
+ */
+function MiniPlan({ plan, mode }: { plan: RealFloorPlan; mode: "scan" | "vector" }) {
+  const pad = Math.max(plan.widthM, plan.heightM) * 0.03;
+  const vbW = plan.widthM + pad * 2;
+  const vbH = plan.heightM + pad * 2;
+  const sw = Math.max(plan.widthM, plan.heightM) * 0.014;
   return (
-    <div
-      className="relative"
-      role="img"
-      aria-label="Превью интерфейса FireWatch: карта риска зданий Астаны с оценкой выбранного объекта и объяснением модели"
+    <svg
+      viewBox={`${-pad} ${-pad} ${vbW} ${vbH}`}
+      className="h-full w-full"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden
     >
-      <div className="overflow-hidden rounded-[20px] border border-zinc-800 bg-[#0a0a0b] shadow-[0_40px_80px_-20px_rgba(13,13,18,.32),0_12px_32px_rgba(13,13,18,.12)]">
-        {/* window bar */}
-        <div className="flex items-center gap-1.5 border-b border-zinc-800 bg-[#16161a] px-3.5 py-2.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
-          <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
-          <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
-          <span className="ml-2 text-[11.5px] font-semibold tracking-wide text-zinc-500">
-            FireWatch · Карта риска — Астана
-          </span>
-        </div>
-        <div className="grid h-[300px] grid-cols-[1fr_178px]">
-          {/* map */}
-          <div
-            className="relative"
-            style={{
-              backgroundImage:
-                "linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px)",
-              backgroundSize: "28px 28px, 28px 28px",
-              backgroundColor: "#0a0a0b",
-            }}
-          >
-            <svg viewBox="0 0 360 300" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 h-full w-full">
-              <g stroke="#2a2a31" strokeWidth="6" opacity="0.7">
-                <line x1="0" y1="90" x2="360" y2="110" />
-                <line x1="0" y1="200" x2="360" y2="190" />
-                <line x1="120" y1="0" x2="110" y2="300" />
-                <line x1="250" y1="0" x2="270" y2="300" />
-              </g>
-              <g opacity="0.95">
-                <rect x="30" y="40" width="26" height="20" rx="2" fill="var(--color-normal)" />
-                <rect x="62" y="44" width="22" height="18" rx="2" fill="var(--color-normal)" />
-                <rect x="150" y="36" width="30" height="24" rx="2" fill="var(--color-elevated)" />
-                <rect x="190" y="50" width="22" height="18" rx="2" fill="var(--color-normal)" />
-                <rect x="290" y="40" width="28" height="22" rx="2" fill="var(--color-high)" />
-                <rect x="40" y="130" width="26" height="22" rx="2" fill="var(--color-elevated)" />
-                <rect x="150" y="125" width="34" height="30" rx="2" fill="var(--color-critical)" stroke="#fff" strokeWidth="1.5" />
-                <rect x="200" y="135" width="24" height="20" rx="2" fill="var(--color-high)" />
-                <rect x="295" y="128" width="26" height="22" rx="2" fill="var(--color-elevated)" />
-                <rect x="44" y="235" width="26" height="20" rx="2" fill="var(--color-normal)" />
-                <rect x="150" y="232" width="28" height="22" rx="2" fill="var(--color-high)" />
-                <rect x="200" y="240" width="22" height="18" rx="2" fill="var(--color-elevated)" />
-                <rect x="300" y="236" width="26" height="20" rx="2" fill="var(--color-normal)" />
-              </g>
-              <circle cx="167" cy="140" r="26" fill="none" stroke="var(--color-critical)" strokeWidth="1.5" opacity="0.6" />
-            </svg>
-            <div className="absolute bottom-3 left-3 flex gap-2.5 rounded-[9px] border border-zinc-800 bg-zinc-950/70 px-2.5 py-1.5 backdrop-blur">
-              <LegendDot color="var(--color-critical)" label="Высокий" />
-              <LegendDot color="var(--color-elevated)" label="Средний" />
-              <LegendDot color="var(--color-normal)" label="Низкий" />
-            </div>
-          </div>
-          {/* side panel */}
-          <div className="border-l border-zinc-800 bg-[#16161a] p-3.5">
-            <div className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-zinc-500">
-              Объект · ул. Бейбітшілік 12
-            </div>
-            <div className="relative mx-auto mt-3 h-24 w-24">
-              <svg viewBox="0 0 96 96" className="h-full w-full">
-                <circle cx="48" cy="48" r="40" fill="none" stroke="#1f1f25" strokeWidth="9" />
-                <circle
-                  cx="48"
-                  cy="48"
-                  r="40"
-                  fill="none"
-                  stroke="var(--color-critical)"
-                  strokeWidth="9"
-                  strokeLinecap="round"
-                  strokeDasharray="251"
-                  strokeDashoffset="35"
-                  transform="rotate(-90 48 48)"
-                />
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <b className="text-[26px] font-extrabold leading-none text-white">87</b>
-                <span className="text-[9px] text-zinc-500">/ 100</span>
-              </div>
-            </div>
-            <div className="mt-2.5 flex flex-col gap-2">
-              <ShapRow label="Деревянные перекрытия" w="82%" />
-              <ShapRow label="Нет сигнализации" w="64%" />
-              <ShapRow label="Возраст 58 лет" w="48%" />
-            </div>
-          </div>
-        </div>
-      </div>
+      {plan.rooms.map((r, i) => {
+        const pts = r.polygon.map((p) => p.join(",")).join(" ");
+        return mode === "scan" ? (
+          <polygon
+            key={i}
+            points={pts}
+            fill="var(--color-surface-3)"
+            stroke="var(--color-faint)"
+            strokeOpacity={0.6}
+            strokeWidth={sw}
+            strokeLinejoin="round"
+          />
+        ) : (
+          <polygon
+            key={i}
+            points={pts}
+            fill="var(--color-accent)"
+            fillOpacity={0.07}
+            stroke="var(--color-accent)"
+            strokeOpacity={0.85}
+            strokeWidth={sw * 1.3}
+            strokeLinejoin="round"
+          />
+        );
+      })}
+    </svg>
+  );
+}
 
-      {/* floating cards */}
-      <FloatCard
-        className="-top-4 right-2 sm:-right-4 sm:top-8"
-        tint="bg-critical/10 text-critical"
-        icon={AlertTriangle}
-        title="3 здания в зоне"
-        sub="риск вырос за неделю"
+/** Static, plan-shaped skeleton shown while the 3D chunk loads. */
+function Hero3DSkeleton() {
+  return (
+    <div className="relative h-full w-full overflow-hidden">
+      <div
+        className="absolute inset-0 opacity-60"
+        style={{
+          backgroundImage:
+            "linear-gradient(color-mix(in oklab, var(--color-faint) 12%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in oklab, var(--color-faint) 12%, transparent) 1px, transparent 1px)",
+          backgroundSize: "26px 26px, 26px 26px",
+        }}
+        aria-hidden
       />
-      <FloatCard
-        className="-bottom-4 left-2 sm:-left-6 sm:bottom-6"
-        tint="bg-normal/10 text-emerald-600"
-        icon={Check}
-        title="Маршрут готов"
-        sub="12 инспекций · 07:00"
-      />
-    </div>
-  );
-}
-
-function LegendDot({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5 text-[9.5px] text-zinc-400">
-      <span className="h-2 w-2 rounded-sm" style={{ background: color }} />
-      {label}
-    </span>
-  );
-}
-
-function ShapRow({ label, w }: { label: string; w: string }) {
-  return (
-    <div className="text-[10px] text-zinc-200">
-      {label}
-      <div className="mt-1 h-[5px] overflow-hidden rounded-[3px] bg-zinc-800">
-        <span
-          className="block h-full rounded-[3px]"
-          style={{ width: w, background: "linear-gradient(90deg, var(--color-high), var(--color-critical))" }}
-        />
+      <div className="absolute inset-0 grid place-items-center p-10 opacity-70">
+        <MiniPlan plan={HERO_PLAN} mode="vector" />
       </div>
-    </div>
-  );
-}
-
-function FloatCard({
-  className,
-  tint,
-  icon: Icon,
-  title,
-  sub,
-}: {
-  className?: string;
-  tint: string;
-  icon: LucideIcon;
-  title: string;
-  sub: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "absolute flex items-center gap-3 rounded-[13px] border border-border bg-surface px-3.5 py-3 shadow-pop",
-        className,
-      )}
-    >
-      <span className={cn("grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[9px]", tint)}>
-        <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
-      </span>
-      <div>
-        <div className="text-[12px] font-bold leading-tight text-fg">{title}</div>
-        <div className="text-[11px] text-muted">{sub}</div>
+      <div className="absolute bottom-3 left-3 inline-flex items-center gap-2 rounded-[10px] border border-border bg-surface/80 px-2.5 py-1.5 text-[11.5px] text-muted backdrop-blur">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" aria-hidden />
+        Загрузка 3D-двойника…
       </div>
     </div>
   );
