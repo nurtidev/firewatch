@@ -67,6 +67,31 @@ const AUDIENCE: { icon: LucideIcon; title: string; text: string }[] = [
   { icon: HardHat, title: "Застройщики", text: "Цифровой паспорт для сдачи и эксплуатации объекта — 2D/3D сразу из проектной документации." },
 ];
 
+/** Риск в цифрах для владельца объекта — только факты с первоисточником
+ *  (подборка: docs/commercial/06_economic_effect.md). */
+const RISK_FACTS: { n: string; label: string; source: string }[] = [
+  {
+    n: "~55%",
+    label: "пожаров начинаются с электрооборудования — проводка, щитки, перегруженные сети. Это вопрос эксплуатации, а не везения",
+    source: "МЧС РК · 2025",
+  },
+  {
+    n: "+41%",
+    label: "рост пожаров в многоэтажных домах за год — нагрузка на УК и ЖК растёт",
+    source: "МЧС РК · янв–май 2025",
+  },
+  {
+    n: "219",
+    label: "автомобилей сгорело в Астане за год — паркинг ТРЦ и ЖК — зона прямой ответственности владельца",
+    source: "ДЧС Астаны · 2025",
+  },
+  {
+    n: "1 из 36",
+    label: "пожаров в РК заканчивается гибелью людей — для владельца это ответственность, а не только материальный ущерб",
+    source: "МЧС РК · 2021",
+  },
+];
+
 const PRICING: {
   name: string;
   what: string;
@@ -310,8 +335,40 @@ export default function BusinessLanding() {
         </div>
       </Section>
 
-      {/* ── Pricing ── */}
+      {/* ── Risk facts: почему это касается вашего объекта ── */}
       <div className="bg-surface-2">
+        <Section id="risk">
+          <SectionHead
+            center
+            eyebrow="Риск в цифрах"
+            title="Почему это касается вашего объекта"
+            sub="Официальная статистика МЧС РК и ДЧС Астаны — без страшилок, просто цифры."
+          />
+          <div className="mt-12 grid gap-[18px] sm:grid-cols-2 lg:grid-cols-4">
+            {RISK_FACTS.map((f) => (
+              <div
+                key={f.n}
+                className="flex flex-col rounded-[16px] border border-border bg-surface p-6 shadow-card"
+              >
+                <div className="text-[clamp(1.7rem,2.6vw,2.15rem)] font-extrabold leading-none tracking-tight tabular">
+                  {f.n}
+                </div>
+                <p className="mt-3 flex-1 text-[13.5px] leading-relaxed text-muted">{f.label}</p>
+                <p className="mt-4 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-faint">
+                  {f.source}
+                </p>
+              </div>
+            ))}
+          </div>
+          <p className="mx-auto mt-8 max-w-[620px] text-center text-[13.5px] leading-relaxed text-muted">
+            Цифровой паспорт закрывает первопричину: аудит находит нарушения до пожара, а
+            риск-оценка показывает, какие объекты и системы требуют внимания в первую очередь.
+          </p>
+        </Section>
+      </div>
+
+      {/* ── Pricing ── */}
+      <div>
         <Section id="pricing">
           <SectionHead
             center
