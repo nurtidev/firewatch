@@ -116,6 +116,31 @@ const TRUST: { icon: LucideIcon; title: string; text: string }[] = [
   },
 ];
 
+/** Цена вопроса: только факты с надёжным первоисточником (см. docs/commercial/06_economic_effect.md).
+ *  ROI-сценарии сознательно не выносим на публичную страницу — они живут в КП. */
+const STAKES: { n: string; label: string; source: string }[] = [
+  {
+    n: "1 из 36",
+    label: "пожаров в РК уносит жизнь — в США гибелью заканчивается 1 из 360",
+    source: "МЧС РК · 2021",
+  },
+  {
+    n: "9,3 млрд ₸",
+    label: "прямой материальный ущерб от пожаров за год; 413 погибших",
+    source: "МЧС РК · 2021",
+  },
+  {
+    n: "58–62%",
+    label: "пожаров происходит в жилом секторе; до половины причин устранимы профилактической проверкой",
+    source: "МЧС РК · 2021–2025",
+  },
+  {
+    n: "1,6",
+    label: "нарушения пожарной безопасности на каждый дом, обойденный в рейдах по частному сектору Астаны",
+    source: "ДЧС Астаны · 2024",
+  },
+];
+
 /* ── Page ────────────────────────────────────────────────────────────────── */
 
 export default function GovLanding() {
@@ -211,6 +236,39 @@ export default function GovLanding() {
           </div>
         </Section>
       </div>
+
+      {/* ── Stakes: цена вопроса в проверенных цифрах ── */}
+      <Section id="stakes">
+        <SectionHead
+          center
+          eyebrow="Цена вопроса"
+          title="Сколько стоит год без приоритизации"
+          sub="Официальная статистика — из выступлений должностных лиц МЧС РК и ДЧС Астаны."
+        />
+        <div className="mt-12 grid gap-[18px] sm:grid-cols-2 lg:grid-cols-4">
+          {STAKES.map((s) => (
+            <div
+              key={s.n}
+              className="flex flex-col rounded-[16px] border border-border bg-surface p-6 shadow-card"
+            >
+              <div className="text-[clamp(1.7rem,2.6vw,2.15rem)] font-extrabold leading-none tracking-tight tabular">
+                {s.n}
+              </div>
+              <p className="mt-3 flex-1 text-[13.5px] leading-relaxed text-muted">{s.label}</p>
+              <p className="mt-4 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-faint">
+                {s.source}
+              </p>
+            </div>
+          ))}
+        </div>
+        <p className="mx-auto mt-8 max-w-[640px] text-center text-[13.5px] leading-relaxed text-muted">
+          По нашему расчёту система окупается уже в консервативном сценарии.{" "}
+          <a href={MAILTO.presentation} className="font-semibold text-accent hover:underline">
+            Запросите детальное экономическое обоснование
+          </a>{" "}
+          — с методикой, источниками и допущениями.
+        </p>
+      </Section>
 
       {/* ── Modules ── */}
       <Section id="modules">
