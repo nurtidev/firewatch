@@ -100,8 +100,13 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    // Inspectors get redirected to /routes above and have no /overview access —
+    // fetching here would just flash a false "Сводка недоступна" (403) first.
+    // Wait for auth to resolve so the role is known before deciding to fetch.
+    if (!ready) return;
+    if (user?.role === "inspector") return;
     load();
-  }, [load]);
+  }, [ready, user, load]);
 
   const loading = !ov && !error;
   const avgSev = ov ? scoreSeverity(ov.avg_score) : undefined;

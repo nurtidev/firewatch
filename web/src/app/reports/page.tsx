@@ -42,13 +42,27 @@ import {
   type ReportCategory,
   type ReportStatus,
 } from "@/lib/reports";
+import { MAX_PHOTO_BYTES } from "@/lib/offline";
 
 /** Astana city-centre default — a sane starting point when geolocation is
  *  unavailable (desktop, denied permission) and the field must still be filled. */
 const DEFAULT_LAT = 51.128;
 const DEFAULT_LNG = 71.43;
 
-const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
+/** Normalize a FastAPI error body into a display string. `detail` is usually a
+ *  plain string, but Pydantic validation errors send an array of `{msg, ...}`
+ *  objects instead — join those into one line. Falls back to `fallback` (or
+ *  undefined) when `detail` is missing or in some other shape. */
+function apiErrorText(detail: unknown, fallback?: string): string | undefined {
+  if (typeof detail === "string" && detail) return detail;
+  if (Array.isArray(detail) && detail.length) {
+    const msg = detail
+      .map((e) => (e && typeof e === "object" && "msg" in e ? String((e as { msg: unknown }).msg) : String(e)))
+      .join("; ");
+    if (msg) return msg;
+  }
+  return fallback;
+}
 
 type Filter = "all" | ReportStatus;
 
@@ -224,7 +238,7 @@ function ReportCard({
             <p className="text-sm font-semibold text-fg">{cat.label}</p>
             <p className="mt-0.5 flex items-center gap-1.5 text-xs text-faint">
               <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              <span className="truncate">
+              <span className={cn("truncate", !location && "tabular")}>
                 {location || `${report.lat.toFixed(5)}, ${report.lng.toFixed(5)}`}
               </span>
             </p>
@@ -310,7 +324,7 @@ function ReportActions({ report, onChanged }: { report: Report; onChanged: () =>
       });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
-        throw new Error(d.detail || "Не удалось обновить статус");
+        throw new Error(apiErrorText(d.detail, "Не удалось обновить статус") ?? "Не удалось обновить статус");
       }
       setPending(null);
       setNote("");
@@ -476,7 +490,7 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
       });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
-        throw new Error(d.detail || "Не удалось отправить донесение");
+        throw new Error(apiErrorText(d.detail, "Не удалось отправить донесение") ?? "Не удалось отправить донесение");
       }
       onCreated();
     } catch (e) {

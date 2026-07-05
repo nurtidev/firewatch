@@ -42,9 +42,15 @@ _AUDIT_SELF = {"/auth/login", "/chat"}
 @app.middleware("http")
 async def audit_mutations(request: Request, call_next):
     """Audit every state-changing request. Handlers in _AUDIT_SELF write their
-    own entries (they need the request body), so they are skipped here."""
+    own, richer entries (they need the request body) once they run — but a
+    guard rejection (401/403) never reaches the handler, so it would otherwise
+    vanish from the audit trail. Audit those here too, except for /auth/login:
+    it has no auth dependency to be rejected by and always audits its own
+    outcome."""
     response = await call_next(request)
-    if request.method in _MUTATING and request.url.path not in _AUDIT_SELF:
+    path = request.url.path
+    guard_rejected = path in _AUDIT_SELF and path != "/auth/login" and response.status_code in (401, 403)
+    if request.method in _MUTATING and (path not in _AUDIT_SELF or guard_rejected):
         auth_header = request.headers.get("authorization", "")
         payload = (
             decode_token(auth_header.split(" ", 1)[1])

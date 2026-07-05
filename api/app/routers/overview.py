@@ -16,9 +16,8 @@ def overview(
 ) -> dict:
     """Headline counts for the dashboard.
 
-    For scoped roles (inspector/supervisor) the building- and inspector-derived
-    counts are limited to the user's district; city infrastructure (stations,
-    hydrants) stays global.
+    For supervisor the building- and inspector-derived counts are limited to
+    the user's district; city infrastructure (stations, hydrants) stays global.
     """
     params: dict = {}
     if has_full_access(user):

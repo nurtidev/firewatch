@@ -281,9 +281,9 @@ def update_report_status(
             f"""
             UPDATE field_reports
                SET status = :status,
-                   resolved_by = CASE WHEN :resolving THEN :resolved_by ELSE resolved_by END,
-                   resolved_at = CASE WHEN :resolving THEN now() ELSE resolved_at END,
-                   resolution_note = CASE WHEN :resolving THEN :resolution_note ELSE resolution_note END
+                   resolved_by = CASE WHEN :resolving THEN :resolved_by ELSE NULL END,
+                   resolved_at = CASE WHEN :resolving THEN now() ELSE NULL END,
+                   resolution_note = CASE WHEN :resolving THEN :resolution_note ELSE NULL END
              WHERE {where}
             RETURNING id, category, status, resolved_by, resolved_at, resolution_note
             """

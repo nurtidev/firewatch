@@ -552,6 +552,16 @@ function ObjectSheet({
       else next[key] = value;
       return next;
     });
+    // Stale violation notes shouldn't resurrect (or leak into the payload) once
+    // the item is no longer marked as a violation.
+    if (value !== "violation") {
+      setViolationNotes((n) => {
+        if (!(key in n)) return n;
+        const next = { ...n };
+        delete next[key];
+        return next;
+      });
+    }
   }
 
   async function uploadPhotos(files: FileList | null) {

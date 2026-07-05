@@ -19,9 +19,15 @@ def enforce_building_scope(clauses: list[str], params: dict, user: dict, alias: 
     """Append a district restriction to a buildings query for scoped roles.
 
     No-op for leadership/admin. For scoped roles, restricts to the user's
-    district; if they have none, the clause matches no rows (fail closed).
+    district. A scoped user with no assigned district gets a clause that
+    matches no rows at all (fail closed) — binding NULL would instead match
+    every row with a NULL district via `IS NOT DISTINCT FROM`.
     """
     if has_full_access(user):
         return
+    district = user.get("district")
+    if district is None:
+        clauses.append("FALSE")
+        return
     clauses.append(f"{alias}.district IS NOT DISTINCT FROM :scope_district")
-    params["scope_district"] = user.get("district")
+    params["scope_district"] = district
