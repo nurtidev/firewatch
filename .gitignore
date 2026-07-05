@@ -38,3 +38,10 @@ data/*.csv
 
 # Uploaded operational-card files
 api/uploads/
+
+# Real ДЧС source documents with PII (phones, names) — never publish.
+# Only derived, sanitized files (*.md, *.json) are tracked in docs/docs_tg/.
+docs/docs_tg/*.pdf
+docs/docs_tg/*.doc
+docs/docs_tg/*.docx
+docs/docs_tg/*.vsd
