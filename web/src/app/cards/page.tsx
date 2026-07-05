@@ -466,10 +466,25 @@ export default function CardsPage() {
 
         {/* ── Result: structured ПТП (digital operational plan) ── */}
         {card && isStructured(card.extracted) && (
-          <StructuredPlanView
-            ex={card.extracted as StructuredPlan}
-            filename={card.filename}
-          />
+          <>
+            <StructuredPlanView
+              ex={card.extracted as StructuredPlan}
+              filename={card.filename}
+            />
+            <PrescriptionsPanel
+              card={card}
+              className="mt-5"
+              reviewing={reviewing}
+              reviewingRemediation={reviewingRemediation}
+              canReviewRemediation={canReviewRemediation}
+              onReviewPrescription={(prescriptionId, status) =>
+                reviewPrescription(card.id, prescriptionId, status)
+              }
+              onReviewRemediation={(prescriptionId, remediationId, status, note) =>
+                reviewRemediation(card.id, prescriptionId, remediationId, status, note)
+              }
+            />
+          </>
         )}
 
         {/* ── Result: AI-extracted flat card (two-column) ── */}
@@ -538,101 +553,18 @@ export default function CardsPage() {
               </Card>
 
               {/* Prescriptions */}
-              {card.prescriptions.length > 0 && (
-                <Card className="p-5">
-                  <div className="mb-1 flex items-center justify-between">
-                    <SectionLabel>Автопредписания</SectionLabel>
-                    <Badge tone="accent">{card.prescriptions.length}</Badge>
-                  </div>
-                  <p className="mb-4 text-xs text-muted">
-                    Сформированы ИИ по извлечённым данным. Предписание —
-                    административный акт: выдаётся владельцу только после
-                    подтверждения инспектором.
-                  </p>
-                  <ol className="space-y-3">
-                    {card.prescriptions.map((p) => {
-                      const sev = prescriptionSeverity(p.severity);
-                      const st =
-                        PRESCRIPTION_STATUS[p.status] ??
-                        PRESCRIPTION_STATUS.pending;
-                      return (
-                        <li
-                          key={p.id}
-                          className="rounded-md border border-border bg-surface-2 p-3"
-                        >
-                          <div className="flex flex-wrap items-center gap-2">
-                            <StatusChip severity={sev} />
-                            {p.deadline_days != null && (
-                              <span className="inline-flex items-center gap-1 text-xs text-faint">
-                                <Clock className="h-3.5 w-3.5" />
-                                <span className="tabular">{p.deadline_days} дн.</span>
-                              </span>
-                            )}
-                            <span
-                              className={cn(
-                                "ml-auto inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium",
-                                st.cls,
-                              )}
-                            >
-                              <st.icon className="h-3 w-3" />
-                              {st.label}
-                            </span>
-                          </div>
-                          {p.issue && (
-                            <p className="mt-2 text-xs text-muted">{p.issue}</p>
-                          )}
-                          <p className="mt-1 text-sm text-fg">{p.recommendation}</p>
-
-                          {p.status === "pending" ? (
-                            <div className="mt-3 flex gap-2">
-                              <Button
-                                size="sm"
-                                variant="success"
-                                disabled={reviewing === p.id}
-                                onClick={() =>
-                                  reviewPrescription(card.id, p.id, "approved")
-                                }
-                              >
-                                <Check className="h-4 w-4" /> Утвердить
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                disabled={reviewing === p.id}
-                                onClick={() =>
-                                  reviewPrescription(card.id, p.id, "rejected")
-                                }
-                              >
-                                <X className="h-4 w-4" /> Отклонить
-                              </Button>
-                            </div>
-                          ) : (
-                            p.reviewed_by && (
-                              <p className="mt-2 text-2xs text-faint">
-                                {st.verb}: {p.reviewed_by}
-                                {p.reviewed_at &&
-                                  ` · ${new Date(p.reviewed_at).toLocaleString("ru")}`}
-                              </p>
-                            )
-                          )}
-
-                          {p.last_remediation && (
-                            <RemediationBlock
-                              remediation={p.last_remediation}
-                              canReview={canReviewRemediation}
-                              reviewing={reviewingRemediation === p.last_remediation.id}
-                              onReview={(status, note) =>
-                                p.last_remediation &&
-                                reviewRemediation(card.id, p.id, p.last_remediation.id, status, note)
-                              }
-                            />
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ol>
-                </Card>
-              )}
+              <PrescriptionsPanel
+                card={card}
+                reviewing={reviewing}
+                reviewingRemediation={reviewingRemediation}
+                canReviewRemediation={canReviewRemediation}
+                onReviewPrescription={(prescriptionId, status) =>
+                  reviewPrescription(card.id, prescriptionId, status)
+                }
+                onReviewRemediation={(prescriptionId, remediationId, status, note) =>
+                  reviewRemediation(card.id, prescriptionId, remediationId, status, note)
+                }
+              />
             </div>
           </div>
         )}
@@ -730,6 +662,120 @@ export default function CardsPage() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+/* ─── Prescriptions panel (autopredpisaniya + owner remediation claims) ────
+ * Shared by both card render paths (flat extraction and structured ПТП) so
+ * inspectors can act on owner remediation claims regardless of which view
+ * the card renders in. */
+
+function PrescriptionsPanel({
+  card,
+  reviewing,
+  reviewingRemediation,
+  canReviewRemediation,
+  onReviewPrescription,
+  onReviewRemediation,
+  className,
+}: {
+  card: ProcessedCard;
+  reviewing: number | null;
+  reviewingRemediation: number | null;
+  canReviewRemediation: boolean;
+  onReviewPrescription: (prescriptionId: number, status: "approved" | "rejected") => void;
+  onReviewRemediation: (
+    prescriptionId: number,
+    remediationId: number,
+    status: "accepted" | "declined",
+    note?: string,
+  ) => void;
+  className?: string;
+}) {
+  if (card.prescriptions.length === 0) return null;
+
+  return (
+    <Card className={cn("p-5", className)}>
+      <div className="mb-1 flex items-center justify-between">
+        <SectionLabel>Автопредписания</SectionLabel>
+        <Badge tone="accent">{card.prescriptions.length}</Badge>
+      </div>
+      <p className="mb-4 text-xs text-muted">
+        Сформированы ИИ по извлечённым данным. Предписание —
+        административный акт: выдаётся владельцу только после
+        подтверждения инспектором.
+      </p>
+      <ol className="space-y-3">
+        {card.prescriptions.map((p) => {
+          const sev = prescriptionSeverity(p.severity);
+          const st = PRESCRIPTION_STATUS[p.status] ?? PRESCRIPTION_STATUS.pending;
+          return (
+            <li key={p.id} className="rounded-md border border-border bg-surface-2 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusChip severity={sev} />
+                {p.deadline_days != null && (
+                  <span className="inline-flex items-center gap-1 text-xs text-faint">
+                    <Clock className="h-3.5 w-3.5" />
+                    <span className="tabular">{p.deadline_days} дн.</span>
+                  </span>
+                )}
+                <span
+                  className={cn(
+                    "ml-auto inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium",
+                    st.cls,
+                  )}
+                >
+                  <st.icon className="h-3 w-3" />
+                  {st.label}
+                </span>
+              </div>
+              {p.issue && <p className="mt-2 text-xs text-muted">{p.issue}</p>}
+              <p className="mt-1 text-sm text-fg">{p.recommendation}</p>
+
+              {p.status === "pending" ? (
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="success"
+                    disabled={reviewing === p.id}
+                    onClick={() => onReviewPrescription(p.id, "approved")}
+                  >
+                    <Check className="h-4 w-4" /> Утвердить
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={reviewing === p.id}
+                    onClick={() => onReviewPrescription(p.id, "rejected")}
+                  >
+                    <X className="h-4 w-4" /> Отклонить
+                  </Button>
+                </div>
+              ) : (
+                p.reviewed_by && (
+                  <p className="mt-2 text-2xs text-faint">
+                    {st.verb}: {p.reviewed_by}
+                    {p.reviewed_at && ` · ${new Date(p.reviewed_at).toLocaleString("ru")}`}
+                  </p>
+                )
+              )}
+
+              {p.last_remediation && (
+                <RemediationBlock
+                  remediation={p.last_remediation}
+                  canReview={canReviewRemediation}
+                  reviewing={reviewingRemediation === p.last_remediation.id}
+                  onReview={(status, note) =>
+                    p.last_remediation &&
+                    onReviewRemediation(p.id, p.last_remediation.id, status, note)
+                  }
+                />
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </Card>
   );
 }
 
