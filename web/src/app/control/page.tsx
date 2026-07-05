@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ClipboardCheck, AlertTriangle, Users, Activity } from "lucide-react";
+import { ClipboardCheck, AlertTriangle, Users, Activity, Lock } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/auth";
 import { scoreSeverity, SEVERITY } from "@/lib/risk";
@@ -54,10 +54,17 @@ function stopDotSeverity(status: string) {
 export default function ControlPage() {
   const [data, setData] = useState<Progress[] | null>(null);
   const [updated, setUpdated] = useState<string>("");
+  const [forbidden, setForbidden] = useState(false);
 
   const load = useCallback(() => {
     apiFetch(`/routes/progress`)
-      .then((r) => (r.ok ? r.json() : []))
+      .then((r) => {
+        if (r.status === 403) {
+          setForbidden(true);
+          return [];
+        }
+        return r.ok ? r.json() : [];
+      })
       .then((d: Progress[]) => {
         setData(d);
         setUpdated(
@@ -96,6 +103,16 @@ export default function ControlPage() {
           }
         />
 
+        {forbidden ? (
+          <EmptyState
+            className="mt-8"
+            tone="error"
+            icon={Lock}
+            title="Доступ ограничен"
+            description="Контроль выполнения доступен супервайзеру, руководству ведомства и администраторам."
+          />
+        ) : (
+        <>
         {/* Summary metric cards */}
         <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-3">
           <MetricCard
@@ -178,6 +195,8 @@ export default function ControlPage() {
             </div>
           )}
         </div>
+        </>
+        )}
       </div>
     </AppShell>
   );

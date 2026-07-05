@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from pathlib import Path
 
@@ -66,11 +67,20 @@ async def upload_card(
     if file.content_type not in ALLOWED:
         raise HTTPException(415, "Поддерживаются PDF, PNG, JPEG")
     data = await file.read()
+    # Real ДЧС scans run 19–26 МБ; extraction.py re-compresses oversized PDFs, but
+    # anything past this is almost certainly not a scanned ПТП — reject upfront
+    # rather than tying up the event loop on a doomed extraction.
+    if len(data) > 50 * 1024 * 1024:
+        raise HTTPException(413, "Файл больше 50 МБ")
 
     _, path = _save(data, file.content_type)
 
     try:
-        extracted = extract_card(data, file.content_type)
+        # extract_card is a blocking PyMuPDF/HTTP call — offload it so it doesn't
+        # stall the event loop for other requests while it runs.
+        extracted = await asyncio.to_thread(extract_card, data, file.content_type)
+    except ValueError as err:  # PDF still too large after best-effort compression
+        raise HTTPException(413, str(err)) from err
     except Exception as err:  # noqa: BLE001 - surface extraction failure to client
         raise HTTPException(502, f"Ошибка извлечения: {err}") from err
 

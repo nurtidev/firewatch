@@ -41,9 +41,12 @@ const Building3D = dynamic(() => import("@/components/Building3D"), { ssr: false
 import FloorPlan2D from "@/components/FloorPlan2D";
 import SchemeGallery from "@/components/SchemeGallery";
 import { schemesForObject, totalSchemePages } from "@/data/schemes";
+import { realPlanForFloor, apartmentPlans, planTotalArea } from "@/lib/realgeom";
+import { roomTypeMeta } from "@/lib/floorplan";
+import type { RealRoom } from "@/data/floorplans/hayvill";
 import { apiFetch, apiSrc, useAuth } from "@/lib/auth";
 import { apiErrorText } from "@/lib/api-error";
-import { SEVERITY } from "@/lib/risk";
+import { SEVERITY, type Severity } from "@/lib/risk";
 import {
   Card,
   PageHeader,
@@ -797,8 +800,21 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
     () => floors.map((f) => ({ label: f.floor ?? "", hasRooms: true })),
     [floors],
   );
+  // Реальная калиброванная геометрия плана на каждый этаж (null → схематично/плита).
+  const floorPlans = useMemo(
+    () => floors.map((f) => realPlanForFloor(obj.name, f.floor)),
+    [floors, obj.name],
+  );
   const [floorIdx, setFloorIdx] = useState(0);
+  const [roomSel, setRoomSel] = useState<RealRoom | null>(null);
   const floor = floors[floorIdx];
+  const realPlan = floorPlans[floorIdx] ?? null;
+
+  // Reset the 3D room selection whenever the active floor changes.
+  useEffect(() => setRoomSel(null), [floorIdx]);
+
+  // Планировки квартир объекта (компактная галерея реальной геометрии).
+  const apartments = useMemo(() => apartmentPlans(obj.name), [obj.name]);
 
   // Реальные схемы ДЧС (оцифрованный Visio) по объекту, если есть.
   const schemes = useMemo(() => schemesForObject(obj.name), [obj.name]);
@@ -924,28 +940,74 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
             </div>
             <p className="mt-1 text-xs text-muted">
               Этажи по экспликации. Вращайте мышью, колесо — зум, клик по этажу —
-              показать его помещения ниже.
+              {realPlan
+                ? " раскрыть его реальный план в 3D (комнаты по типам, клик — помещение)."
+                : " показать его помещения ниже."}
             </p>
-            <div className="mt-3 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
+            <div className="mt-3 grid gap-4 lg:grid-cols-[1fr_240px] lg:items-start">
               <Building3D
                 floors={floors3d}
                 selected={floorIdx}
                 onSelect={setFloorIdx}
-                className="h-[360px] w-full rounded-lg border border-border bg-surface-2/40"
+                plans={floorPlans}
+                onRoomSelect={setRoomSel}
+                className="h-[380px] w-full rounded-lg border border-border bg-surface-2/40"
               />
-              <div className="text-sm">
-                <div className="text-faint">Выбран этаж</div>
-                <div className="mt-0.5 text-lg font-semibold text-fg">{floor?.floor ?? "—"}</div>
-                <div className="mt-1 text-xs text-muted">{floor?.rooms?.length ?? 0} помещений</div>
+              <div className="space-y-3 text-sm">
+                <div className="rounded-lg border border-border bg-surface-2 p-3">
+                  <div className="text-2xs uppercase tracking-wider text-faint">Выбран этаж</div>
+                  <div className="mt-0.5 text-lg font-semibold text-fg">{floor?.floor ?? "—"}</div>
+                  <div className="mt-1 text-xs text-muted">
+                    {floor?.rooms?.length ?? 0} помещений
+                  </div>
+                  <div className="mt-1.5">
+                    {realPlan ? (
+                      <span className="inline-flex items-center gap-1 rounded-md border border-accent/30 bg-accent-weak px-1.5 py-0.5 text-2xs font-medium text-accent">
+                        Реальная геометрия
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-3 px-1.5 py-0.5 text-2xs text-muted">
+                        Схематично
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {realPlan && (
+                  <div className="rounded-lg border border-border bg-surface-2 p-3">
+                    <div className="text-2xs uppercase tracking-wider text-faint">
+                      Помещение (3D)
+                    </div>
+                    {roomSel ? (
+                      <>
+                        <div className="mt-0.5 text-sm font-medium text-fg">{roomSel.name}</div>
+                        <div className="mt-1 flex items-center gap-2 text-xs text-muted">
+                          <span
+                            className="inline-block h-2.5 w-2.5 rounded-sm"
+                            style={{ background: roomTypeMeta(roomSel.type).color }}
+                            aria-hidden
+                          />
+                          {roomTypeMeta(roomSel.type).label}
+                          <span className="tabular">· {roomSel.area_m2} м²</span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="mt-0.5 text-xs text-faint">
+                        Кликните по комнате в 3D-плане этажа
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </Card>
 
           <Card className="p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <SectionLabel>План этажа · экспликация</SectionLabel>
+              <SectionLabel>План этажа{realPlan ? "" : " · экспликация"}</SectionLabel>
               <span className="text-2xs text-faint">
-                Схематическая планировка по площадям — не архитектурный чертёж
+                {realPlan
+                  ? "Реальные полигоны из ПТП (оцифровка Visio) — калибровка по площадям"
+                  : "Схематическая планировка по площадям — не архитектурный чертёж"}
               </span>
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5">
@@ -954,19 +1016,31 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
                   key={i}
                   onClick={() => setFloorIdx(i)}
                   className={cn(
-                    "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors duration-[var(--dur-fast)]",
+                    "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors duration-[var(--dur-fast)]",
                     i === floorIdx
                       ? "border-accent/40 bg-accent-weak text-accent"
                       : "border-border bg-surface-2 text-muted hover:text-fg",
                   )}
                 >
+                  {floorPlans[i] && (
+                    <span
+                      className="inline-block h-1.5 w-1.5 rounded-full bg-accent"
+                      aria-hidden
+                      title="реальная геометрия"
+                    />
+                  )}
                   {f.floor ?? `Этаж ${i + 1}`}
                 </button>
               ))}
             </div>
             {floor && (
               <>
-                <FloorPlan2D key={floorIdx} rooms={floor.rooms ?? []} className="mt-4" />
+                <FloorPlan2D
+                  key={floorIdx}
+                  rooms={floor.rooms ?? []}
+                  plan={realPlan}
+                  className="mt-4"
+                />
                 <details className="mt-4 group">
                   <summary className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-muted transition-colors hover:text-fg">
                     <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" aria-hidden />
@@ -977,6 +1051,30 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
               </>
             )}
           </Card>
+
+          {apartments.length > 0 && (
+            <Card className="p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <SectionLabel>Планировки квартир</SectionLabel>
+                <span className="text-2xs text-faint">
+                  Реальная геометрия из поквартирных экспликаций (ПТП)
+                </span>
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {apartments.map((a) => (
+                  <figure key={a.id} className="space-y-2">
+                    <FloorPlan2D plan={a} compact />
+                    <figcaption className="flex items-baseline justify-between gap-2">
+                      <span className="truncate text-sm font-medium text-fg">{a.title}</span>
+                      <span className="shrink-0 tabular text-xs text-muted">
+                        {planTotalArea(a)} м²
+                      </span>
+                    </figcaption>
+                  </figure>
+                ))}
+              </div>
+            </Card>
+          )}
         </div>
       )}
 

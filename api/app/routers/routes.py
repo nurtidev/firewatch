@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.access import has_full_access
 from app.config import settings
 from app.db import get_db
 from app.routers.auth import current_user, require_roles
@@ -216,7 +217,7 @@ def route_today(
                 "overdue_label": (
                     "Ранее не проверялся"
                     if never_inspected
-                    else f"Плановая срок просрочен на {days_since - interval} дн."
+                    else f"Плановый срок проверки просрочен на {days_since - interval} дн."
                     if overdue
                     else "В пределах норматива"
                 ),
@@ -352,11 +353,21 @@ def record_visit(
 def progress(
     size: int = 6,
     db: Session = Depends(get_db),
-    _user: dict = Depends(OVERSIGHT_ROLES),
+    user: dict = Depends(OVERSIGHT_ROLES),
 ) -> list[dict]:
     """Live execution status across all inspectors (supervisor view)."""
+    # Role gate is OVERSIGHT_ROLES (supervisor/leadership/admin) at the dependency
+    # layer; here only the data scope differs per role.
+    # Supervisor is scoped to their own district; leadership/admin see the whole city.
+    params: dict = {}
+    if has_full_access(user):
+        insp_filter = ""
+    else:
+        params["d"] = user.get("district")
+        insp_filter = "WHERE district IS NOT DISTINCT FROM :d"
     inspectors = db.execute(
-        text("SELECT id, name, district FROM inspectors ORDER BY id")
+        text(f"SELECT id, name, district FROM inspectors {insp_filter} ORDER BY id"),
+        params,
     ).mappings().all()
 
     # Inspectors share districts → build each district's route once, not per
