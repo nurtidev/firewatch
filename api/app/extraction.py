@@ -29,7 +29,8 @@ _MAX_PDF_BYTES = 20 * 1024 * 1024
 def _shrink_pdf_if_needed(data: bytes) -> bytes:
     """Re-render an oversized scanned PDF at lower DPI until it fits Anthropic's
     request limit. Returns the smallest result achieved, or the original bytes if
-    already small enough or if PyMuPDF is unavailable."""
+    already small enough or if PyMuPDF is unavailable. Raises ValueError if the
+    PDF is still too big for the API after the lowest-DPI pass."""
     if len(data) <= _MAX_PDF_BYTES:
         return data
     try:
@@ -57,6 +58,11 @@ def _shrink_pdf_if_needed(data: bytes) -> bytes:
                 break
     finally:
         src.close()
+    if len(smallest) > _MAX_PDF_BYTES:
+        raise ValueError(
+            "PDF слишком большой даже после сжатия — уменьшите файл вручную "
+            "или пересканируйте документ с более низким разрешением"
+        )
     return smallest
 
 

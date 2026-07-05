@@ -21,7 +21,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://firewatch:firewatch@db:5432/firewatch}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5}
       ML_URL: ${ML_URL:-http://ml:8000}
       OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api/interpreter}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}

@@ -333,8 +333,16 @@ def progress(
         raise HTTPException(
             403, "Контроль выполнения доступен супервайзеру и руководству"
         )
+    # Supervisor is scoped to their own district; leadership/admin see the whole city.
+    params: dict = {}
+    if has_full_access(user):
+        insp_filter = ""
+    else:
+        params["d"] = user.get("district")
+        insp_filter = "WHERE district IS NOT DISTINCT FROM :d"
     inspectors = db.execute(
-        text("SELECT id, name, district FROM inspectors ORDER BY id")
+        text(f"SELECT id, name, district FROM inspectors {insp_filter} ORDER BY id"),
+        params,
     ).mappings().all()
 
     # Inspectors share districts → build each district's route once, not per
