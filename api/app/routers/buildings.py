@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.access import enforce_building_scope, has_full_access
+from app.access import enforce_building_scope, has_citywide_data_access
 from app.audit import audit, client_ip
 from app.db import get_db
 from app.routers.auth import current_user
@@ -151,7 +151,9 @@ def building_detail(
     if row is None:
         raise HTTPException(status_code=404, detail="building not found")
 
-    if not has_full_access(user) and row["district"] != user.get("district"):
+    # Data scope, not a privilege: citywide roles (leadership/admin +
+    # dispatcher/responder) see any object; scoped roles only their district.
+    if not has_citywide_data_access(user) and row["district"] != user.get("district"):
         raise HTTPException(status_code=404, detail="building not found")
 
     card = _building_card(building_id, db)

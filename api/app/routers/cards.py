@@ -30,17 +30,24 @@ from app.db import get_db
 from app.extraction import extract_card
 from app.routers.auth import current_user, require_roles
 
-# Router-level auth: every card endpoint — including GET /{id}/file, which
-# serves the original uploaded document with extracted ПДн (contacts, phones) —
-# requires the operational roles. Leadership only reads dashboards; the officer
-# who works with cards / signs off on an administrative act (a prescription) is
-# the inspector/supervisor. Without this, files were downloadable unauthenticated
-# by enumerating card_id. District-scoping is not yet possible: operational_cards
+# Router-level auth is just "authenticated"; each endpoint layers its own role
+# guard. Reads (list, detail, and GET /{id}/file — which serves the original
+# document with extracted ПДн) also let the боевой roles in: the караул needs
+# the ПТП on the way to a callout. Writes and the sign-off actions (upload,
+# delete, prescription/remediation review) stay with the officers who issue
+# administrative acts (inspector/supervisor/admin); leadership only reads
+# dashboards. Without any guard, files were downloadable unauthenticated by
+# enumerating card_id. District-scoping is not yet possible: operational_cards
 # has no building/district FK (see _card_detail); add that link to scope per-role.
+CARD_READ = require_roles(
+    "inspector", "supervisor", "admin", "dispatcher", "responder"
+)
+CARD_WRITE = require_roles("inspector", "supervisor", "admin")
+
 router = APIRouter(
     prefix="/cards",
     tags=["cards"],
-    dependencies=[Depends(require_roles("inspector", "supervisor", "admin"))],
+    dependencies=[Depends(current_user)],
 )
 
 ALLOWED = {
@@ -62,7 +69,7 @@ def _save(data: bytes, media_type: str) -> tuple[str, Path]:
 async def upload_card(
     file: UploadFile,
     db: Session = Depends(get_db),
-    user: dict = Depends(current_user),
+    user: dict = Depends(CARD_WRITE),
 ) -> dict:
     if file.content_type not in ALLOWED:
         raise HTTPException(415, "Поддерживаются PDF, PNG, JPEG")
@@ -127,7 +134,7 @@ async def upload_card(
 @router.get("")
 def list_cards(
     db: Session = Depends(get_db),
-    user: dict = Depends(current_user),
+    user: dict = Depends(CARD_READ),
 ) -> list[dict]:
     rows = db.execute(
         text(
@@ -154,7 +161,7 @@ def get_card(
     card_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: dict = Depends(current_user),
+    user: dict = Depends(CARD_READ),
 ) -> dict:
     detail = _card_detail(card_id, db)
     # Operational cards hold ПДн (contacts) — reads must be auditable, not just
@@ -249,7 +256,7 @@ def get_card_file(
     card_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: dict = Depends(current_user),
+    user: dict = Depends(CARD_READ),
 ) -> FileResponse:
     row = db.execute(
         text("SELECT file_path, media_type FROM operational_cards WHERE id = :id"),
@@ -277,7 +284,7 @@ def delete_card(
     card_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: dict = Depends(current_user),
+    user: dict = Depends(CARD_WRITE),
 ) -> dict:
     row = db.execute(
         text("SELECT file_path FROM operational_cards WHERE id = :id"),
@@ -316,7 +323,7 @@ def review_prescription(
     body: PrescriptionReview,
     request: Request,
     db: Session = Depends(get_db),
-    user: dict = Depends(current_user),
+    user: dict = Depends(CARD_WRITE),
 ) -> dict:
     """Confirm or reject an AI-generated prescription before it is acted on.
 
@@ -325,8 +332,8 @@ def review_prescription(
     """
     if body.status not in ("approved", "rejected"):
         raise HTTPException(400, "status должен быть 'approved' или 'rejected'")
-    # Role is enforced router-wide (inspector/supervisor/admin) — leadership,
-    # which never signs off an administrative act, is already excluded here.
+    # CARD_WRITE (inspector/supervisor/admin) — leadership, which never signs off
+    # an administrative act, and the боевой roles are already excluded here.
 
     updated = db.execute(
         text(
@@ -366,11 +373,11 @@ def review_remediation(
     body: RemediationReview,
     request: Request,
     db: Session = Depends(get_db),
-    user: dict = Depends(current_user),
+    user: dict = Depends(CARD_WRITE),
 ) -> dict:
     """Accept or decline an owner's remediation claim.
 
-    Roles (inspector/supervisor/admin) are enforced router-wide. The full
+    Roles (inspector/supervisor/admin, via CARD_WRITE) are enforced. The full
     card→prescription→remediation chain must exist (404 otherwise) and the claim
     must still be 'pending' (409 otherwise) — a decided claim isn't re-decided.
     """

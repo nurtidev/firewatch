@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
   AlertOctagon,
   AlertTriangle,
@@ -311,6 +312,27 @@ export function Button({
 }) {
   return (
     <button
+      className={cn(BTN_BASE, BTN_VARIANT[variant], BTN_SIZE[size], className)}
+      {...props}
+    />
+  );
+}
+
+/** Button-styled Next.js link — for navigation that should read as a primary
+ *  action (e.g. "Открыть ПТП" from a callout pack), not a plain text link. */
+export function LinkButton({
+  variant = "primary",
+  size = "md",
+  className,
+  href,
+  ...props
+}: React.ComponentProps<typeof Link> & {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+}) {
+  return (
+    <Link
+      href={href}
       className={cn(BTN_BASE, BTN_VARIANT[variant], BTN_SIZE[size], className)}
       {...props}
     />

@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.access import enforce_building_scope, has_full_access
+from app.access import enforce_building_scope, has_citywide_data_access
 from app.audit import audit, client_ip
 from app.db import get_db
 from app.routers.auth import current_user, require_roles
@@ -19,8 +19,9 @@ STATUSES = {"open", "in_progress", "resolved", "dismissed"}
 TRANSITION_STATUSES = {"in_progress", "resolved", "dismissed"}
 
 # Recording an obstacle is a field action (same crew as inspection visits/cards);
-# leadership only reads dashboards.
-FIELD_ROLES = require_roles("inspector", "supervisor", "admin")
+# leadership only reads dashboards. Dispatcher/responder also file reports — a
+# донесение со слов караула / с места выезда — and see the whole city (below).
+FIELD_ROLES = require_roles("inspector", "supervisor", "admin", "dispatcher", "responder")
 # Triaging the queue is a supervisory decision.
 REVIEW_ROLES = require_roles("supervisor", "admin")
 
@@ -87,8 +88,9 @@ def create_report(
             raise HTTPException(404, "Здание не найдено")
         # Fail closed: a scoped role reporting against a building outside its
         # district gets 404 (not 403), same as building_detail — existence in
-        # another district isn't leaked.
-        if not has_full_access(user) and building["district"] != user.get("district"):
+        # another district isn't leaked. Citywide roles (incl. dispatcher/
+        # responder) may reference any object in the city.
+        if not has_citywide_data_access(user) and building["district"] != user.get("district"):
             raise HTTPException(404, "Здание не найдено")
         district = building["district"]
     else:

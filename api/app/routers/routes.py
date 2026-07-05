@@ -26,8 +26,12 @@ OVERSIGHT_ROLES = require_roles("supervisor", "leadership", "admin")
 router = APIRouter(tags=["inspections"], dependencies=[Depends(current_user)])
 
 # Inspection-visit evidence is internal-only: external owners must never see the
-# proof photos of an inspection.
-PHOTO_VIEW_ROLES = require_roles("inspector", "supervisor", "leadership", "admin")
+# proof photos of an inspection. Dispatcher/responder are internal боевой roles —
+# they view photos of field reports (which live in the visit_* pool) about
+# blocked access BEFORE arriving on scene.
+PHOTO_VIEW_ROLES = require_roles(
+    "inspector", "supervisor", "leadership", "admin", "dispatcher", "responder"
+)
 
 # Evidence photos accepted for an inspection visit.
 PHOTO_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}

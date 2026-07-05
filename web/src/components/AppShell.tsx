@@ -15,6 +15,8 @@ import {
   Brain,
   ShieldCheck,
   Siren,
+  Radio,
+  Flame,
   Building2,
   Menu,
   X,
@@ -28,6 +30,8 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 
 const ICONS: Record<string, LucideIcon> = {
   "/portal": Building2,
+  "/dispatch": Radio,
+  "/callout": Flame,
   "/dashboard": LayoutDashboard,
   "/routes": Route,
   "/control": Activity,
@@ -66,8 +70,13 @@ export default function AppShell({
     const match = NAV.find(
       (n) => pathname === n.href || pathname.startsWith(n.href + "/"),
     );
-    if (match && !match.roles.includes(user.role)) {
-      router.replace(DEFAULT_ROUTE[user.role]);
+    if (match) {
+      const allowed = match.extraAccessRoles
+        ? [...match.roles, ...match.extraAccessRoles]
+        : match.roles;
+      if (!allowed.includes(user.role)) {
+        router.replace(DEFAULT_ROUTE[user.role]);
+      }
     }
   }, [ready, user, router, pathname]);
 

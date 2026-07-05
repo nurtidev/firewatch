@@ -7,6 +7,8 @@ Demo credentials (pilot only — change before any real deployment):
   supervisor / supervisor123  — руководитель управления (Есильский р-н)
   minister   / minister123    — замминистра (руководство, весь город)
   admin      / admin123       — администратор (все модули, весь город)
+  dispatcher / dispatcher123  — диспетчер ЦОУ/112 (боевой модуль, весь город)
+  responder  / responder123   — начальник караула ПЧ-1 (боевой модуль, весь город)
   owner      / owner123       — председатель ОСИ (внешний владелец, портал)
 
 District scoping: inspector/supervisor see only their district; leadership/admin
@@ -24,6 +26,9 @@ USERS = [
     ("supervisor", "supervisor123", "Сулейменова А.Б.", "supervisor", "Есильский"),
     ("minister", "minister123", "Замминистра", "leadership", None),
     ("admin", "admin123", "Администратор", "admin", None),
+    # Боевой модуль: citywide by role (district = NULL), not district-scoped.
+    ("dispatcher", "dispatcher123", "Диспетчер ЦОУ", "dispatcher", None),
+    ("responder", "responder123", "Начальник караула ПЧ-1", "responder", None),
 ]
 
 

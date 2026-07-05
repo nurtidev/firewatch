@@ -16,7 +16,8 @@ from app.routers.auth import require_roles
 router = APIRouter(
     prefix="/forces",
     tags=["forces"],
-    dependencies=[Depends(require_roles("supervisor", "admin"))],
+    # Dispatcher/responder compute forces-and-means on the way to / at a callout.
+    dependencies=[Depends(require_roles("supervisor", "admin", "dispatcher", "responder"))],
 )
 
 # Object presets: Vл — линейная скорость распространения (м/мин), Jтр — требуемая

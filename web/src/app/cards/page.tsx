@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { useSearchParams } from "next/navigation";
 import {
   Upload,
   FileText,
@@ -202,8 +203,22 @@ const PRESCRIPTION_STATUS: Record<
 
 /* ─── Page ───────────────────────────────────────────────────────────────── */
 
+/** /cards?id=123 deep-links straight into a card — used by the callout pack
+ *  ("Открыть ПТП") and anywhere else that needs to jump to a specific card
+ *  instead of the list landing. useSearchParams requires a Suspense boundary
+ *  around the page (Next.js CSR bailout rule). */
 export default function CardsPage() {
+  return (
+    <Suspense fallback={null}>
+      <CardsPageInner />
+    </Suspense>
+  );
+}
+
+function CardsPageInner() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
+  const deepLinkId = searchParams.get("id");
   const canReviewRemediation =
     user?.role === "inspector" || user?.role === "supervisor" || user?.role === "admin";
 
@@ -230,13 +245,21 @@ export default function CardsPage() {
     refreshList();
   }, []);
 
-  // Auto-open when there's exactly one card — no empty landing, no extra click.
+  // Deep link (?id=) takes priority — open it as soon as the id is known, no
+  // need to wait for the list. Otherwise auto-open when there's exactly one
+  // card — no empty landing, no extra click.
   useEffect(() => {
-    if (autoOpened.current || card || list.length !== 1) return;
+    if (autoOpened.current || card) return;
+    if (deepLinkId) {
+      autoOpened.current = true;
+      openCard(Number(deepLinkId));
+      return;
+    }
+    if (list.length !== 1) return;
     autoOpened.current = true;
     openCard(list[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [list, card]);
+  }, [list, card, deepLinkId]);
 
   async function upload() {
     const f = fileRef.current?.files?.[0];

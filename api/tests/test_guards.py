@@ -16,7 +16,10 @@ from app.db import get_db
 from app.main import app
 from app.routers.auth import current_user, require_roles
 
-ALL_ROLES = ("inspector", "supervisor", "leadership", "admin")
+ALL_ROLES = (
+    "inspector", "supervisor", "leadership", "admin",
+    "dispatcher", "responder", "owner",
+)
 
 # Mutable holder so the overridden current_user can vary the role per request.
 _ROLE = {"value": "admin"}
@@ -63,15 +66,17 @@ ENDPOINTS = [
     ("overview", "GET", "/overview", None,
      {"supervisor", "leadership", "admin"}),
     ("forces_presets", "GET", "/forces/presets", None,
-     {"supervisor", "admin"}),
+     {"supervisor", "admin", "dispatcher", "responder"}),
     ("forces_calc", "POST", "/forces/calc", {},
-     {"supervisor", "admin"}),
+     {"supervisor", "admin", "dispatcher", "responder"}),
     ("infra_stats", "GET", "/infra/stats", None,
-     {"supervisor", "leadership", "admin"}),
+     {"supervisor", "leadership", "admin", "dispatcher", "responder"}),
     ("infra_stations", "GET", "/infra/stations", None,
-     {"supervisor", "leadership", "admin"}),
+     {"supervisor", "leadership", "admin", "dispatcher", "responder"}),
+    ("hydrant_status", "POST", "/infra/hydrants/1/status", {"status": "ok"},
+     {"dispatcher", "responder", "supervisor", "admin"}),
     ("cards_list", "GET", "/cards", None,
-     {"inspector", "supervisor", "admin"}),
+     {"inspector", "supervisor", "admin", "dispatcher", "responder"}),
     ("cards_review", "POST", "/cards/1/prescriptions/1/review", {"status": "approved"},
      {"inspector", "supervisor", "admin"}),
     ("routes_checklist", "GET", "/routes/checklist", None,
@@ -92,9 +97,21 @@ ENDPOINTS = [
          "lng": 71.449,
          "photos": [f"visit_{'0' * 32}.jpg"],
      },
-     {"inspector", "supervisor", "admin"}),
+     {"inspector", "supervisor", "admin", "dispatcher", "responder"}),
     ("reports_status", "POST", "/reports/1/status", {"status": "in_progress"},
      {"supervisor", "admin"}),
+    # Боевой модуль — dispatch of callouts and the боевой пакет.
+    ("dispatch_search", "GET", "/dispatch/search?q=абая", None,
+     {"dispatcher", "admin"}),
+    ("dispatch_create", "POST", "/dispatch",
+     {"lat": 51.169, "lng": 71.449, "callout_type": "fire"},
+     {"dispatcher", "admin"}),
+    ("dispatch_list", "GET", "/dispatch", None,
+     {"dispatcher", "responder", "supervisor", "leadership", "admin"}),
+    ("dispatch_pack", "GET", "/dispatch/1/pack", None,
+     {"dispatcher", "responder", "supervisor", "leadership", "admin"}),
+    ("dispatch_close", "POST", "/dispatch/1/close", {},
+     {"dispatcher", "admin"}),
     # Owner portal — external role. None of ALL_ROLES may enter; owner passes the
     # guard (asserted in test_allowed_role_passes_guard, which iterates `allowed`).
     ("portal_summary", "GET", "/portal/summary", None,
@@ -144,7 +161,10 @@ def test_visit_photo_denies_owner(client):
     assert resp.status_code == 403
 
 
-@pytest.mark.parametrize("role", ["inspector", "supervisor", "leadership", "admin"])
+@pytest.mark.parametrize(
+    "role",
+    ["inspector", "supervisor", "leadership", "admin", "dispatcher", "responder"],
+)
 def test_visit_photo_allows_internal_roles(client, role):
     _ROLE["value"] = role
     resp = client.get(f"/routes/visit/photo/visit_{'0' * 32}.jpg")
