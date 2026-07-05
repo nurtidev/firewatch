@@ -95,6 +95,7 @@ export default function CalloutPack({
               className={cn(
                 "mt-2 font-semibold leading-snug text-fg",
                 large ? "text-2xl sm:text-3xl" : "text-lg sm:text-xl",
+                !callout.address && "tabular",
               )}
             >
               {callout.address || `${callout.lat.toFixed(5)}, ${callout.lng.toFixed(5)}`}

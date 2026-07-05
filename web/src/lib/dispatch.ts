@@ -1,11 +1,16 @@
+"use client";
+
 /**
- * Боевой модуль (dispatch) — domain types and shared metadata for the ЦОУ
- * console (/dispatch) and the responder tablet (/callout). Same convention
- * as lib/reports.ts: category/status → label/icon/severity lives here once,
- * so the pack, the active-callout list and any future surface stay in sync.
+ * Боевой модуль (dispatch) — domain types, shared metadata and data hooks for
+ * the ЦОУ console (/dispatch) and the responder tablet (/callout). Same
+ * convention as lib/reports.ts: category/status → label/icon/severity lives
+ * here once, so the pack, the active-callout list and any future surface stay
+ * in sync — plus the list/pack polling hooks both pages need.
  */
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Flame, CloudFog, BellRing, CircleHelp } from "lucide-react";
+import { apiFetch } from "./auth";
 import { SEVERITY, type SeverityMeta } from "./risk";
 import type { ReportCategory, ReportStatus } from "./reports";
 
@@ -139,4 +144,99 @@ export function relativeTimeRu(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/* ───────────────────────────── Data hooks ──────────────────────── */
+
+/** Polls the callout list for the ЦОУ console (/dispatch, tabbed) and the
+ *  responder tablet (/callout, active-only) — same endpoint, same shape. */
+export function useCalloutList(status: string, pollMs: number) {
+  const [callouts, setCallouts] = useState<Callout[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(() => {
+    apiFetch(`/dispatch?status=${status}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("list"))))
+      .then((d: Callout[]) => {
+        setCallouts(d);
+        setError(null);
+      })
+      .catch(() => setError("Не удалось загрузить выезды. Проверьте связь."));
+  }, [status]);
+
+  useEffect(() => {
+    setCallouts(null);
+    reload();
+    const t = setInterval(reload, pollMs);
+    return () => clearInterval(t);
+  }, [reload, pollMs]);
+
+  return { callouts, error, reload };
+}
+
+/** Боевой пакет for the selected callout, with a stale-response guard: if the
+ *  selection moves on before a fetch resolves (fast clicks between rows,
+ *  slow network), the outdated response is dropped instead of clobbering the
+ *  pack of whatever is selected by the time it arrives. */
+export function useCalloutPack(selectedId: number | null, pollMs?: number) {
+  const [pack, setPackState] = useState<CalloutPackData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Tracks the id the in-flight (or most recent) request/seed was for — a
+  // response only applies if it still matches this.
+  const requestedRef = useRef<number | null>(null);
+
+  const load = useCallback((id: number) => {
+    requestedRef.current = id;
+    setLoading(true);
+    setError(null);
+    apiFetch(`/dispatch/${id}/pack`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("pack"))))
+      .then((d: CalloutPackData) => {
+        if (requestedRef.current !== id) return; // stale — selection moved on
+        setPackState(d);
+      })
+      .catch(() => {
+        if (requestedRef.current !== id) return;
+        setError("Не удалось загрузить боевой пакет.");
+      })
+      .finally(() => {
+        if (requestedRef.current === id) setLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (selectedId == null) {
+      // Nothing selected (e.g. responder went back to the list) — drop any
+      // previously loaded pack instead of leaving stale data mounted.
+      requestedRef.current = null;
+      setPackState(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+    load(selectedId);
+    if (!pollMs) return;
+    const t = setInterval(() => load(selectedId), pollMs);
+    return () => clearInterval(t);
+  }, [selectedId, pollMs, load]);
+
+  // Seed the pack directly from a response that already carries it (e.g. the
+  // POST /dispatch response on creation) — skips a redundant round-trip while
+  // staying under the same stale-guard as `load`.
+  const setPack = useCallback((next: CalloutPackData) => {
+    requestedRef.current = next.callout.id;
+    setPackState(next);
+    setError(null);
+  }, []);
+
+  return {
+    pack,
+    loading,
+    error,
+    reload: () => {
+      if (selectedId != null) load(selectedId);
+    },
+    setPack,
+  };
 }

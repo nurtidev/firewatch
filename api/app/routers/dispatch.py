@@ -48,6 +48,11 @@ _TYPE_TO_PRESET = {
     "public": "public",
     "industrial": "industrial",
 }
+# Catches preset-key drift (forces.py renaming/removing a preset) at import
+# time — in tests and on boot — instead of a 500 on a live callout.
+assert set(_TYPE_TO_PRESET.values()) <= set(_PRESET_LABEL), (
+    "_TYPE_TO_PRESET ссылается на пресет, которого нет в forces.PRESETS"
+)
 
 
 class CalloutCreate(BaseModel):
@@ -219,8 +224,9 @@ def _build_pack(db: Session, callout_id: int) -> dict:
     forces_hint = None
     if building is not None:
         preset_key = _TYPE_TO_PRESET.get(building["building_type"])
-        if preset_key is not None:
-            forces_hint = {"preset_key": preset_key, "label": _PRESET_LABEL[preset_key]}
+        label = _PRESET_LABEL.get(preset_key) if preset_key is not None else None
+        if label is not None:
+            forces_hint = {"preset_key": preset_key, "label": label}
 
     return {
         "callout": _callout_dict(row),

@@ -56,7 +56,12 @@ type Filter = "all" | ReportStatus;
 
 export default function ReportsPage() {
   const { user } = useAuth();
-  const canCreate = user?.role === "inspector" || user?.role === "supervisor" || user?.role === "admin";
+  const canCreate =
+    user?.role === "inspector" ||
+    user?.role === "supervisor" ||
+    user?.role === "admin" ||
+    user?.role === "dispatcher" ||
+    user?.role === "responder";
   const canModerate = user?.role === "supervisor" || user?.role === "admin";
 
   const [reports, setReports] = useState<Report[] | null>(null);

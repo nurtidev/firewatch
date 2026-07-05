@@ -221,6 +221,11 @@ function CardsPageInner() {
   const deepLinkId = searchParams.get("id");
   const canReviewRemediation =
     user?.role === "inspector" || user?.role === "supervisor" || user?.role === "admin";
+  // Загрузка/удаление карточек и утверждение предписаний — только эти роли;
+  // dispatcher/responder (доступ к /cards через боевой пакет) видят карточку
+  // и предписания только на просмотр.
+  const canManageCards =
+    user?.role === "inspector" || user?.role === "supervisor" || user?.role === "admin";
 
   const [card, setCard] = useState<ProcessedCard | null>(null);
   const [list, setList] = useState<CardListItem[]>([]);
@@ -471,23 +476,25 @@ function CardsPageInner() {
         />
 
         {/* ── Upload zone — folds away once a plan is on screen ── */}
-        {card ? (
-          <Collapsible
-            title={
-              <span className="inline-flex items-center gap-2">
-                <Upload className="h-4 w-4 text-faint" aria-hidden />
-                Загрузить новую карточку
-              </span>
-            }
-            className="mt-6"
-          >
-            {uploadZone}
-          </Collapsible>
-        ) : (
-          <Card className="mt-6 p-5">
-            <SectionLabel className="mb-4">Загрузить карточку</SectionLabel>
-            {uploadZone}
-          </Card>
+        {canManageCards && (
+          card ? (
+            <Collapsible
+              title={
+                <span className="inline-flex items-center gap-2">
+                  <Upload className="h-4 w-4 text-faint" aria-hidden />
+                  Загрузить новую карточку
+                </span>
+              }
+              className="mt-6"
+            >
+              {uploadZone}
+            </Collapsible>
+          ) : (
+            <Card className="mt-6 p-5">
+              <SectionLabel className="mb-4">Загрузить карточку</SectionLabel>
+              {uploadZone}
+            </Card>
+          )
         )}
 
         {/* ── Result: structured ПТП (digital operational plan) ── */}
@@ -502,6 +509,7 @@ function CardsPageInner() {
               className="mt-5"
               reviewing={reviewing}
               reviewingRemediation={reviewingRemediation}
+              canManageCards={canManageCards}
               canReviewRemediation={canReviewRemediation}
               onReviewPrescription={(prescriptionId, status) =>
                 reviewPrescription(card.id, prescriptionId, status)
@@ -583,6 +591,7 @@ function CardsPageInner() {
                 card={card}
                 reviewing={reviewing}
                 reviewingRemediation={reviewingRemediation}
+                canManageCards={canManageCards}
                 canReviewRemediation={canReviewRemediation}
                 onReviewPrescription={(prescriptionId, status) =>
                   reviewPrescription(card.id, prescriptionId, status)
@@ -672,14 +681,16 @@ function CardsPageInner() {
                         <ChevronRight className="h-4 w-4 text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-muted" />
                       </div>
                     </button>
-                    <button
-                      onClick={() => deleteCard(c.id, c.address || c.filename)}
-                      className="mr-3 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-faint opacity-0 transition-[opacity,color] duration-[var(--dur-fast)] hover:bg-critical-bg hover:text-critical focus-visible:opacity-100 group-hover:opacity-100"
-                      aria-label={`Удалить карточку: ${c.address || c.filename}`}
-                      title="Удалить карточку"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    {canManageCards && (
+                      <button
+                        onClick={() => deleteCard(c.id, c.address || c.filename)}
+                        className="mr-3 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-faint opacity-0 transition-[opacity,color] duration-[var(--dur-fast)] hover:bg-critical-bg hover:text-critical focus-visible:opacity-100 group-hover:opacity-100"
+                        aria-label={`Удалить карточку: ${c.address || c.filename}`}
+                        title="Удалить карточку"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -700,6 +711,7 @@ function PrescriptionsPanel({
   card,
   reviewing,
   reviewingRemediation,
+  canManageCards,
   canReviewRemediation,
   onReviewPrescription,
   onReviewRemediation,
@@ -708,6 +720,7 @@ function PrescriptionsPanel({
   card: ProcessedCard;
   reviewing: number | null;
   reviewingRemediation: number | null;
+  canManageCards: boolean;
   canReviewRemediation: boolean;
   onReviewPrescription: (prescriptionId: number, status: "approved" | "rejected") => void;
   onReviewRemediation: (
@@ -758,7 +771,7 @@ function PrescriptionsPanel({
               {p.issue && <p className="mt-2 text-xs text-muted">{p.issue}</p>}
               <p className="mt-1 text-sm text-fg">{p.recommendation}</p>
 
-              {p.status === "pending" ? (
+              {p.status === "pending" && canManageCards ? (
                 <div className="mt-3 flex gap-2">
                   <Button
                     size="sm"

@@ -25,7 +25,7 @@ export const NAV: NavItem[] = [
   { href: "/dashboard", label: "Дашборд", roles: ["supervisor", "leadership", "admin"] },
   { href: "/routes", label: "План инспекций", roles: ["inspector", "supervisor", "admin"] },
   { href: "/control", label: "Контроль выполнения", roles: ["supervisor", "admin"] },
-  { href: "/reports", label: "Донесения", roles: ["inspector", "supervisor", "leadership", "admin"],
+  { href: "/reports", label: "Донесения", roles: ["inspector", "supervisor", "leadership", "admin", "dispatcher", "responder"],
     hint: "Полевые донесения: заблокированные проезды, неисправные гидранты — вне плановых проверок" },
   { href: "/map", label: "Карта риска", roles: ["inspector", "supervisor", "leadership", "admin"] },
   { href: "/cards", label: "Оперкарточки", roles: ["inspector", "supervisor", "admin"],

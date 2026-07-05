@@ -6,7 +6,7 @@
  * callout in the city. Same pack component as /callout (the responder
  * tablet) so a dispatcher and a начальник караула never read different data.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Search,
   LocateFixed,
@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import CalloutPack from "@/components/CalloutPack";
+import CalloutRow from "@/components/CalloutRow";
 import { apiFetch } from "@/lib/auth";
 import { apiErrorText } from "@/lib/api-error";
 import { scoreSeverity } from "@/lib/risk";
@@ -39,8 +40,8 @@ import { cn } from "@/lib/cn";
 import {
   CALLOUT_TYPES,
   CALLOUT_TYPE_META,
-  relativeTimeRu,
-  type Callout,
+  useCalloutList,
+  useCalloutPack,
   type CalloutType,
   type CalloutPackData,
   type BuildingSearchResult,
@@ -55,43 +56,15 @@ type ListFilter = "active" | "closed" | "all";
 
 export default function DispatchPage() {
   const [tab, setTab] = useState<ListFilter>("active");
-  const [callouts, setCallouts] = useState<Callout[] | null>(null);
-  const [listError, setListError] = useState<string | null>(null);
+  const { callouts, error: listError, reload: loadList } = useCalloutList(tab, 30000);
 
-  const [pack, setPack] = useState<CalloutPackData | null>(null);
-  const [packLoading, setPackLoading] = useState(false);
-  const [packError, setPackError] = useState<string | null>(null);
-
-  const loadList = useCallback(() => {
-    apiFetch(`/dispatch?status=${tab}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("list"))))
-      .then((d: Callout[]) => {
-        setCallouts(d);
-        setListError(null);
-      })
-      .catch(() => setListError("Не удалось загрузить список выездов. Проверьте связь."));
-  }, [tab]);
-
-  useEffect(() => {
-    setCallouts(null);
-    loadList();
-    const t = setInterval(loadList, 30000);
-    return () => clearInterval(t);
-  }, [loadList]);
-
-  const openPack = useCallback((id: number) => {
-    setPackLoading(true);
-    setPackError(null);
-    apiFetch(`/dispatch/${id}/pack`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("pack"))))
-      .then((d: CalloutPackData) => setPack(d))
-      .catch(() => setPackError("Не удалось загрузить боевой пакет."))
-      .finally(() => setPackLoading(false));
-  }, []);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const { pack, loading: packLoading, error: packError, reload: reloadPack, setPack } =
+    useCalloutPack(selectedId);
 
   function handleCreated(created: CalloutPackData) {
     setPack(created);
-    setPackError(null);
+    setSelectedId(created.callout.id);
     loadList();
   }
 
@@ -103,14 +76,14 @@ export default function DispatchPage() {
     });
     if (r.ok) {
       loadList();
-      openPack(id);
+      reloadPack();
     }
     return r.ok;
   }
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-[1600px] p-5 sm:p-7 lg:p-8">
+      <div className="mx-auto max-w-[1400px] p-5 sm:p-7 lg:p-8">
         <PageHeader
           title="Пульт ЦОУ"
           subtitle="Регистрация боевого выезда и боевой пакет караулу"
@@ -156,11 +129,12 @@ export default function DispatchPage() {
               ) : (
                 <div className="space-y-2">
                   {(callouts ?? []).map((c) => (
-                    <CalloutListItem
+                    <CalloutRow
                       key={c.id}
                       callout={c}
-                      active={pack?.callout.id === c.id}
-                      onClick={() => openPack(c.id)}
+                      size="sm"
+                      active={selectedId === c.id}
+                      onClick={() => setSelectedId(c.id)}
                     />
                   ))}
                 </div>
@@ -200,52 +174,6 @@ export default function DispatchPage() {
   );
 }
 
-/* ───────────────────────────── Active callout row ────────────────────── */
-
-function CalloutListItem({
-  callout,
-  active,
-  onClick,
-}: {
-  callout: Callout;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const meta = CALLOUT_TYPE_META[callout.callout_type];
-  const Icon = meta.icon;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-current={active ? "true" : undefined}
-      className={cn(
-        "flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-colors duration-[var(--dur-fast)]",
-        active
-          ? "border-accent bg-surface-2"
-          : "border-border bg-surface hover:border-border-strong hover:bg-surface-2",
-      )}
-    >
-      <span
-        className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", meta.severity.bg)}
-        aria-hidden
-      >
-        <Icon className={cn("h-4 w-4", meta.severity.text)} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-fg">
-          {callout.address || `${callout.lat.toFixed(4)}, ${callout.lng.toFixed(4)}`}
-        </p>
-        <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-faint">
-          <span className={meta.severity.text}>{meta.label}</span>
-          <span className="tabular">· {relativeTimeRu(callout.created_at)}</span>
-          {callout.station && <span className="truncate">· {callout.station.name}</span>}
-          {callout.status === "closed" && <span>· закрыт</span>}
-        </p>
-      </div>
-    </button>
-  );
-}
-
 /* ───────────────────────────── Register form ──────────────────────────── */
 
 function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => void }) {
@@ -265,6 +193,10 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
   const [error, setError] = useState<string | null>(null);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Generation counter: a later search can resolve before an earlier one
+  // (network reordering) — only the response matching the latest dispatched
+  // search is applied, so stale results never clobber fresher ones.
+  const searchGenRef = useRef(0);
 
   // Debounced building search — 300ms, skipped once a building is selected.
   useEffect(() => {
@@ -274,12 +206,21 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
     }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
+      const gen = ++searchGenRef.current;
       setSearching(true);
       apiFetch(`/dispatch/search?q=${encodeURIComponent(query.trim())}`)
         .then((r) => (r.ok ? r.json() : []))
-        .then((d: BuildingSearchResult[]) => setResults(d))
-        .catch(() => setResults([]))
-        .finally(() => setSearching(false));
+        .then((d: BuildingSearchResult[]) => {
+          if (searchGenRef.current !== gen) return;
+          setResults(d);
+        })
+        .catch(() => {
+          if (searchGenRef.current !== gen) return;
+          setResults([]);
+        })
+        .finally(() => {
+          if (searchGenRef.current === gen) setSearching(false);
+        });
     }, 300);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -391,7 +332,7 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
           >
             <span
               className={cn(
-                "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform duration-[var(--dur-fast)]",
+                "absolute top-0.5 h-4 w-4 rounded-full bg-fg transition-transform duration-[var(--dur-fast)]",
                 manual ? "translate-x-4" : "translate-x-0.5",
               )}
             />

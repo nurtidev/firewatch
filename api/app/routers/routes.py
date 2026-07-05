@@ -32,6 +32,11 @@ router = APIRouter(tags=["inspections"], dependencies=[Depends(current_user)])
 PHOTO_VIEW_ROLES = require_roles(
     "inspector", "supervisor", "leadership", "admin", "dispatcher", "responder"
 )
+# Фото-пул общий для визитов и донесений: dispatcher/responder грузят
+# доказательства донесений сюда же, поэтому upload разрешён шире FIELD_ROLES.
+PHOTO_UPLOAD_ROLES = require_roles(
+    "inspector", "supervisor", "admin", "dispatcher", "responder"
+)
 
 # Evidence photos accepted for an inspection visit.
 PHOTO_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
@@ -260,7 +265,7 @@ class VisitRequest(BaseModel):
 @router.post("/routes/visit/photo")
 async def upload_visit_photo(
     file: UploadFile,
-    _user: dict = Depends(FIELD_ROLES),
+    _user: dict = Depends(PHOTO_UPLOAD_ROLES),
 ) -> dict:
     """Upload one evidence photo; returns its id for inclusion in the visit."""
     if file.content_type not in PHOTO_TYPES:

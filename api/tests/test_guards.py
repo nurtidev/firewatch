@@ -172,6 +172,33 @@ def test_visit_photo_allows_internal_roles(client, role):
     assert resp.status_code not in (401, 403)
 
 
+# --- visit-photo upload: shared pool with field-report evidence ---------------
+# dispatcher/responder upload evidence photos for donesения through this same
+# endpoint, so the upload guard is wider than FIELD_ROLES — but leadership
+# (view-only) must still not be able to upload.
+
+
+@pytest.mark.parametrize("role", ["leadership", "owner"])
+def test_visit_photo_upload_denies_view_only_roles(client, role):
+    _ROLE["value"] = role
+    resp = client.post("/routes/visit/photo")
+    assert resp.status_code == 403, f"{role} must not upload visit photos, got {resp.status_code}"
+
+
+@pytest.mark.parametrize(
+    "role",
+    ["inspector", "supervisor", "admin", "dispatcher", "responder"],
+)
+def test_visit_photo_upload_allows_field_and_boevoy_roles(client, role):
+    _ROLE["value"] = role
+    resp = client.post(
+        "/routes/visit/photo",
+        files={"file": ("x.png", b"", "image/png")},
+    )
+    # Passes the guard; never an auth verdict.
+    assert resp.status_code not in (401, 403)
+
+
 # --- require_roles factory (pure, no app) -------------------------------------
 
 
