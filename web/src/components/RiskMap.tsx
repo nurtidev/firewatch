@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import maplibregl, { type StyleSpecification } from "maplibre-gl";
 import { Box, Square } from "lucide-react";
 import { apiFetch } from "@/lib/auth";
+import { CATEGORY_META, CATEGORY_MAP_COLOR, STATUS_META, type ReportCategory, type ReportStatus } from "@/lib/reports";
 
 export type MapFilters = {
   type?: string;
@@ -41,6 +42,42 @@ const RISK_COLOR: maplibregl.ExpressionSpecification = [
   100,
   "#ff453a", // critical
 ];
+
+// Field-report category → color, single-sourced from lib/reports.ts (which in
+// turn mirrors the SEVERITY tokens — WebGL paint can't resolve CSS vars).
+const REPORT_COLOR: maplibregl.ExpressionSpecification = [
+  "match",
+  ["get", "category"],
+  "blocked_access",
+  CATEGORY_MAP_COLOR.blocked_access,
+  "blocked_exit",
+  CATEGORY_MAP_COLOR.blocked_exit,
+  "hydrant_defect",
+  CATEGORY_MAP_COLOR.hydrant_defect,
+  "parking_barrier",
+  CATEGORY_MAP_COLOR.parking_barrier,
+  CATEGORY_MAP_COLOR.other,
+];
+
+// Only unresolved reports clutter the risk map — resolved/dismissed ones are
+// history, not something an inspector needs to act on right now.
+const OPEN_REPORT_FILTER: maplibregl.ExpressionSpecification = [
+  "any",
+  ["==", ["get", "status"], "open"],
+  ["==", ["get", "status"], "in_progress"],
+];
+
+async function loadReports(map: maplibregl.Map) {
+  try {
+    const res = await apiFetch(`/reports/geojson`);
+    if (!res.ok) return;
+    const geojson = await res.json();
+    const source = map.getSource("reports") as maplibregl.GeoJSONSource | undefined;
+    source?.setData(geojson);
+  } catch {
+    /* leave layer empty */
+  }
+}
 
 function queryString(filters: MapFilters, bbox: string): string {
   const p = new URLSearchParams({ bbox });
@@ -151,6 +188,46 @@ export default function RiskMap({
           map.getCanvas().style.cursor = "";
         });
       }
+
+      // Field reports — open/in_progress obstacles, on top of the risk layer.
+      map.addSource("reports", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: "reports",
+        type: "circle",
+        source: "reports",
+        filter: OPEN_REPORT_FILTER,
+        paint: {
+          "circle-radius": 6,
+          "circle-color": REPORT_COLOR,
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#fff",
+          "circle-opacity": 0.92,
+        },
+      });
+      void loadReports(map);
+
+      const reportPopup = new maplibregl.Popup({ closeButton: true, offset: 10 });
+      map.on("click", "reports", (e) => {
+        const p = e.features?.[0]?.properties as
+          | { id: number; category: ReportCategory; status: ReportStatus }
+          | undefined;
+        if (!p) return;
+        const cat = CATEGORY_META[p.category]?.label ?? p.category;
+        const status = STATUS_META[p.status]?.label ?? p.status;
+        reportPopup
+          .setLngLat(e.lngLat)
+          .setHTML(`<b>${cat}</b><br/>${status}`)
+          .addTo(map);
+      });
+      map.on("mouseenter", "reports", () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", "reports", () => {
+        map.getCanvas().style.cursor = "";
+      });
     });
 
     return () => {

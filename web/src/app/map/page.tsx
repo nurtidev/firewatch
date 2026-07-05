@@ -122,6 +122,24 @@ export default function MapPage() {
             {/* Divider */}
             <div className="my-3 h-px bg-border" />
 
+            {/* Field reports layer — open/in_progress obstacles */}
+            <div role="list" aria-label="Легенда донесений">
+              <SectionLabel className="mb-2">Донесения</SectionLabel>
+              <div role="listitem" className="flex items-center gap-2 py-1">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full border border-white/60"
+                  style={{ background: SEVERITY.critical.cssVar }}
+                  aria-hidden
+                />
+                <span className="text-xs text-muted">
+                  Открытые и в работе · цвет по категории, клик — детали
+                </span>
+              </div>
+            </div>
+
+            {/* Divider */}
+            <div className="my-3 h-px bg-border" />
+
             {/* Filters */}
             <div className="space-y-2.5">
               <Field label="Тип объекта">

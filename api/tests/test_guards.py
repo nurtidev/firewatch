@@ -85,6 +85,16 @@ ENDPOINTS = [
      {"inspector", "supervisor", "admin"}),
     ("routes_progress", "GET", "/routes/progress", None,
      {"supervisor", "leadership", "admin"}),
+    ("reports_create", "POST", "/reports",
+     {
+         "category": "blocked_access",
+         "lat": 51.169,
+         "lng": 71.449,
+         "photos": [f"visit_{'0' * 32}.jpg"],
+     },
+     {"inspector", "supervisor", "admin"}),
+    ("reports_status", "POST", "/reports/1/status", {"status": "in_progress"},
+     {"supervisor", "admin"}),
 ]
 
 

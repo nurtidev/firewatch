@@ -15,6 +15,7 @@ from app.routers import (
     infra,
     model,
     overview,
+    reports,
     routes,
 )
 
@@ -66,6 +67,7 @@ app.include_router(auth.router)
 app.include_router(buildings.router)
 app.include_router(cards.router)
 app.include_router(routes.router)
+app.include_router(reports.router)
 app.include_router(infra.router)
 app.include_router(forces.router)
 app.include_router(chat.router)
