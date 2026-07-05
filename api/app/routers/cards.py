@@ -3,12 +3,25 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+
 class PrescriptionReview(BaseModel):
     status: str  # "approved" | "rejected"
+
+
+class RemediationReview(BaseModel):
+    status: str  # "accepted" | "declined"
+    note: str | None = Field(None, max_length=2000)
+
+    @field_validator("status")
+    @classmethod
+    def _known_status(cls, v: str) -> str:
+        if v not in ("accepted", "declined"):
+            raise ValueError("status должен быть 'accepted' или 'declined'")
+        return v
 
 from app.audit import audit, client_ip
 from app.config import settings
@@ -149,6 +162,32 @@ def get_card(
     return detail
 
 
+def _prescription_row(p: dict) -> dict:
+    """Shape a prescription row (with its latest remediation, if any) for the API."""
+    last_remediation = None
+    if p["rem_id"] is not None:
+        last_remediation = {
+            "id": p["rem_id"],
+            "note": p["rem_note"],
+            "photos": p["rem_photos"],
+            "status": p["rem_status"],
+            "created_at": p["rem_created_at"].isoformat() if p["rem_created_at"] else None,
+            "reviewed_by": p["rem_reviewed_by"],
+            "review_note": p["rem_review_note"],
+        }
+    return {
+        "id": p["id"],
+        "issue": p["issue"],
+        "recommendation": p["recommendation"],
+        "deadline_days": p["deadline_days"],
+        "severity": p["severity"],
+        "status": p["status"],
+        "reviewed_by": p["reviewed_by"],
+        "reviewed_at": p["reviewed_at"].isoformat() if p["reviewed_at"] else None,
+        "last_remediation": last_remediation,
+    }
+
+
 def _card_detail(card_id: int, db: Session) -> dict:
     card = db.execute(
         text("SELECT * FROM operational_cards WHERE id = :id"), {"id": card_id}
@@ -158,9 +197,22 @@ def _card_detail(card_id: int, db: Session) -> dict:
 
     presc = db.execute(
         text(
-            "SELECT id, issue, recommendation, deadline_days, severity, "
-            "       status, reviewed_by, reviewed_at "
-            "FROM prescriptions WHERE card_id = :id ORDER BY id"
+            """
+            SELECT p.id, p.issue, p.recommendation, p.deadline_days, p.severity,
+                   p.status, p.reviewed_by, p.reviewed_at,
+                   lr.id AS rem_id, lr.note AS rem_note, lr.photos AS rem_photos,
+                   lr.status AS rem_status, lr.created_at AS rem_created_at,
+                   lr.reviewed_by AS rem_reviewed_by, lr.review_note AS rem_review_note
+            FROM prescriptions p
+            LEFT JOIN LATERAL (
+                SELECT * FROM remediations r
+                WHERE r.prescription_id = p.id
+                ORDER BY r.created_at DESC, r.id DESC
+                LIMIT 1
+            ) lr ON TRUE
+            WHERE p.card_id = :id
+            ORDER BY p.id
+            """
         ),
         {"id": card_id},
     ).mappings().all()
@@ -177,11 +229,7 @@ def _card_detail(card_id: int, db: Session) -> dict:
         "status": card["status"],
         "created_at": card["created_at"].isoformat(),
         "extracted": card["extracted"],
-        "prescriptions": [
-            dict(p)
-            | {"reviewed_at": p["reviewed_at"].isoformat() if p["reviewed_at"] else None}
-            for p in presc
-        ],
+        "prescriptions": [_prescription_row(p) for p in presc],
         "has_file": has_file,
     }
 
@@ -294,6 +342,69 @@ def review_prescription(
         status_code=200,
         ip=client_ip(request),
         detail={"card_id": card_id, "prescription_id": prescription_id, "status": body.status},
+    )
+    return _card_detail(card_id, db)
+
+
+@router.post(
+    "/{card_id}/prescriptions/{prescription_id}/remediations/{remediation_id}/review"
+)
+def review_remediation(
+    card_id: int,
+    prescription_id: int,
+    remediation_id: int,
+    body: RemediationReview,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(current_user),
+) -> dict:
+    """Accept or decline an owner's remediation claim.
+
+    Roles (inspector/supervisor/admin) are enforced router-wide. The full
+    card→prescription→remediation chain must exist (404 otherwise) and the claim
+    must still be 'pending' (409 otherwise) — a decided claim isn't re-decided.
+    """
+    remediation = db.execute(
+        text(
+            """
+            SELECT r.id, r.status
+            FROM remediations r
+            JOIN prescriptions p ON p.id = r.prescription_id
+            WHERE r.id = :rid AND p.id = :pid AND p.card_id = :cid
+            """
+        ),
+        {"rid": remediation_id, "pid": prescription_id, "cid": card_id},
+    ).mappings().first()
+    if remediation is None:
+        raise HTTPException(404, "Заявка об устранении не найдена")
+    if remediation["status"] != "pending":
+        raise HTTPException(409, "Заявка уже рассмотрена")
+
+    db.execute(
+        text(
+            """
+            UPDATE remediations
+               SET status = :st, reviewed_by = :by, reviewed_at = now(),
+                   review_note = :note
+             WHERE id = :rid
+            """
+        ),
+        {"st": body.status, "by": user.get("username"), "note": body.note, "rid": remediation_id},
+    )
+    db.commit()
+
+    audit(
+        action="remediation.review",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="POST",
+        path=(
+            f"/cards/{card_id}/prescriptions/{prescription_id}"
+            f"/remediations/{remediation_id}/review"
+        ),
+        status_code=200,
+        ip=client_ip(request),
+        detail={"remediation_id": remediation_id, "status": body.status},
     )
     return _card_detail(card_id, db)
 

@@ -7,6 +7,7 @@ Demo credentials (pilot only — change before any real deployment):
   supervisor / supervisor123  — руководитель управления (Есильский р-н)
   minister   / minister123    — замминистра (руководство, весь город)
   admin      / admin123       — администратор (все модули, весь город)
+  owner      / owner123       — председатель ОСИ (внешний владелец, портал)
 
 District scoping: inspector/supervisor see only their district; leadership/admin
 see the whole city (district = NULL).
@@ -26,9 +27,44 @@ USERS = [
 ]
 
 
+# Demo external owner (an ОСИ chairman). District is NULL — owners are scoped by
+# owner_buildings, not by district. Linked below to the Хайвилл building.
+OWNER = ("owner", "owner123", "Председатель ОСИ (демо)", "owner", None)
+
+
+def _seed_owner_link(conn) -> None:
+    """Link the demo owner to the Хайвилл operational card's building, if seeded.
+
+    Uses the same building the ПТП seed attaches its card to (filename
+    'hayvill_ptp.json'); if that card isn't present yet, skip the link with a
+    warning instead of failing the whole seed."""
+    owner_id = conn.execute(
+        text("SELECT id FROM users WHERE username = :u"), {"u": OWNER[0]}
+    ).scalar()
+    building_id = conn.execute(
+        text(
+            "SELECT building_id FROM operational_cards "
+            "WHERE filename = 'hayvill_ptp.json' AND building_id IS NOT NULL "
+            "LIMIT 1"
+        )
+    ).scalar()
+    if building_id is None:
+        print("warning: Хайвилл card not found — skipped owner→building link "
+              "(run scripts.seed_hayvill first)")
+        return
+    conn.execute(
+        text(
+            "INSERT INTO owner_buildings (user_id, building_id) "
+            "VALUES (:uid, :bid) ON CONFLICT DO NOTHING"
+        ),
+        {"uid": owner_id, "bid": building_id},
+    )
+    print(f"linked owner → building #{building_id} (Хайвилл)")
+
+
 def main() -> None:
     with engine.begin() as conn:
-        for username, password, name, role, district in USERS:
+        for username, password, name, role, district in [*USERS, OWNER]:
             conn.execute(
                 text(
                     """
@@ -44,7 +80,8 @@ def main() -> None:
                 {"u": username, "p": hash_password(password), "n": name, "r": role,
                  "d": district},
             )
-    print(f"seeded {len(USERS)} users")
+        _seed_owner_link(conn)
+    print(f"seeded {len(USERS) + 1} users")
 
 
 if __name__ == "__main__":

@@ -19,9 +19,14 @@ FIELD_ROLES = require_roles("inspector", "supervisor", "admin")
 # Live execution overview is a supervisory/leadership read, not a field action.
 OVERSIGHT_ROLES = require_roles("supervisor", "leadership", "admin")
 
-# Router-level auth keeps GET /routes/visit/photo/{id} open to any authenticated
-# role (evidence viewing); per-endpoint guards below narrow the rest.
+# Router-level auth requires an authenticated user; per-endpoint guards below
+# narrow each route to its allowed roles (including GET /routes/visit/photo/{id},
+# whose evidence is internal-only now that external owners exist).
 router = APIRouter(tags=["inspections"], dependencies=[Depends(current_user)])
+
+# Inspection-visit evidence is internal-only: external owners must never see the
+# proof photos of an inspection.
+PHOTO_VIEW_ROLES = require_roles("inspector", "supervisor", "leadership", "admin")
 
 # Evidence photos accepted for an inspection visit.
 PHOTO_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
@@ -265,8 +270,12 @@ async def upload_visit_photo(
 
 
 @router.get("/routes/visit/photo/{photo_id}")
-def get_visit_photo(photo_id: str) -> FileResponse:
-    """Serve an evidence photo. Auth is enforced at the router; the name pattern
+def get_visit_photo(
+    photo_id: str,
+    _user: dict = Depends(PHOTO_VIEW_ROLES),
+) -> FileResponse:
+    """Serve an inspection-visit evidence photo to internal roles only. External
+    owners are excluded — they must not see inspection proof. The name pattern
     blocks path traversal and limits reads to generated photo files."""
     if not _PHOTO_NAME.match(photo_id):
         raise HTTPException(404, "Файл не найден")

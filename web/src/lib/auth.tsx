@@ -11,7 +11,7 @@ import {
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
-export type Role = "inspector" | "supervisor" | "leadership" | "admin";
+export type Role = "inspector" | "supervisor" | "leadership" | "admin" | "owner";
 export type User = { username: string; name: string; role: Role };
 
 type AuthCtx = {

@@ -11,6 +11,7 @@ export type NavItem = {
 
 // Order = sidebar order. Each module is visible only to the listed roles.
 export const NAV: NavItem[] = [
+  { href: "/portal", label: "Мой объект", roles: ["owner"] },
   { href: "/dashboard", label: "Дашборд", roles: ["supervisor", "leadership", "admin"] },
   { href: "/routes", label: "План инспекций", roles: ["inspector", "supervisor", "admin"] },
   { href: "/control", label: "Контроль выполнения", roles: ["supervisor", "admin"] },
@@ -37,6 +38,7 @@ export const DEFAULT_ROUTE: Record<Role, string> = {
   supervisor: "/dashboard",
   leadership: "/dashboard",
   admin: "/dashboard",
+  owner: "/portal",
 };
 
 export const ROLE_LABEL: Record<Role, string> = {
@@ -44,6 +46,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   supervisor: "Руководитель управления",
   leadership: "Руководство ведомства",
   admin: "Администратор",
+  owner: "Владелец объекта",
 };
 
 export function navForRole(role: Role): NavItem[] {

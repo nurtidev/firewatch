@@ -15,6 +15,7 @@ import {
   Brain,
   ShieldCheck,
   Siren,
+  Building2,
   Menu,
   X,
   LogOut,
@@ -26,6 +27,7 @@ import { cn } from "@/lib/cn";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 const ICONS: Record<string, LucideIcon> = {
+  "/portal": Building2,
   "/dashboard": LayoutDashboard,
   "/routes": Route,
   "/control": Activity,

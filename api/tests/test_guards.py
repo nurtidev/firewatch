@@ -95,6 +95,18 @@ ENDPOINTS = [
      {"inspector", "supervisor", "admin"}),
     ("reports_status", "POST", "/reports/1/status", {"status": "in_progress"},
      {"supervisor", "admin"}),
+    # Owner portal — external role. None of ALL_ROLES may enter; owner passes the
+    # guard (asserted in test_allowed_role_passes_guard, which iterates `allowed`).
+    ("portal_summary", "GET", "/portal/summary", None,
+     {"owner"}),
+    ("portal_remediation", "POST", "/portal/prescriptions/1/remediation",
+     {"note": "нарушение устранено"},
+     {"owner"}),
+    # Admin-only external account creation.
+    ("auth_users", "POST", "/auth/users",
+     {"username": "newowner", "password": "password123", "name": "Owner",
+      "role": "owner", "building_ids": [1]},
+     {"admin"}),
 ]
 
 
@@ -120,6 +132,24 @@ def test_allowed_role_passes_guard(client, name, method, path, body, allowed):
         assert resp.status_code not in (401, 403), (
             f"{name}: role {role} must pass the guard, got {resp.status_code}"
         )
+
+
+# --- visit-photo tightening: internal-only after owners were introduced -------
+
+
+def test_visit_photo_denies_owner(client):
+    """An external owner must never see inspection-visit evidence photos."""
+    _ROLE["value"] = "owner"
+    resp = client.get(f"/routes/visit/photo/visit_{'0' * 32}.jpg")
+    assert resp.status_code == 403
+
+
+@pytest.mark.parametrize("role", ["inspector", "supervisor", "leadership", "admin"])
+def test_visit_photo_allows_internal_roles(client, role):
+    _ROLE["value"] = role
+    resp = client.get(f"/routes/visit/photo/visit_{'0' * 32}.jpg")
+    # Passes the guard; the file doesn't exist → 404, never an auth verdict.
+    assert resp.status_code not in (401, 403)
 
 
 # --- require_roles factory (pure, no app) -------------------------------------

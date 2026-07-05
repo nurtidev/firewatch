@@ -29,6 +29,9 @@ import {
   X,
   ShieldCheck,
   Ban,
+  ClipboardList,
+  RefreshCw,
+  CalendarDays,
   type LucideIcon,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
@@ -38,8 +41,9 @@ const Building3D = dynamic(() => import("@/components/Building3D"), { ssr: false
 import FloorPlan2D from "@/components/FloorPlan2D";
 import SchemeGallery from "@/components/SchemeGallery";
 import { schemesForObject, totalSchemePages } from "@/data/schemes";
-import { apiFetch, apiSrc } from "@/lib/auth";
-import { SEVERITY, type Severity } from "@/lib/risk";
+import { apiFetch, apiSrc, useAuth } from "@/lib/auth";
+import { apiErrorText } from "@/lib/api-error";
+import { SEVERITY } from "@/lib/risk";
 import {
   Card,
   PageHeader,
@@ -51,13 +55,35 @@ import {
   EmptyState,
   Tabs,
   Collapsible,
+  Textarea,
+  Field,
   type TabItem,
 } from "@/components/ui";
 import { cn } from "@/lib/cn";
+import {
+  prescriptionSeverity,
+  REMEDIATION_STATUS,
+  type RemediationStatus,
+} from "@/lib/portal";
 
 /* ─── Types ─────────────────────────────────────────────────────────────── */
 
 type PrescriptionStatus = "pending" | "approved" | "rejected";
+
+/** Owner's remediation claim for a prescription, as returned inline by
+ *  GET /cards/{id}. Distinct from prescription review (visé) above: this is
+ *  "the violation was fixed", not "the prescription is valid" — the two
+ *  flows are rendered separately so they never read as the same thing. Note:
+ *  unlike the /portal/prescriptions shape, this contract has no reviewed_at. */
+type LastRemediation = {
+  id: number;
+  note: string;
+  photos: string[];
+  status: RemediationStatus;
+  created_at: string;
+  reviewed_by: string | null;
+  review_note: string | null;
+};
 
 type Prescription = {
   id: number;
@@ -68,6 +94,7 @@ type Prescription = {
   status: PrescriptionStatus;
   reviewed_by: string | null;
   reviewed_at: string | null;
+  last_remediation: LastRemediation | null;
 };
 
 type ProcessedCard = {
@@ -144,14 +171,6 @@ const FIELDS: [string, string][] = [
   ["notes", "Примечания"],
 ];
 
-/* ─── Severity mapping from prescription severity string ─────────────────── */
-
-function prescriptionSeverity(s: string | null): (typeof SEVERITY)[Severity] {
-  if (s === "high") return SEVERITY.critical;
-  if (s === "medium") return SEVERITY.high;
-  return SEVERITY.elevated;
-}
-
 /* ─── Prescription review status → chip meta ─────────────────────────────── */
 
 const PRESCRIPTION_STATUS: Record<
@@ -181,6 +200,10 @@ const PRESCRIPTION_STATUS: Record<
 /* ─── Page ───────────────────────────────────────────────────────────────── */
 
 export default function CardsPage() {
+  const { user } = useAuth();
+  const canReviewRemediation =
+    user?.role === "inspector" || user?.role === "supervisor" || user?.role === "admin";
+
   const [card, setCard] = useState<ProcessedCard | null>(null);
   const [list, setList] = useState<CardListItem[]>([]);
   const [listLoading, setListLoading] = useState(true);
@@ -269,6 +292,40 @@ export default function CardsPage() {
       }
     } finally {
       setReviewing(null);
+    }
+  }
+
+  const [reviewingRemediation, setReviewingRemediation] = useState<number | null>(null);
+
+  async function reviewRemediation(
+    cardId: number,
+    prescriptionId: number,
+    remediationId: number,
+    status: "accepted" | "declined",
+    note?: string,
+  ) {
+    setReviewingRemediation(remediationId);
+    setError(null);
+    try {
+      const res = await apiFetch(
+        `/cards/${cardId}/prescriptions/${prescriptionId}/remediations/${remediationId}/review`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status, note: note?.trim() || undefined }),
+        },
+      );
+      if (res.ok) {
+        setCard(await res.json());
+      } else {
+        const msg = await res.json().catch(() => ({}));
+        setError(
+          apiErrorText((msg as { detail?: unknown }).detail, `Не удалось сохранить решение (${res.status})`) ??
+            `Не удалось сохранить решение (${res.status})`,
+        );
+      }
+    } finally {
+      setReviewingRemediation(null);
     }
   }
 
@@ -557,6 +614,18 @@ export default function CardsPage() {
                                   ` · ${new Date(p.reviewed_at).toLocaleString("ru")}`}
                               </p>
                             )
+                          )}
+
+                          {p.last_remediation && (
+                            <RemediationBlock
+                              remediation={p.last_remediation}
+                              canReview={canReviewRemediation}
+                              reviewing={reviewingRemediation === p.last_remediation.id}
+                              onReview={(status, note) =>
+                                p.last_remediation &&
+                                reviewRemediation(card.id, p.id, p.last_remediation.id, status, note)
+                              }
+                            />
                           )}
                         </li>
                       );
@@ -1105,6 +1174,148 @@ function Row({ label, value }: { label: string; value?: string | null }) {
     <div className="flex gap-3">
       <dt className="w-40 shrink-0 text-faint">{label}</dt>
       <dd className="min-w-0 text-fg">{value}</dd>
+    </div>
+  );
+}
+
+/* ─── Remediation review (владелец заявил об устранении нарушения) ───────── */
+/* This is a SEPARATE flow from prescription review (visé) above: visé decides
+ * whether the prescription itself is valid; this decides whether the owner's
+ * claimed fix actually resolved it. Rendered in its own bordered block so the
+ * two never blur into one status. */
+
+function RemediationBlock({
+  remediation,
+  canReview,
+  reviewing,
+  onReview,
+}: {
+  remediation: LastRemediation;
+  canReview: boolean;
+  reviewing: boolean;
+  onReview: (status: "accepted" | "declined", note?: string) => void;
+}) {
+  const meta = REMEDIATION_STATUS[remediation.status] ?? REMEDIATION_STATUS.pending;
+  const [declining, setDeclining] = useState(false);
+  const [note, setNote] = useState("");
+  const created = new Date(remediation.created_at).toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  return (
+    <div className="mt-3 rounded-md border border-border-strong bg-surface p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <SectionLabel>Заявка владельца об устранении</SectionLabel>
+        <span
+          className={cn(
+            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium",
+            meta.cls,
+          )}
+        >
+          <meta.icon className="h-3 w-3" aria-hidden />
+          {meta.label}
+        </span>
+      </div>
+
+      <p className="mt-2 text-sm text-fg">{remediation.note}</p>
+
+      {remediation.photos.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {remediation.photos.map((id) => (
+            <a
+              key={id}
+              href={apiSrc(`/portal/photo/${id}`)}
+              target="_blank"
+              rel="noreferrer"
+              className="block h-14 w-14 shrink-0 overflow-hidden rounded-md border border-border"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={apiSrc(`/portal/photo/${id}`)}
+                alt="Фото устранения"
+                className="h-full w-full object-cover"
+              />
+            </a>
+          ))}
+        </div>
+      )}
+
+      <p className="mt-2 inline-flex items-center gap-1 text-2xs text-faint">
+        <CalendarDays className="h-3 w-3" aria-hidden />
+        <span className="tabular">{created}</span>
+      </p>
+
+      {remediation.status !== "pending" && (
+        <p className="mt-2 text-2xs text-faint">
+          {remediation.status === "accepted" ? "Подтвердил" : "Отклонил"}
+          {remediation.reviewed_by && `: ${remediation.reviewed_by}`}
+          {remediation.review_note && ` · ${remediation.review_note}`}
+        </p>
+      )}
+
+      {remediation.status === "pending" && canReview && (
+        declining ? (
+          <div className="mt-3">
+            <Field label="Причина отклонения (необязательно)">
+              <Textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={2}
+                placeholder="Что не устранено или не подтверждено"
+              />
+            </Field>
+            <div className="mt-2 flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="danger"
+                disabled={reviewing}
+                onClick={() => onReview("declined", note)}
+              >
+                {reviewing ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <X className="h-3.5 w-3.5" />
+                )}
+                Отклонить заявку
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={reviewing}
+                onClick={() => {
+                  setDeclining(false);
+                  setNote("");
+                }}
+              >
+                Отмена
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3 flex gap-2">
+            <Button
+              size="sm"
+              variant="success"
+              disabled={reviewing}
+              onClick={() => onReview("accepted")}
+            >
+              {reviewing ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ClipboardList className="h-4 w-4" />
+              )}
+              Подтвердить устранение
+            </Button>
+            <Button size="sm" variant="ghost" disabled={reviewing} onClick={() => setDeclining(true)}>
+              <X className="h-4 w-4" /> Отклонить
+            </Button>
+          </div>
+        )
+      )}
     </div>
   );
 }

@@ -1,13 +1,13 @@
 import datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.access import has_full_access
 from app.audit import audit, client_ip
-from app.auth import create_token, decode_token, verify_password
+from app.auth import create_token, decode_token, hash_password, verify_password
 from app.db import get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -20,6 +20,25 @@ class LoginRequest(BaseModel):
 
 class RevokeRequest(BaseModel):
     username: str
+
+
+class UserCreate(BaseModel):
+    """Admin-created external account. Internal accounts (inspector/supervisor/
+    leadership/admin) are still provisioned via seed scripts — this endpoint only
+    mints owner accounts, which is why role is pinned to 'owner'."""
+
+    username: str = Field(..., min_length=3, max_length=50, pattern=r"^[a-z0-9_.-]+$")
+    password: str = Field(..., min_length=8)
+    name: str = Field(..., min_length=1, max_length=200)
+    role: str
+    building_ids: list[int] = Field(..., min_length=1)
+
+    @field_validator("role")
+    @classmethod
+    def _only_owner(cls, v: str) -> str:
+        if v != "owner":
+            raise ValueError("через этот эндпоинт создаются только владельцы (role='owner')")
+        return v
 
 
 def current_user(
@@ -121,6 +140,62 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)) -
 @router.get("/me")
 def me(user: dict = Depends(current_user)) -> dict:
     return user
+
+
+@router.post("/users")
+def create_user(
+    body: UserCreate,
+    request: Request,
+    user: dict = Depends(require_roles("admin")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Create an external owner account and link it to buildings (admin only)."""
+    taken = db.execute(
+        text("SELECT 1 FROM users WHERE username = :u"), {"u": body.username}
+    ).scalar()
+    if taken:
+        raise HTTPException(409, "Пользователь с таким логином уже существует")
+
+    # Every linked building must exist — fail closed on an unknown id.
+    ids = list(dict.fromkeys(body.building_ids))  # de-dupe, keep order
+    found = db.execute(
+        text("SELECT count(*) FROM buildings WHERE id = ANY(:ids)"),
+        {"ids": ids},
+    ).scalar()
+    if int(found or 0) != len(ids):
+        raise HTTPException(404, "Одно или несколько зданий не найдены")
+
+    new_id = db.execute(
+        text(
+            """
+            INSERT INTO users (username, password_hash, name, role, district)
+            VALUES (:u, :p, :n, :r, NULL)
+            RETURNING id
+            """
+        ),
+        {"u": body.username, "p": hash_password(body.password), "n": body.name, "r": body.role},
+    ).scalar()
+    for bid in ids:
+        db.execute(
+            text(
+                "INSERT INTO owner_buildings (user_id, building_id) "
+                "VALUES (:uid, :bid) ON CONFLICT DO NOTHING"
+            ),
+            {"uid": new_id, "bid": bid},
+        )
+    db.commit()
+
+    audit(
+        action="user.created",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="POST",
+        path="/auth/users",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"username": body.username, "role": body.role, "building_ids": ids},
+    )
+    return {"id": new_id, "username": body.username, "role": body.role, "building_ids": ids}
 
 
 def _revoke_sessions(db: Session, username: str) -> bool:
