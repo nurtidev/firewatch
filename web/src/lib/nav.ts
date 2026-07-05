@@ -21,7 +21,9 @@ export const NAV: NavItem[] = [
     hint: "Гидранты, пожарные части, зоны прибытия и «слепые зоны» покрытия" },
   { href: "/forces", label: "Расчёт сил и средств", roles: ["supervisor", "admin"],
     hint: "Калькулятор сил и средств на тушение по методике расчёта" },
-  { href: "/chat", label: "ИИ-аналитик", roles: ["leadership", "supervisor", "admin"],
+  // Аналитик исполняет свободные SELECT по всем районам — доступен только
+  // командным ролям (см. api/app/chat.py::ask), поэтому supervisor исключён.
+  { href: "/chat", label: "ИИ-аналитик", roles: ["leadership", "admin"],
     hint: "Вопрос на естественном языке → ответ строго из данных ДЧС, с источниками" },
   { href: "/model", label: "Модель ИИ", roles: ["leadership", "supervisor", "admin"],
     hint: "Качество риск-модели: метрики и объяснимость (какие факторы влияют на оценку)" },

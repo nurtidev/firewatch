@@ -11,9 +11,16 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import get_db
-from app.routers.auth import current_user
+from app.routers.auth import current_user, require_roles
 from app.routers.buildings import TYPE_LABELS
 
+# Roles that plan and carry out inspections. Leadership only reads dashboards.
+FIELD_ROLES = require_roles("inspector", "supervisor", "admin")
+# Live execution overview is a supervisory/leadership read, not a field action.
+OVERSIGHT_ROLES = require_roles("supervisor", "leadership", "admin")
+
+# Router-level auth keeps GET /routes/visit/photo/{id} open to any authenticated
+# role (evidence viewing); per-endpoint guards below narrow the rest.
 router = APIRouter(tags=["inspections"], dependencies=[Depends(current_user)])
 
 # Evidence photos accepted for an inspection visit.
@@ -61,7 +68,10 @@ CHECKLIST = [
 
 
 @router.get("/inspectors")
-def list_inspectors(db: Session = Depends(get_db)) -> list[dict]:
+def list_inspectors(
+    db: Session = Depends(get_db),
+    _user: dict = Depends(FIELD_ROLES),
+) -> list[dict]:
     rows = db.execute(
         text("SELECT id, name, district FROM inspectors ORDER BY id")
     ).mappings()
@@ -69,7 +79,7 @@ def list_inspectors(db: Session = Depends(get_db)) -> list[dict]:
 
 
 @router.get("/routes/checklist")
-def checklist() -> list[dict]:
+def checklist(_user: dict = Depends(FIELD_ROLES)) -> list[dict]:
     return CHECKLIST
 
 
@@ -161,6 +171,7 @@ def route_today(
     inspector_id: int,
     size: int = 6,
     db: Session = Depends(get_db),
+    _user: dict = Depends(FIELD_ROLES),
 ) -> dict:
     inspector = db.execute(
         text("SELECT id, name, district FROM inspectors WHERE id = :id"),
@@ -237,7 +248,10 @@ class VisitRequest(BaseModel):
 
 
 @router.post("/routes/visit/photo")
-async def upload_visit_photo(file: UploadFile) -> dict:
+async def upload_visit_photo(
+    file: UploadFile,
+    _user: dict = Depends(FIELD_ROLES),
+) -> dict:
     """Upload one evidence photo; returns its id for inclusion in the visit."""
     if file.content_type not in PHOTO_TYPES:
         raise HTTPException(415, "Поддерживаются PNG, JPEG, WebP")
@@ -263,7 +277,11 @@ def get_visit_photo(photo_id: str) -> FileResponse:
 
 
 @router.post("/routes/visit")
-def record_visit(body: VisitRequest, db: Session = Depends(get_db)) -> dict:
+def record_visit(
+    body: VisitRequest,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(FIELD_ROLES),
+) -> dict:
     import json
 
     # A violation must carry at least one coded violation AND photographic
@@ -322,7 +340,11 @@ def record_visit(body: VisitRequest, db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/routes/progress")
-def progress(size: int = 6, db: Session = Depends(get_db)) -> list[dict]:
+def progress(
+    size: int = 6,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(OVERSIGHT_ROLES),
+) -> list[dict]:
     """Live execution status across all inspectors (supervisor view)."""
     inspectors = db.execute(
         text("SELECT id, name, district FROM inspectors ORDER BY id")

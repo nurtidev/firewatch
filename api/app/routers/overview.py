@@ -4,13 +4,16 @@ from sqlalchemy.orm import Session
 
 from app.access import has_full_access
 from app.db import get_db
-from app.routers.auth import current_user
+from app.routers.auth import require_roles
 
-router = APIRouter(tags=["overview"], dependencies=[Depends(current_user)])
+router = APIRouter(tags=["overview"])
 
 
 @router.get("/overview")
-def overview(db: Session = Depends(get_db), user: dict = Depends(current_user)) -> dict:
+def overview(
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_roles("supervisor", "leadership", "admin")),
+) -> dict:
     """Headline counts for the dashboard.
 
     For scoped roles (inspector/supervisor) the building- and inspector-derived

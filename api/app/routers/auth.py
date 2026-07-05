@@ -70,6 +70,22 @@ def current_user(
     }
 
 
+def require_roles(*roles: str):
+    """FastAPI dependency: 403 unless the current user's role is in `roles`.
+
+    Layered on top of current_user (which already enforces a valid, non-revoked
+    token), so a caller with the wrong role gets 403, an unauthenticated one 401.
+    """
+    allowed = frozenset(roles)
+
+    async def _guard(user: dict = Depends(current_user)) -> dict:
+        if user.get("role") not in allowed:
+            raise HTTPException(status_code=403, detail="Недостаточно прав для этой операции")
+        return user
+
+    return _guard
+
+
 @router.post("/login")
 def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)) -> dict:
     ip = client_ip(request)

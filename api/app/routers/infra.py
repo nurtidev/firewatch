@@ -6,12 +6,12 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import get_db
-from app.routers.auth import current_user
+from app.routers.auth import require_roles
 
 router = APIRouter(
     prefix="/infra",
     tags=["infrastructure"],
-    dependencies=[Depends(current_user)],
+    dependencies=[Depends(require_roles("supervisor", "leadership", "admin"))],
 )
 
 

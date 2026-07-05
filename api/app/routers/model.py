@@ -8,9 +8,13 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.config import settings
-from app.routers.auth import current_user
+from app.routers.auth import require_roles
 
-router = APIRouter(prefix="/model", tags=["model"], dependencies=[Depends(current_user)])
+router = APIRouter(
+    prefix="/model",
+    tags=["model"],
+    dependencies=[Depends(require_roles("leadership", "supervisor", "admin"))],
+)
 
 
 @router.get("")

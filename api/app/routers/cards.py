@@ -7,11 +7,6 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-# Who may approve/reject a prescription. Leadership only reads dashboards — the
-# officer who signs off on an administrative act is the inspector/supervisor.
-REVIEW_ROLES = {"inspector", "supervisor", "admin"}
-
-
 class PrescriptionReview(BaseModel):
     status: str  # "approved" | "rejected"
 
@@ -19,17 +14,19 @@ from app.audit import audit, client_ip
 from app.config import settings
 from app.db import get_db
 from app.extraction import extract_card
-from app.routers.auth import current_user
+from app.routers.auth import current_user, require_roles
 
 # Router-level auth: every card endpoint — including GET /{id}/file, which
 # serves the original uploaded document with extracted ПДн (contacts, phones) —
-# requires a valid token. Without this, files were downloadable unauthenticated
+# requires the operational roles. Leadership only reads dashboards; the officer
+# who works with cards / signs off on an administrative act (a prescription) is
+# the inspector/supervisor. Without this, files were downloadable unauthenticated
 # by enumerating card_id. District-scoping is not yet possible: operational_cards
 # has no building/district FK (see _card_detail); add that link to scope per-role.
 router = APIRouter(
     prefix="/cards",
     tags=["cards"],
-    dependencies=[Depends(current_user)],
+    dependencies=[Depends(require_roles("inspector", "supervisor", "admin"))],
 )
 
 ALLOWED = {
@@ -270,8 +267,8 @@ def review_prescription(
     """
     if body.status not in ("approved", "rejected"):
         raise HTTPException(400, "status должен быть 'approved' или 'rejected'")
-    if user.get("role") not in REVIEW_ROLES:
-        raise HTTPException(403, "Недостаточно прав для рассмотрения предписания")
+    # Role is enforced router-wide (inspector/supervisor/admin) — leadership,
+    # which never signs off an administrative act, is already excluded here.
 
     updated = db.execute(
         text(

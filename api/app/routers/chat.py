@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from app.audit import audit, client_ip
 from app.chat import ChatError, ask
-from app.routers.auth import current_user
+from app.routers.auth import require_roles
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -13,7 +13,13 @@ class ChatRequest(BaseModel):
 
 
 @router.post("")
-def chat(req: ChatRequest, request: Request, user: dict = Depends(current_user)) -> dict:
+def chat(
+    req: ChatRequest,
+    request: Request,
+    # Mirrors ask()'s own restriction: the analyst runs free-form SELECTs across
+    # districts, so scoped roles (inspector/supervisor) are excluded (ПДн).
+    user: dict = Depends(require_roles("leadership", "admin")),
+) -> dict:
     try:
         result = ask(req.question, user)
     except ChatError as err:

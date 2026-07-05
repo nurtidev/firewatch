@@ -20,7 +20,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { navForRole, ROLE_LABEL } from "@/lib/nav";
+import { NAV, navForRole, DEFAULT_ROUTE, ROLE_LABEL } from "@/lib/nav";
 import { cn } from "@/lib/cn";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -50,8 +50,22 @@ export default function AppShell({
   const [drawer, setDrawer] = useState(false);
 
   useEffect(() => {
-    if (ready && !user) router.replace("/login");
-  }, [ready, user, router]);
+    if (!ready) return;
+    if (!user) {
+      router.replace("/login");
+      return;
+    }
+    // Role is a real access boundary, not just a nav filter: if the user is on a
+    // NAV route their role can't see (e.g. deep link, or a role change), bounce
+    // them to their default landing page. Non-NAV routes (login, public landings)
+    // are left alone. The backend guards enforce this too — this is just UX.
+    const match = NAV.find(
+      (n) => pathname === n.href || pathname.startsWith(n.href + "/"),
+    );
+    if (match && !match.roles.includes(user.role)) {
+      router.replace(DEFAULT_ROUTE[user.role]);
+    }
+  }, [ready, user, router, pathname]);
 
   // Close the mobile drawer whenever the route changes.
   useEffect(() => {
