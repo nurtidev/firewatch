@@ -140,7 +140,7 @@ export default function BusinessLanding() {
           }}
           aria-hidden
         />
-        <div className="relative mx-auto grid max-w-[1180px] items-center gap-12 lg:grid-cols-[1.02fr_.98fr] lg:gap-16">
+        <div className="relative mx-auto grid max-w-[1180px] grid-cols-1 items-center gap-12 lg:grid-cols-[1.02fr_.98fr] lg:gap-16 [&>div]:min-w-0">
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-2 py-1.5 pr-3.5 text-[12.5px] font-semibold text-muted shadow-card">
               <span className="rounded-full bg-accent px-2.5 py-0.5 text-[11px] text-accent-fg">
@@ -198,7 +198,7 @@ export default function BusinessLanding() {
 
       {/* ── What's included ── */}
       <Section id="offer">
-        <div className="grid items-center gap-10 rounded-[24px] border border-border bg-surface p-7 shadow-card lg:grid-cols-[1.1fr_.9fr] lg:p-11">
+        <div className="grid grid-cols-1 items-center gap-10 rounded-[24px] border border-border bg-surface p-7 shadow-card lg:grid-cols-[1.1fr_.9fr] lg:p-11 [&>div]:min-w-0">
           <div>
             <span className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
               Что входит

@@ -158,7 +158,7 @@ export default function GovLanding() {
           }}
           aria-hidden
         />
-        <div className="relative mx-auto grid max-w-[1180px] items-center gap-12 lg:grid-cols-[1.02fr_.98fr] lg:gap-16">
+        <div className="relative mx-auto grid max-w-[1180px] grid-cols-1 items-center gap-12 lg:grid-cols-[1.02fr_.98fr] lg:gap-16 [&>div]:min-w-0">
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-2 py-1.5 pr-3.5 text-[12.5px] font-semibold text-muted shadow-card">
               <span className="rounded-full bg-accent px-2.5 py-0.5 text-[11px] text-accent-fg">
