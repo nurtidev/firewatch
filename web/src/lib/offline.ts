@@ -27,8 +27,8 @@ export type VisitPayload = {
   inspector_id: number;
   building_id: number;
   status: "done" | "violation";
-  checklist: Record<string, boolean>;
-  violations?: { code: string }[];
+  checklist: Record<string, "pass" | "violation" | "na">;
+  violations?: { code: string; note?: string }[];
   note: string | null;
 };
 

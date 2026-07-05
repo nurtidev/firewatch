@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   Check,
   X,
+  Minus,
   CloudOff,
   RefreshCw,
 } from "lucide-react";
@@ -26,6 +27,7 @@ import {
   Button,
   Field,
   Select,
+  Input,
   Textarea,
   ProgressBar,
   Skeleton,
@@ -76,6 +78,8 @@ type Route = {
   total: number;
 };
 type ChecklistItem = { key: string; label: string; code?: string; group?: string };
+/** Explicit three-state checklist mark; an unset item is simply absent from the map. */
+type MarkValue = "pass" | "violation" | "na";
 
 type Filter = "all" | "pending" | "done";
 
@@ -526,7 +530,8 @@ function ObjectSheet({
   onSaved: () => void;
   onQueued: (status: "done" | "violation") => void;
 }) {
-  const [marks, setMarks] = useState<Record<string, boolean>>({});
+  const [marks, setMarks] = useState<Record<string, MarkValue>>({});
+  const [violationNotes, setViolationNotes] = useState<Record<string, string>>({});
   const [note, setNote] = useState("");
   // Photos already uploaded to the server (online path) and their evidence ids.
   const [photos, setPhotos] = useState<string[]>([]);
@@ -538,6 +543,16 @@ function ObjectSheet({
 
   const photoCount = photos.length + offlinePhotos.length;
   const scoreSev = scoreSeverity(stop.score);
+
+  /** Set (or, on repeat click, unset) a checklist item's mark. */
+  function setMark(key: string, value: MarkValue | null) {
+    setMarks((m) => {
+      const next = { ...m };
+      if (value == null) delete next[key];
+      else next[key] = value;
+      return next;
+    });
+  }
 
   async function uploadPhotos(files: FileList | null) {
     if (!files?.length) return;
@@ -575,18 +590,19 @@ function ObjectSheet({
     }
   }
 
-  async function save(status: "done" | "violation") {
+  async function save() {
     setError(null);
-    let violations: { code: string }[] | undefined;
+    const status: "done" | "violation" = hasViolation ? "violation" : "done";
+    let violations: { code: string; note?: string }[] | undefined;
     if (status === "violation") {
-      // Unchecked checklist items become coded violations.
       violations = checklist
-        .filter((c) => c.code && !marks[c.key])
-        .map((c) => ({ code: c.code as string }));
+        .filter((c) => marks[c.key] === "violation" && c.code)
+        .map((c) => {
+          const noteText = violationNotes[c.key]?.trim();
+          return noteText ? { code: c.code as string, note: noteText } : { code: c.code as string };
+        });
       if (!violations.length) {
-        setError(
-          "Отметьте галочками пройденные пункты — непройденные станут нарушениями. Сейчас нарушений нет.",
-        );
+        setError("У отмеченных нарушений нет кода нормы — уточните чек-лист.");
         return;
       }
       if (!photoCount) {
@@ -644,7 +660,9 @@ function ObjectSheet({
     }
   }
 
-  const passedCount = checklist.filter((c) => marks[c.key]).length;
+  const markedCount = checklist.filter((c) => marks[c.key]).length;
+  const allMarked = checklist.length === 0 || markedCount === checklist.length;
+  const hasViolation = checklist.some((c) => marks[c.key] === "violation");
   const busy = saving || uploading;
 
   return (
@@ -686,31 +704,50 @@ function ObjectSheet({
               <div className="mb-2 flex items-center justify-between">
                 <SectionLabel>Чек-лист осмотра</SectionLabel>
                 <span className="text-2xs tabular text-faint">
-                  {passedCount} / {checklist.length} отмечено
+                  {markedCount} / {checklist.length} отмечено
                 </span>
               </div>
               <p className="mb-2.5 text-2xs leading-relaxed text-faint">
-                Отметьте пройденные пункты. Непройденные при фиксации нарушения станут
-                нарушениями с кодом нормы.
+                Отметьте каждый пункт: соответствует, нарушение или не применимо.
               </p>
               <div className="space-y-2">
-                {checklist.map((c) => (
-                  <label
-                    key={c.key}
-                    className="flex min-h-[52px] cursor-pointer items-center gap-3 rounded-lg border border-border bg-surface-2 px-3.5 py-2.5 transition-colors has-[:checked]:border-normal/40 has-[:checked]:bg-normal-bg active:bg-surface-3"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={!!marks[c.key]}
-                      onChange={(e) => setMarks((m) => ({ ...m, [c.key]: e.target.checked }))}
-                      className="h-6 w-6 shrink-0 cursor-pointer rounded accent-[var(--color-normal)]"
-                    />
-                    <span className="flex-1 text-sm text-fg">{c.label}</span>
-                    {c.code && (
-                      <span className="shrink-0 text-2xs tabular text-faint">{c.code}</span>
-                    )}
-                  </label>
-                ))}
+                {checklist.map((c) => {
+                  const value = marks[c.key];
+                  return (
+                    <div
+                      key={c.key}
+                      className={cn(
+                        "rounded-lg border px-3.5 py-2.5 transition-colors",
+                        value === "violation"
+                          ? "border-critical/40 bg-critical-bg"
+                          : "border-border bg-surface-2",
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-fg">{c.label}</p>
+                          {c.code && (
+                            <p className="mt-0.5 text-2xs tabular text-faint">{c.code}</p>
+                          )}
+                        </div>
+                        <ChecklistMarkControl
+                          value={value}
+                          onChange={(v) => setMark(c.key, v)}
+                        />
+                      </div>
+                      {value === "violation" && (
+                        <Input
+                          value={violationNotes[c.key] ?? ""}
+                          onChange={(e) =>
+                            setViolationNotes((n) => ({ ...n, [c.key]: e.target.value }))
+                          }
+                          placeholder="Что именно нарушено — детали для предписания"
+                          className="mt-2.5 h-10"
+                        />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </section>
           )}
@@ -797,30 +834,66 @@ function ObjectSheet({
               {error}
             </p>
           )}
-          <div className="flex gap-2.5">
-            <Button
-              variant="success"
-              size="xl"
-              onClick={() => save("done")}
-              disabled={busy}
-              className="flex-1"
-            >
-              <ClipboardCheck className="h-5 w-5" />
-              Выполнено
-            </Button>
-            <Button
-              variant="danger"
-              size="xl"
-              onClick={() => save("violation")}
-              disabled={busy}
-              className="flex-1"
-            >
+          <Button
+            variant={hasViolation ? "danger" : "success"}
+            size="xl"
+            onClick={() => void save()}
+            disabled={busy || !allMarked}
+            className="w-full"
+          >
+            {hasViolation ? (
               <AlertOctagon className="h-5 w-5" />
-              Нарушение
-            </Button>
-          </div>
+            ) : (
+              <ClipboardCheck className="h-5 w-5" />
+            )}
+            {allMarked ? "Зафиксировать результат" : `Отмечено ${markedCount} из ${checklist.length}`}
+          </Button>
         </div>
       </footer>
+    </div>
+  );
+}
+
+/* ─────────────────────── ChecklistMarkControl ──────────────────── */
+
+/** Compact three-state segment control: pass / violation / not applicable. */
+function ChecklistMarkControl({
+  value,
+  onChange,
+}: {
+  value: MarkValue | undefined;
+  /** Clicking the already-active option unsets it (passes `null`). */
+  onChange: (value: MarkValue | null) => void;
+}) {
+  const options: { value: MarkValue; label: string; icon: typeof Check; active: string }[] = [
+    { value: "pass", label: "Соответствует", icon: Check, active: "border-normal/40 bg-normal-bg text-normal" },
+    { value: "violation", label: "Нарушение", icon: X, active: "border-critical/40 bg-critical-bg text-critical" },
+    { value: "na", label: "Не применимо", icon: Minus, active: "border-border-strong bg-surface-3 text-fg" },
+  ];
+
+  return (
+    <div className="flex shrink-0 gap-1.5" role="group" aria-label="Отметка по пункту">
+      {options.map(({ value: v, label, icon: Icon, active }) => {
+        const isActive = value === v;
+        return (
+          <button
+            key={v}
+            type="button"
+            onClick={() => onChange(isActive ? null : v)}
+            aria-pressed={isActive}
+            aria-label={label}
+            title={label}
+            className={cn(
+              "flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition-colors duration-[var(--dur-fast)]",
+              isActive
+                ? active
+                : "border-border bg-surface text-faint hover:border-border-strong hover:text-muted",
+            )}
+          >
+            <Icon className="h-5 w-5" />
+          </button>
+        );
+      })}
     </div>
   );
 }
