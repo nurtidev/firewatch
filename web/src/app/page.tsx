@@ -28,6 +28,7 @@ import {
   type NavLink,
 } from "@/components/landing/chrome";
 import { PIPELINE, MODULES } from "@/components/landing/content";
+import { Reveal, CountUp } from "@/components/landing/reveal";
 
 /* Three.js touches WebGL/window — load client-side only, behind a static-looking
    skeleton so first paint is never blocked. */
@@ -61,12 +62,12 @@ const STEPS: { title: string; text: string }[] = [
   },
 ];
 
-const STATS: { n: string; u?: string; l: string }[] = [
-  { n: "4 505", l: "зданий на карте риска" },
-  { n: "1 128", l: "гидрантов в модели покрытия" },
-  { n: "3", l: "объекта с оцифрованными ПТП" },
-  { n: "81", l: "помещение в 3D-двойниках" },
-  { n: "8", l: "планов этажей оцифровано" },
+const STATS: { n: number; l: string }[] = [
+  { n: 4505, l: "зданий на карте риска" },
+  { n: 1128, l: "гидрантов в модели покрытия" },
+  { n: 3, l: "объекта с оцифрованными ПТП" },
+  { n: 81, l: "помещение в 3D-двойниках" },
+  { n: 8, l: "планов этажей оцифровано" },
 ];
 
 const TRUST: { icon: LucideIcon; label: string }[] = [
@@ -199,14 +200,13 @@ export default function Landing() {
       <Section id="numbers">
         <div className="rounded-[20px] border border-border bg-surface p-7 shadow-card sm:p-9">
           <div className="grid gap-8 sm:grid-cols-3 lg:grid-cols-5">
-            {STATS.map((s) => (
-              <div key={s.l}>
+            {STATS.map((s, i) => (
+              <Reveal key={s.l} delay={i * 70}>
                 <div className="text-[clamp(1.9rem,4vw,2.6rem)] font-extrabold leading-none tracking-tight">
-                  <span className="tabular">{s.n}</span>
-                  {s.u && <span className="text-accent">{s.u}</span>}
+                  <CountUp value={s.n} className="tabular" />
                 </div>
                 <div className="mt-2.5 text-[13px] leading-snug text-muted">{s.l}</div>
-              </div>
+              </Reveal>
             ))}
           </div>
           <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2.5 border-t border-border pt-6">
@@ -226,44 +226,47 @@ export default function Landing() {
 
       {/* ── Audience fork ── */}
       <Section id="audience">
-        <SectionHead
-          center
-          eyebrow="Два контура"
-          title="Кому нужен FireWatch"
-          sub="Государству — платформа для города и региона. Бизнесу — цифровой паспорт объекта. Выберите свой контур."
-        />
+        <Reveal>
+          <SectionHead
+            center
+            eyebrow="Два контура"
+            title="Кому нужен FireWatch"
+            sub="Государству — платформа для города и региона. Бизнесу — цифровой паспорт объекта. Выберите свой контур."
+          />
+        </Reveal>
         <div className="mt-12 grid gap-5 md:grid-cols-2">
-          {FORK.map((f) => (
-            <Link
-              key={f.href}
-              href={f.href}
-              className="group flex flex-col rounded-[20px] border border-border bg-surface p-7 shadow-card transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-pop sm:p-9"
-            >
-              <div className="flex items-center gap-3">
-                <span className="grid h-[46px] w-[46px] place-items-center rounded-xl border border-border bg-surface-2 text-fg transition-colors group-hover:border-border-strong">
-                  <f.icon className="h-5 w-5" strokeWidth={1.9} />
+          {FORK.map((f, i) => (
+            <Reveal key={f.href} delay={i * 70}>
+              <Link
+                href={f.href}
+                className="group flex flex-col rounded-[20px] border border-border bg-surface p-7 shadow-card transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-pop sm:p-9"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="grid h-[46px] w-[46px] place-items-center rounded-xl border border-border bg-surface-2 text-fg transition-colors group-hover:border-border-strong">
+                    <f.icon className="h-5 w-5" strokeWidth={1.9} />
+                  </span>
+                  <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-accent">
+                    {f.eyebrow}
+                  </span>
+                </div>
+                <h3 className="mt-5 text-[clamp(1.35rem,2.6vw,1.7rem)] font-extrabold tracking-tight">
+                  {f.title}
+                </h3>
+                <p className="mt-2.5 text-[14.5px] leading-relaxed text-muted">{f.sub}</p>
+                <ul className="mt-5 space-y-2.5">
+                  {f.bullets.map((b) => (
+                    <li key={b} className="flex items-start gap-2.5 text-[14px] text-fg">
+                      <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden />
+                      {b}
+                    </li>
+                  ))}
+                </ul>
+                <span className="mt-7 inline-flex items-center gap-2 text-[14.5px] font-semibold text-accent">
+                  {f.cta}
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                 </span>
-                <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-accent">
-                  {f.eyebrow}
-                </span>
-              </div>
-              <h3 className="mt-5 text-[clamp(1.35rem,2.6vw,1.7rem)] font-extrabold tracking-tight">
-                {f.title}
-              </h3>
-              <p className="mt-2.5 text-[14.5px] leading-relaxed text-muted">{f.sub}</p>
-              <ul className="mt-5 space-y-2.5">
-                {f.bullets.map((b) => (
-                  <li key={b} className="flex items-start gap-2.5 text-[14px] text-fg">
-                    <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden />
-                    {b}
-                  </li>
-                ))}
-              </ul>
-              <span className="mt-7 inline-flex items-center gap-2 text-[14.5px] font-semibold text-accent">
-                {f.cta}
-                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-              </span>
-            </Link>
+              </Link>
+            </Reveal>
           ))}
         </div>
       </Section>
@@ -271,15 +274,18 @@ export default function Landing() {
       {/* ── Paper ПТП → digital 3D twin (the differentiator) ── */}
       <div className="bg-surface-2">
         <Section id="twin">
-          <SectionHead
-            center
-            eyebrow="Оцифровка"
-            title="Из бумажного ПТП — в цифровой 3D-двойник"
-            sub="Планы тушения годами лежат в .vsd и сканах. Мы восстанавливаем из них реальную геометрию помещений — и она сразу становится интерактивной."
-          />
+          <Reveal>
+            <SectionHead
+              center
+              eyebrow="Оцифровка"
+              title="Из бумажного ПТП — в цифровой 3D-двойник"
+              sub="Планы тушения годами лежат в .vsd и сканах. Мы восстанавливаем из них реальную геометрию помещений — и она сразу становится интерактивной."
+            />
+          </Reveal>
           <div className="mt-14 grid items-stretch gap-5 md:grid-cols-3">
             {PIPELINE.map((p, i) => (
-              <div key={p.k} className="relative flex flex-col">
+              <Reveal key={p.k} delay={i * 70}>
+              <div className="relative flex flex-col">
                 {i < PIPELINE.length - 1 && (
                   <span
                     className="absolute right-[-14px] top-[86px] z-10 hidden h-6 w-6 place-items-center rounded-full border border-border bg-surface text-muted md:grid"
@@ -322,6 +328,7 @@ export default function Landing() {
                   <p className="mt-2 text-[14px] leading-relaxed text-muted">{p.text}</p>
                 </div>
               </div>
+              </Reveal>
             ))}
           </div>
           <p className="mt-6 text-center text-[12.5px] text-faint">
@@ -333,28 +340,29 @@ export default function Landing() {
 
       {/* ── Modules ── */}
       <Section id="modules">
-        <SectionHead
-          center
-          eyebrow="Платформа"
-          title="Шесть модулей — один контур безопасности"
-          sub="Каждый закрывает свою боль ведомства и работает с общими данными."
-        />
+        <Reveal>
+          <SectionHead
+            center
+            eyebrow="Платформа"
+            title="Шесть модулей — один контур безопасности"
+            sub="Каждый закрывает свою боль ведомства и работает с общими данными."
+          />
+        </Reveal>
         <div className="mt-12 grid gap-[18px] sm:grid-cols-2 lg:grid-cols-3">
-          {MODULES.map((m) => (
-            <div
-              key={m.k}
-              className="group rounded-[16px] border border-border bg-surface p-6 shadow-card transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-pop"
-            >
-              <div className="flex items-center gap-3">
-                <span className="grid h-[42px] w-[42px] place-items-center rounded-xl border border-border bg-surface-2 text-fg transition-colors group-hover:border-border-strong">
-                  <m.icon className="h-5 w-5" strokeWidth={1.9} />
-                </span>
-                <span className="text-[11px] font-bold tracking-[0.1em] text-faint">{m.k}</span>
+          {MODULES.map((m, i) => (
+            <Reveal key={m.k} delay={i * 70}>
+              <div className="group rounded-[16px] border border-border bg-surface p-6 shadow-card transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-pop">
+                <div className="flex items-center gap-3">
+                  <span className="grid h-[42px] w-[42px] place-items-center rounded-xl border border-border bg-surface-2 text-fg transition-colors group-hover:border-border-strong">
+                    <m.icon className="h-5 w-5" strokeWidth={1.9} />
+                  </span>
+                  <span className="text-[11px] font-bold tracking-[0.1em] text-faint">{m.k}</span>
+                </div>
+                <h3 className="mt-4 text-[16.5px] font-bold tracking-tight">{m.title}</h3>
+                <p className="mt-2.5 text-[12.5px] font-semibold text-accent">{m.pain}</p>
+                <p className="mt-1.5 text-[14px] leading-relaxed text-muted">{m.text}</p>
               </div>
-              <h3 className="mt-4 text-[16.5px] font-bold tracking-tight">{m.title}</h3>
-              <p className="mt-2.5 text-[12.5px] font-semibold text-accent">{m.pain}</p>
-              <p className="mt-1.5 text-[14px] leading-relaxed text-muted">{m.text}</p>
-            </div>
+            </Reveal>
           ))}
         </div>
       </Section>
@@ -362,24 +370,28 @@ export default function Landing() {
       {/* ── How it works ── */}
       <div className="bg-surface-2">
         <Section id="how">
-          <SectionHead
-            center
-            eyebrow="Как работает"
-            title="От данных — к действию за три шага"
-            sub="FireWatch собирает данные, прогнозирует риск и превращает прогноз в конкретные задачи для инспекторов."
-          />
+          <Reveal>
+            <SectionHead
+              center
+              eyebrow="Как работает"
+              title="От данных — к действию за три шага"
+              sub="FireWatch собирает данные, прогнозирует риск и превращает прогноз в конкретные задачи для инспекторов."
+            />
+          </Reveal>
           <div className="mt-[52px] grid gap-6 sm:grid-cols-3">
             {STEPS.map((s, i) => (
-              <div key={s.title} className="relative pt-5">
-                {i < STEPS.length - 1 && (
-                  <span className="absolute left-10 top-[26px] hidden h-0.5 w-full bg-gradient-to-r from-border-strong to-transparent sm:block" />
-                )}
-                <span className="text-[13px] font-extrabold tracking-wider text-accent">
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <h3 className="mt-3.5 text-[19px] font-bold tracking-tight">{s.title}</h3>
-                <p className="mt-2.5 text-[14.5px] leading-relaxed text-muted">{s.text}</p>
-              </div>
+              <Reveal key={s.title} delay={i * 70}>
+                <div className="relative pt-5">
+                  {i < STEPS.length - 1 && (
+                    <span className="absolute left-10 top-[26px] hidden h-0.5 w-full bg-gradient-to-r from-border-strong to-transparent sm:block" />
+                  )}
+                  <span className="text-[13px] font-extrabold tracking-wider text-accent">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <h3 className="mt-3.5 text-[19px] font-bold tracking-tight">{s.title}</h3>
+                  <p className="mt-2.5 text-[14.5px] leading-relaxed text-muted">{s.text}</p>
+                </div>
+              </Reveal>
             ))}
           </div>
         </Section>
@@ -387,34 +399,36 @@ export default function Landing() {
 
       {/* ── Final CTA ── */}
       <section className="px-5 pb-24 sm:px-6">
-        <div className="relative mx-auto max-w-[1180px] overflow-hidden rounded-[28px] border border-border bg-surface px-6 py-16 text-center shadow-card sm:px-12">
-          <div
-            className="pointer-events-none absolute -top-28 left-1/2 h-[320px] w-[620px] -translate-x-1/2 opacity-80 blur-[70px]"
-            style={{
-              background:
-                "radial-gradient(ellipse, color-mix(in oklab, var(--color-accent) 22%, transparent), transparent 70%)",
-            }}
-            aria-hidden
-          />
-          <h2 className="relative text-[clamp(1.6rem,3.6vw,2.4rem)] font-extrabold leading-tight tracking-tight">
-            Покажем FireWatch на данных вашего региона
-          </h2>
-          <p className="relative mx-auto mt-4 max-w-[520px] text-[17px] text-muted">
-            Демо за 30 минут: карта риска, прогноз модели, маршрут инспектора и 3D-двойник объекта
-            на реальном городе.
-          </p>
-          <div className="relative mt-8 flex flex-wrap justify-center gap-3.5">
-            <a href={MAILTO.demo}>
-              <PrimaryButton className="px-6 py-3.5 text-[15px]">Запросить демо</PrimaryButton>
-            </a>
-            <GhostButton href="/gov" className="bg-surface">
-              Платформа для ДЧС
-            </GhostButton>
+        <Reveal>
+          <div className="relative mx-auto max-w-[1180px] overflow-hidden rounded-[28px] border border-border bg-surface px-6 py-16 text-center shadow-card sm:px-12">
+            <div
+              className="pointer-events-none absolute -top-28 left-1/2 h-[320px] w-[620px] -translate-x-1/2 opacity-80 blur-[70px]"
+              style={{
+                background:
+                  "radial-gradient(ellipse, color-mix(in oklab, var(--color-accent) 22%, transparent), transparent 70%)",
+              }}
+              aria-hidden
+            />
+            <h2 className="relative text-[clamp(1.6rem,3.6vw,2.4rem)] font-extrabold leading-tight tracking-tight">
+              Покажем FireWatch на данных вашего региона
+            </h2>
+            <p className="relative mx-auto mt-4 max-w-[520px] text-[17px] text-muted">
+              Демо за 30 минут: карта риска, прогноз модели, маршрут инспектора и 3D-двойник объекта
+              на реальном городе.
+            </p>
+            <div className="relative mt-8 flex flex-wrap justify-center gap-3.5">
+              <a href={MAILTO.demo}>
+                <PrimaryButton className="px-6 py-3.5 text-[15px]">Запросить демо</PrimaryButton>
+              </a>
+              <GhostButton href="/gov" className="bg-surface">
+                Платформа для ДЧС
+              </GhostButton>
+            </div>
+            <p className="relative mt-5 text-[13px] text-faint">
+              Без обязательств · 30 минут · на данных вашего региона
+            </p>
           </div>
-          <p className="relative mt-5 text-[13px] text-faint">
-            Без обязательств · 30 минут · на данных вашего региона
-          </p>
-        </div>
+        </Reveal>
       </section>
 
       <LandingFooter tagline="Предиктивная пожарная безопасность · ДЧС РК · Астана" />
