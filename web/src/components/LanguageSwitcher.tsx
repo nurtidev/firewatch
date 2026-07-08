@@ -1,11 +1,11 @@
 "use client";
 
-/* Compact language segmented control (ҚАЗ / РУС / ENG). Mirrors the Tabs
-   primitive's token styling so it reads as one system in dark (default) and
-   .light. The Languages icon pairs with text so colour is never the only
-   signal. Persists via LocaleProvider (localStorage fw-locale, <html lang>). */
+/* Minimal language switcher (ҚАЗ · РУС · ENG) — a quiet text trio instead of
+   a boxed segmented control, so it sits lightly in both the landing header
+   (light) and the app sidebar (dark). The active locale is marked by weight +
+   an accent underline (form, not colour alone). Persists via LocaleProvider
+   (localStorage fw-locale, <html lang>). */
 
-import { Languages } from "lucide-react";
 import { useLocale, useT, type Locale } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 
@@ -23,30 +23,30 @@ export function LanguageSwitcher({ className }: { className?: string }) {
     <div
       role="radiogroup"
       aria-label={t("Язык интерфейса")}
-      className={cn(
-        "inline-flex items-center gap-0.5 rounded-md border border-border bg-surface p-0.5",
-        className,
-      )}
+      className={cn("inline-flex items-center", className)}
     >
-      <Languages className="ml-1 mr-0.5 h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
-      {OPTIONS.map((o) => {
+      {OPTIONS.map((o, i) => {
         const selected = o.id === locale;
         return (
-          <button
-            key={o.id}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            onClick={() => setLocale(o.id)}
-            className={cn(
-              "rounded px-1.5 py-1 font-mono text-2xs font-semibold uppercase tracking-wider transition-colors duration-[var(--dur-fast)]",
-              selected
-                ? "bg-surface-3 text-fg shadow-card"
-                : "text-faint hover:bg-surface-2 hover:text-fg",
+          <span key={o.id} className="inline-flex items-center">
+            {i > 0 && (
+              <span className="mx-1.5 h-3 w-px bg-border" aria-hidden />
             )}
-          >
-            {o.label}
-          </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => setLocale(o.id)}
+              className={cn(
+                "relative rounded-sm px-0.5 py-1 font-mono text-2xs uppercase tracking-wider transition-colors duration-[var(--dur-fast)]",
+                selected
+                  ? "font-bold text-fg after:absolute after:inset-x-0.5 after:bottom-0 after:h-[2px] after:rounded-full after:bg-accent"
+                  : "font-medium text-faint hover:text-fg",
+              )}
+            >
+              {o.label}
+            </button>
+          </span>
         );
       })}
     </div>
