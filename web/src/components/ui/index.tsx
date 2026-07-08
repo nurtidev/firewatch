@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { SEVERITY, type Severity, type SeverityMeta } from "@/lib/risk";
+import { useT } from "@/lib/i18n";
 
 /* ============================== Surfaces ============================== */
 
@@ -606,13 +607,14 @@ export function LiveIndicator({
   updated?: string;
   className?: string;
 }) {
+  const t = useT();
   return (
     <span className={cn("inline-flex items-center gap-2 text-xs text-faint", className)}>
       <span className="relative flex h-1.5 w-1.5">
         <span className="fw-live-dot absolute inline-flex h-full w-full rounded-full bg-normal" />
       </span>
       <span className="uppercase tracking-wider text-normal">Live</span>
-      {updated && <span className="text-faint">· обновлено {updated}</span>}
+      {updated && <span className="text-faint">· {t("обновлено")} {updated}</span>}
     </span>
   );
 }

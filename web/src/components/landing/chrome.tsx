@@ -12,7 +12,9 @@ import { Flame, Menu, X } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { DEFAULT_ROUTE } from "@/lib/nav";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import type { RealFloorPlan } from "@/data/floorplans/hayvill";
 
 /* ── Contact intents (single source for mailto CTAs) ───────────────────────── */
@@ -46,6 +48,7 @@ export function LandingHeader({
   cta: Cta;
 }) {
   const { user } = useAuth();
+  const t = useT();
   const [scrolled, setScrolled] = useState(false);
   const [menu, setMenu] = useState(false);
 
@@ -57,7 +60,7 @@ export function LandingHeader({
   }, []);
 
   const appHref = user ? DEFAULT_ROUTE[user.role] : "/login";
-  const appLabel = user ? "Открыть платформу" : "Войти";
+  const appLabel = user ? t("Открыть платформу") : t("Войти");
 
   const linkClass = "transition-colors hover:text-fg";
 
@@ -88,6 +91,9 @@ export function LandingHeader({
           )}
         </nav>
         <div className="flex items-center gap-2.5">
+          <span className="hidden sm:inline-flex">
+            <LanguageSwitcher />
+          </span>
           <ThemeToggle className="h-10 w-10 rounded-[12px] border border-border-strong" />
           <Link
             href={appHref}
@@ -101,7 +107,7 @@ export function LandingHeader({
           <button
             onClick={() => setMenu((v) => !v)}
             className="grid h-10 w-10 place-items-center rounded-[12px] border border-border-strong text-muted md:hidden"
-            aria-label="Меню"
+            aria-label={t("Меню")}
             aria-expanded={menu}
             aria-controls="mobile-nav"
           >
@@ -143,6 +149,9 @@ export function LandingHeader({
             <a href={cta.href} className="mt-1" onClick={() => setMenu(false)}>
               <PrimaryButton className="w-full justify-center">{cta.label}</PrimaryButton>
             </a>
+            <div className="mt-3 px-1">
+              <LanguageSwitcher />
+            </div>
           </nav>
         </div>
       )}
@@ -153,6 +162,7 @@ export function LandingHeader({
 /* ── Footer ─────────────────────────────────────────────────────────────────── */
 
 export function LandingFooter({ tagline }: { tagline: string }) {
+  const t = useT();
   return (
     <footer className="border-t border-border px-5 py-11 text-[13.5px] text-muted sm:px-6">
       <div className="mx-auto flex max-w-[1180px] flex-wrap items-center justify-between gap-5">
@@ -162,10 +172,10 @@ export function LandingFooter({ tagline }: { tagline: string }) {
         <div>{tagline}</div>
         <div className="flex items-center gap-4">
           <Link href="/gov" className="transition-colors hover:text-fg">
-            Для ДЧС
+            {t("Для ДЧС")}
           </Link>
           <Link href="/business" className="transition-colors hover:text-fg">
-            Для бизнеса
+            {t("Для бизнеса")}
           </Link>
           <span>© 2026 FireWatch</span>
         </div>

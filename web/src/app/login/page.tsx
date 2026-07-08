@@ -6,6 +6,7 @@ import { ArrowRight, ShieldCheck, Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { DEFAULT_ROUTE } from "@/lib/nav";
 import { Button, Input, Field } from "@/components/ui";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 const DEMO = [
   { username: "minister", label: "Замминистра", hint: "руководство ведомства" },
@@ -36,6 +37,11 @@ export default function LoginPage() {
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden p-6">
+      {/* Language switch (chrome; login body strings are Wave 1) */}
+      <div className="absolute right-5 top-5 z-10">
+        <LanguageSwitcher />
+      </div>
+
       {/* Ambient brand glow — single, restrained */}
       <div
         className="pointer-events-none absolute -top-40 left-1/2 h-[420px] w-[620px] -translate-x-1/2 rounded-full opacity-[0.12] blur-[120px]"

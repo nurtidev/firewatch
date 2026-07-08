@@ -26,7 +26,9 @@ import {
 import { useAuth } from "@/lib/auth";
 import { NAV, navForRole, DEFAULT_ROUTE, ROLE_LABEL } from "@/lib/nav";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 const ICONS: Record<string, LucideIcon> = {
   "/portal": Building2,
@@ -55,6 +57,7 @@ export default function AppShell({
   const { user, ready, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const t = useT();
   const [drawer, setDrawer] = useState(false);
 
   useEffect(() => {
@@ -89,7 +92,7 @@ export default function AppShell({
     return (
       <div className="flex h-screen items-center justify-center gap-2 text-sm text-muted">
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-        Загрузка…
+        {t("Загрузка…")}
       </div>
     );
   }
@@ -105,20 +108,20 @@ export default function AppShell({
             FireWatch<span className="text-accent">.</span>
           </div>
           <div className="mt-0.5 text-2xs font-medium uppercase tracking-[0.18em] text-faint">
-            ДЧС РК · Астана
+            {t("ДЧС РК · Астана")}
           </div>
         </Link>
         <button
           onClick={() => setDrawer(false)}
           className="rounded-md p-1.5 text-muted hover:bg-surface-2 hover:text-fg lg:hidden"
-          aria-label="Закрыть меню"
+          aria-label={t("Закрыть меню")}
         >
           <X className="h-5 w-5" />
         </button>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3" aria-label="Основная навигация">
+      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3" aria-label={t("Основная навигация")}>
         {items.map((item) => {
           const active =
             pathname === item.href || pathname.startsWith(item.href + "/");
@@ -127,7 +130,7 @@ export default function AppShell({
             <Link
               key={item.href}
               href={item.href}
-              title={item.hint}
+              title={item.hint ? t(item.hint) : undefined}
               aria-current={active ? "page" : undefined}
               className={cn(
                 "group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors duration-[var(--dur-fast)]",
@@ -145,7 +148,7 @@ export default function AppShell({
                   active ? "text-accent" : "text-faint group-hover:text-muted",
                 )}
               />
-              <span className="truncate">{item.label}</span>
+              <span className="truncate">{t(item.label)}</span>
             </Link>
           );
         })}
@@ -153,6 +156,10 @@ export default function AppShell({
 
       {/* User */}
       <div className="mt-auto border-t border-border p-3">
+        <div className="mb-1 flex items-center justify-between gap-2 px-2">
+          <LanguageSwitcher />
+          <ThemeToggle />
+        </div>
         <div className="flex items-center gap-3 rounded-md px-2 py-1.5">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-3 text-xs font-semibold text-fg">
             {user.name.slice(0, 1).toUpperCase()}
@@ -160,18 +167,17 @@ export default function AppShell({
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm text-fg">{user.name}</div>
             <div className="truncate text-2xs text-faint">
-              {ROLE_LABEL[user.role]}
+              {t(ROLE_LABEL[user.role])}
             </div>
           </div>
-          <ThemeToggle />
           <button
             onClick={() => {
               logout();
               router.replace("/login");
             }}
             className="rounded-md p-1.5 text-faint transition-colors hover:bg-surface-2 hover:text-critical"
-            aria-label="Выйти"
-            title="Выйти"
+            aria-label={t("Выйти")}
+            title={t("Выйти")}
           >
             <LogOut className="h-4 w-4" />
           </button>
@@ -207,14 +213,15 @@ export default function AppShell({
           <button
             onClick={() => setDrawer(true)}
             className="rounded-md p-1.5 text-muted hover:bg-surface-2 hover:text-fg"
-            aria-label="Открыть меню"
+            aria-label={t("Открыть меню")}
           >
             <Menu className="h-5 w-5" />
           </button>
           <div className="text-base font-bold tracking-tight">
             FireWatch<span className="text-accent">.</span>
           </div>
-          <ThemeToggle className="ml-auto" />
+          <LanguageSwitcher className="ml-auto" />
+          <ThemeToggle />
         </header>
 
         <main
