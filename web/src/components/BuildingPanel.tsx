@@ -218,7 +218,7 @@ export default function BuildingPanel({
                 {DEMO_DATA && (
                   <p className="mt-2 flex items-center gap-1.5 text-2xs text-elevated">
                     <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
-                    {DEMO_NOTICE_SHORT}
+                    {t(DEMO_NOTICE_SHORT)}
                   </p>
                 )}
               </div>

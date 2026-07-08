@@ -94,7 +94,7 @@ export default function MapPage() {
             {DEMO_DATA && (
               <div className="mt-2 flex items-start gap-1.5 rounded-md border border-elevated/40 bg-elevated-bg px-2 py-1.5 text-2xs text-elevated">
                 <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden />
-                <span>{DEMO_NOTICE_SHORT}</span>
+                <span>{t(DEMO_NOTICE_SHORT)}</span>
               </div>
             )}
 
