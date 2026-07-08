@@ -157,7 +157,8 @@ export default function AppShell({
       {/* User */}
       <div className="mt-auto border-t border-border p-3">
         <div className="mb-1 flex items-center justify-between gap-2 px-2">
-          <LanguageSwitcher />
+          {/* Trigger sits at the bottom of the sidebar — open the menu upward. */}
+          <LanguageSwitcher align="left" openUp />
           <ThemeToggle />
         </div>
         <div className="flex items-center gap-3 rounded-md px-2 py-1.5">

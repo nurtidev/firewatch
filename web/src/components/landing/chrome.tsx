@@ -150,7 +150,8 @@ export function LandingHeader({
               <PrimaryButton className="w-full justify-center">{cta.label}</PrimaryButton>
             </a>
             <div className="mt-3 px-1">
-              <LanguageSwitcher />
+              {/* Trigger is at the panel's left edge — align the menu left. */}
+              <LanguageSwitcher align="left" />
             </div>
           </nav>
         </div>
