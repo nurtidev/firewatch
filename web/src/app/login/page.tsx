@@ -9,11 +9,47 @@ import { Button, Input, Field } from "@/components/ui";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { useT } from "@/lib/i18n";
 
-const DEMO = [
-  { username: "minister", label: "Замминистра", hint: "руководство ведомства" },
-  { username: "supervisor", label: "Руководитель", hint: "управление надзора" },
+type DemoUser = { username: string; label: string; hint: string };
+
+// Надзорная вертикаль: инспектор → руководитель → замминистра.
+const DEMO_OVERSIGHT: DemoUser[] = [
   { username: "inspector", label: "Инспектор", hint: "надзор на объектах" },
+  { username: "supervisor", label: "Руководитель", hint: "управление надзора" },
+  { username: "minister", label: "Замминистра", hint: "руководство ведомства" },
 ];
+
+// Реагирование (ЦОУ, боевой расчёт) и внешние роли (владелец, администратор).
+const DEMO_RESPONSE: DemoUser[] = [
+  { username: "dispatcher", label: "Диспетчер", hint: "ЦОУ · 112" },
+  { username: "responder", label: "Начальник караула", hint: "боевые расчёты ПЧ" },
+  { username: "owner", label: "Владелец объекта", hint: "портал ОСИ" },
+  { username: "admin", label: "Администратор", hint: "все модули" },
+];
+
+function DemoButton({
+  d,
+  busy,
+  disabled,
+  onSelect,
+  t,
+}: {
+  d: DemoUser;
+  busy: boolean;
+  disabled?: boolean;
+  onSelect: (username: string) => void;
+  t: (ru: string) => string;
+}) {
+  return (
+    <button
+      onClick={() => onSelect(d.username)}
+      disabled={busy || disabled}
+      className="rounded-lg border border-border bg-surface px-2 py-2.5 text-center transition-colors hover:border-border-strong hover:bg-surface-2 disabled:opacity-50"
+    >
+      <div className="text-xs font-medium text-fg">{t(d.label)}</div>
+      <div className="mt-0.5 text-2xs leading-tight text-faint">{t(d.hint)}</div>
+    </button>
+  );
+}
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -109,24 +145,43 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <div className="mt-6">
-          <p className="mb-2.5 text-center text-2xs uppercase tracking-[0.16em] text-faint">
+        <div className="mt-6 space-y-4">
+          <p className="text-center text-2xs uppercase tracking-[0.16em] text-faint">
             {t("Быстрый вход для демонстрации")}
           </p>
-          <div className="grid grid-cols-3 gap-2">
-            {DEMO.map((d) => (
-              <button
-                key={d.username}
-                onClick={() => submit(d.username, `${d.username}123`)}
-                disabled={busy}
-                className="rounded-lg border border-border bg-surface px-2 py-2.5 text-center transition-colors hover:border-border-strong hover:bg-surface-2 disabled:opacity-50"
-              >
-                <div className="text-xs font-medium text-fg">{t(d.label)}</div>
-                <div className="mt-0.5 text-2xs leading-tight text-faint">
-                  {t(d.hint)}
-                </div>
-              </button>
-            ))}
+
+          <div>
+            <p className="mb-1.5 text-left text-2xs tracking-wide text-faint">
+              {t("Надзорная вертикаль")}
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {DEMO_OVERSIGHT.map((d) => (
+                <DemoButton
+                  key={d.username}
+                  d={d}
+                  busy={busy}
+                  onSelect={(u) => submit(u, `${u}123`)}
+                  t={t}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-1.5 text-left text-2xs tracking-wide text-faint">
+              {t("Реагирование и внешние")}
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {DEMO_RESPONSE.map((d) => (
+                <DemoButton
+                  key={d.username}
+                  d={d}
+                  busy={busy}
+                  onSelect={(u) => submit(u, `${u}123`)}
+                  t={t}
+                />
+              ))}
+            </div>
           </div>
         </div>
 

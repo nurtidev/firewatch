@@ -356,6 +356,13 @@ export const dict: { en: Record<string, string>; kk: Record<string, string> } = 
     "Руководитель": "Head of division",
     "управление надзора": "oversight division",
     "надзор на объектах": "on-site oversight",
+    "Надзорная вертикаль": "Oversight chain",
+    "Реагирование и внешние": "Response & external",
+    "Диспетчер": "Dispatcher",
+    "ЦОУ · 112": "OCC · 112",
+    "боевые расчёты ПЧ": "fire station duty crews",
+    "портал ОСИ": "HOA portal",
+    "все модули": "all modules",
 
     // ── components/landing/content.ts — PIPELINE ──────────────────────────
     "Бумажный ПТП или .vsd": "A paper fire plan or .vsd",
@@ -729,6 +736,13 @@ export const dict: { en: Record<string, string>; kk: Record<string, string> } = 
     "Руководитель": "Басшы",
     "управление надзора": "қадағалау басқармасы",
     "надзор на объектах": "нысандарда қадағалау",
+    "Надзорная вертикаль": "Қадағалау тізбегі",
+    "Реагирование и внешние": "Ден қою және сыртқы",
+    "Диспетчер": "Диспетчер",
+    "ЦОУ · 112": "ЖБО · 112",
+    "боевые расчёты ПЧ": "ӨСБ кезекші құрамы",
+    "портал ОСИ": "МИБ порталы",
+    "все модули": "барлық модульдер",
 
     // ── components/landing/content.ts — PIPELINE ──────────────────────────
     "Бумажный ПТП или .vsd": "Қағаз ӨСЖ немесе .vsd",
