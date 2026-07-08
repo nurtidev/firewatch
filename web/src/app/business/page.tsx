@@ -13,10 +13,20 @@ import {
   Briefcase,
   HardHat,
   Landmark,
+  FileText,
+  Cpu,
+  Boxes,
+  ExternalLink,
   type LucideIcon,
 } from "lucide-react";
 import { HAYVILL_FLOORPLANS, type RealFloorPlan } from "@/data/floorplans/hayvill";
 import FloorPlan2D from "@/components/FloorPlan2D";
+import SchemeGallery from "@/components/SchemeGallery";
+import {
+  ALANDA_SOURCE_SCANS,
+  ALANDA_CASE_SCHEMES,
+  ALANDA_FACTS,
+} from "@/components/landing/alandaCase";
 import {
   LandingHeader,
   LandingFooter,
@@ -131,6 +141,7 @@ export default function BusinessLanding() {
   const navLinks: NavLink[] = [
     { href: "#offer", label: t("Паспорт объекта") },
     { href: "#pipeline", label: t("Как это работает") },
+    { href: "#case", label: t("Кейс") },
     { href: "#pricing", label: t("Стоимость") },
     { href: "/gov", label: t("Для ДЧС") },
   ];
@@ -336,6 +347,140 @@ export default function BusinessLanding() {
           </p>
         </Section>
       </div>
+
+      {/* ── Real case: how we digitized ЖК «Аланда» ── */}
+      <Section id="case">
+        <Reveal>
+          <SectionHead
+            center
+            eyebrow={t("Реальный кейс")}
+            title={t("ЖК «Аланда»: из бумажного ПТП — в цифровой двойник")}
+            sub={t(
+              "Текстовые характеристики ПТП и 19 листов схем Visio — в структурную карточку объекта за считанные дни.",
+            )}
+          />
+        </Reveal>
+
+        {/* «До» — бумажные сканы */}
+        <Reveal>
+          <div className="mt-12">
+            <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2 px-3 py-1 text-[12px] font-semibold text-muted">
+              <FileText className="h-3.5 w-3.5" aria-hidden />
+              {t("До — бумажный ПТП")}
+            </span>
+            <div className="mt-5 grid gap-6 sm:grid-cols-2">
+              {ALANDA_SOURCE_SCANS.map((s, i) => (
+                <figure
+                  key={s.src}
+                  className={cn(
+                    "overflow-hidden rounded-[14px] border border-border bg-surface p-2 shadow-pop transition-transform",
+                    i === 0 ? "sm:-rotate-[1.2deg]" : "sm:rotate-[1.2deg]",
+                  )}
+                >
+                  <div className="overflow-hidden rounded-[9px] bg-white">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={s.src}
+                      alt={t(s.alt)}
+                      width={s.w}
+                      height={s.h}
+                      loading="lazy"
+                      decoding="async"
+                      className="h-auto w-full object-contain"
+                    />
+                  </div>
+                  <figcaption className="px-1.5 pb-0.5 pt-2.5 text-[12.5px] font-medium text-muted">
+                    {t(s.caption)}
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          </div>
+        </Reveal>
+
+        {/* Процесс: скан → ИИ → карточка */}
+        <Reveal>
+          <div className="my-9 flex items-center justify-center">
+            <div className="inline-flex items-center gap-2.5 rounded-full border border-border bg-surface px-4 py-2 text-[12.5px] font-semibold text-muted shadow-card">
+              <FileText className="h-4 w-4" strokeWidth={1.9} aria-hidden />
+              <ArrowRight className="h-3.5 w-3.5 text-accent" aria-hidden />
+              <Cpu className="h-4 w-4 text-accent" strokeWidth={1.9} aria-hidden />
+              <ArrowRight className="h-3.5 w-3.5 text-accent" aria-hidden />
+              <Boxes className="h-4 w-4" strokeWidth={1.9} aria-hidden />
+              <span className="ml-1 text-fg">{t("Оцифровка ИИ")}</span>
+            </div>
+          </div>
+        </Reveal>
+
+        {/* «После» — живые оцифрованные артефакты */}
+        <Reveal>
+          <div>
+            <span className="inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent-weak px-3 py-1 text-[12px] font-semibold text-accent">
+              <Boxes className="h-3.5 w-3.5" aria-hidden />
+              {t("После — структурная карточка")}
+            </span>
+            <div className="mt-5 grid items-start gap-6 lg:grid-cols-[1.5fr_1fr] [&>div]:min-w-0">
+              {/* Реальные схемы ДЧС — интерактивная галерея (клик → лайтбокс с зумом) */}
+              <div>
+                <SchemeGallery schemes={ALANDA_CASE_SCHEMES} />
+              </div>
+
+              {/* 3D-двойник + переход в систему */}
+              <aside className="flex flex-col gap-4">
+                <div className="rounded-[16px] border border-border bg-surface p-6 shadow-card">
+                  <span className="grid h-[42px] w-[42px] place-items-center rounded-xl border border-border bg-surface-2 text-accent">
+                    <Boxes className="h-5 w-5" strokeWidth={1.9} aria-hidden />
+                  </span>
+                  <h3 className="mt-4 text-[16px] font-bold tracking-tight">
+                    {t("Интерактивный 3D-двойник")}
+                  </h3>
+                  <p className="mt-2 text-[13.5px] leading-relaxed text-muted">
+                    {t(
+                      "Схемы, характеристики и расчёт сил собираются в единую карточку объекта с 3D-двойником и риск-оценкой — доступна в системе.",
+                    )}
+                  </p>
+                  <Link
+                    href="/login"
+                    className="mt-4 inline-flex items-center gap-1.5 text-[14px] font-semibold text-accent transition-colors hover:text-accent-hover"
+                  >
+                    {t("Смотреть в системе")}
+                    <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                  </Link>
+                </div>
+
+                {/* Проверяемые факты из карточки */}
+                <div className="grid grid-cols-2 gap-3">
+                  {ALANDA_FACTS.map((f) => (
+                    <div
+                      key={f.label}
+                      className="rounded-[14px] border border-border bg-surface p-4 shadow-card"
+                    >
+                      <div className="text-[clamp(1.15rem,2vw,1.5rem)] font-extrabold leading-none tracking-tight tabular">
+                        {t(f.n)}
+                      </div>
+                      <div className="mt-1.5 text-[12px] leading-snug text-muted">{t(f.label)}</div>
+                    </div>
+                  ))}
+                </div>
+              </aside>
+            </div>
+          </div>
+        </Reveal>
+
+        <p className="mx-auto mt-8 max-w-[680px] text-center text-[12.5px] leading-relaxed text-faint">
+          {t(
+            "Реальный объект пилота (Астана). Схемы оцифрованы из исходного Visio-ПТП ДЧС; персональные данные из документа в публичный кейс не выносятся.",
+          )}
+        </p>
+
+        <div className="mt-8 flex justify-center">
+          <a href={MAILTO.business}>
+            <PrimaryButton className="px-6 py-3.5 text-[15px]">
+              {t("Обсудить оцифровку вашего объекта")} <ArrowRight className="h-4 w-4" />
+            </PrimaryButton>
+          </a>
+        </div>
+      </Section>
 
       {/* ── For whom ── */}
       <Section id="audience">
