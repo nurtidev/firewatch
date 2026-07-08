@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ShieldCheck, Loader2 } from "lucide-react";
-import { useAuth } from "@/lib/auth";
+import { useAuth, type Role } from "@/lib/auth";
 import { DEFAULT_ROUTE } from "@/lib/nav";
 import { Button, Input, Field } from "@/components/ui";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
@@ -11,38 +11,47 @@ import { useT } from "@/lib/i18n";
 
 type DemoUser = { username: string; label: string; hint: string };
 
-// Надзорная вертикаль: инспектор → руководитель → замминистра.
-const DEMO_OVERSIGHT: DemoUser[] = [
-  { username: "inspector", label: "Инспектор", hint: "надзор на объектах" },
-  { username: "supervisor", label: "Руководитель", hint: "управление надзора" },
-  { username: "minister", label: "Замминистра", hint: "руководство ведомства" },
-];
+/* Один демо-пользователь на каждую роль (сиды api/scripts/seed_users.py,
+   пароль всегда `${username}123`). Record<Role, …> — компилятор не даст
+   забыть кнопку при добавлении 8-й роли. Лейблы — компактные демо-персоны
+   («Замминистра», «Руководитель»), намеренно НЕ ROLE_LABEL из nav.ts. */
+const DEMO_BY_ROLE: Record<Role, DemoUser> = {
+  inspector: { username: "inspector", label: "Инспектор", hint: "надзор на объектах" },
+  supervisor: { username: "supervisor", label: "Руководитель", hint: "управление надзора" },
+  leadership: { username: "minister", label: "Замминистра", hint: "руководство ведомства" },
+  dispatcher: { username: "dispatcher", label: "Диспетчер", hint: "ЦОУ · 112" },
+  responder: { username: "responder", label: "Начальник караула", hint: "боевые расчёты ПЧ" },
+  owner: { username: "owner", label: "Владелец объекта", hint: "портал ОСИ" },
+  admin: { username: "admin", label: "Администратор", hint: "все модули" },
+};
 
-// Реагирование (ЦОУ, боевой расчёт) и внешние роли (владелец, администратор).
-const DEMO_RESPONSE: DemoUser[] = [
-  { username: "dispatcher", label: "Диспетчер", hint: "ЦОУ · 112" },
-  { username: "responder", label: "Начальник караула", hint: "боевые расчёты ПЧ" },
-  { username: "owner", label: "Владелец объекта", hint: "портал ОСИ" },
-  { username: "admin", label: "Администратор", hint: "все модули" },
+const DEMO_GROUPS: { title: string; colsClass: string; roles: Role[] }[] = [
+  {
+    title: "Надзорная вертикаль",
+    colsClass: "grid-cols-3",
+    roles: ["inspector", "supervisor", "leadership"],
+  },
+  {
+    title: "Реагирование и внешние",
+    colsClass: "grid-cols-2",
+    roles: ["dispatcher", "responder", "owner", "admin"],
+  },
 ];
 
 function DemoButton({
   d,
   busy,
-  disabled,
   onSelect,
-  t,
 }: {
   d: DemoUser;
   busy: boolean;
-  disabled?: boolean;
   onSelect: (username: string) => void;
-  t: (ru: string) => string;
 }) {
+  const t = useT();
   return (
     <button
       onClick={() => onSelect(d.username)}
-      disabled={busy || disabled}
+      disabled={busy}
       className="rounded-lg border border-border bg-surface px-2 py-2.5 text-center transition-colors hover:border-border-strong hover:bg-surface-2 disabled:opacity-50"
     >
       <div className="text-xs font-medium text-fg">{t(d.label)}</div>
@@ -72,6 +81,8 @@ export default function LoginPage() {
       setBusy(false);
     }
   }
+
+  const demoLogin = (u: string) => submit(u, `${u}123`);
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden p-6">
@@ -150,39 +161,23 @@ export default function LoginPage() {
             {t("Быстрый вход для демонстрации")}
           </p>
 
-          <div>
-            <p className="mb-1.5 text-left text-2xs tracking-wide text-faint">
-              {t("Надзорная вертикаль")}
-            </p>
-            <div className="grid grid-cols-3 gap-2">
-              {DEMO_OVERSIGHT.map((d) => (
-                <DemoButton
-                  key={d.username}
-                  d={d}
-                  busy={busy}
-                  onSelect={(u) => submit(u, `${u}123`)}
-                  t={t}
-                />
-              ))}
+          {DEMO_GROUPS.map((group) => (
+            <div key={group.title}>
+              <p className="mb-1.5 text-left text-2xs tracking-wide text-faint">
+                {t(group.title)}
+              </p>
+              <div className={`grid ${group.colsClass} gap-2`}>
+                {group.roles.map((role) => (
+                  <DemoButton
+                    key={role}
+                    d={DEMO_BY_ROLE[role]}
+                    busy={busy}
+                    onSelect={demoLogin}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
-
-          <div>
-            <p className="mb-1.5 text-left text-2xs tracking-wide text-faint">
-              {t("Реагирование и внешние")}
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              {DEMO_RESPONSE.map((d) => (
-                <DemoButton
-                  key={d.username}
-                  d={d}
-                  busy={busy}
-                  onSelect={(u) => submit(u, `${u}123`)}
-                  t={t}
-                />
-              ))}
-            </div>
-          </div>
+          ))}
         </div>
 
         <p className="mt-6 flex items-center justify-center gap-1.5 text-2xs text-faint">
