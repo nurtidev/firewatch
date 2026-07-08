@@ -33,6 +33,7 @@ import {
 import { PIPELINE } from "@/components/landing/content";
 import { cn } from "@/lib/cn";
 import { Reveal, CountUp } from "@/components/landing/reveal";
+import { useT } from "@/lib/i18n";
 
 const LandingHero3D = dynamic(() => import("@/components/LandingHero3D"), {
   ssr: false,
@@ -45,13 +46,6 @@ const HERO_PLAN = plan("typical");
 const PIPELINE_PLAN = plan("apt-2k");
 
 /* ── Content ─────────────────────────────────────────────────────────────── */
-
-const NAV_LINKS: NavLink[] = [
-  { href: "#offer", label: "Паспорт объекта" },
-  { href: "#pipeline", label: "Как это работает" },
-  { href: "#pricing", label: "Стоимость" },
-  { href: "/gov", label: "Для ДЧС" },
-];
 
 const INCLUDES: string[] = [
   "Аудит пожарной безопасности и план эвакуации",
@@ -132,11 +126,20 @@ const PRICING: {
 /* ── Page ────────────────────────────────────────────────────────────────── */
 
 export default function BusinessLanding() {
+  const t = useT();
+
+  const navLinks: NavLink[] = [
+    { href: "#offer", label: t("Паспорт объекта") },
+    { href: "#pipeline", label: t("Как это работает") },
+    { href: "#pricing", label: t("Стоимость") },
+    { href: "/gov", label: t("Для ДЧС") },
+  ];
+
   return (
     <div className="min-h-screen bg-bg text-fg">
       <LandingHeader
-        navLinks={NAV_LINKS}
-        cta={{ label: "Обсудить оцифровку", href: MAILTO.business }}
+        navLinks={navLinks}
+        cta={{ label: t("Обсудить оцифровку"), href: MAILTO.business }}
       />
 
       {/* ── Hero ── */}
@@ -153,12 +156,12 @@ export default function BusinessLanding() {
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-2 py-1.5 pr-3.5 text-[12.5px] font-semibold text-muted shadow-card">
               <span className="rounded-full bg-accent px-2.5 py-0.5 text-[11px] text-accent-fg">
-                Для бизнеса
+                {t("Для бизнеса")}
               </span>
-              Цифровой паспорт объекта
+              {t("Цифровой паспорт объекта")}
             </span>
             <h1 className="mt-5 text-[clamp(2.15rem,5vw,3.6rem)] font-extrabold leading-[1.05] tracking-tight">
-              Цифровой паспорт объекта{" "}
+              {t("Цифровой паспорт объекта")}{" "}
               <span
                 className="bg-clip-text text-transparent"
                 style={{
@@ -166,26 +169,26 @@ export default function BusinessLanding() {
                     "linear-gradient(120deg,var(--color-fg) 45%,var(--color-accent) 120%)",
                 }}
               >
-                — с ИИ и риск-картой
+                {t("— с ИИ и риск-картой")}
               </span>
             </h1>
             <p className="mt-5 max-w-[540px] text-[clamp(1rem,2vw,1.2rem)] leading-relaxed text-muted">
-              Не папка бумаг, а объект в портале: аудит ПБ, план эвакуации, 2D/3D-планы и
-              предиктивная риск-оценка. Конкуренты в РК делают это вручную — мы быстрее, нагляднее
-              и с аналитикой, которой нет ни у кого.
+              {t(
+                "Не папка бумаг, а объект в портале: аудит ПБ, план эвакуации, 2D/3D-планы и предиктивная риск-оценка. Конкуренты в РК делают это вручную — мы быстрее, нагляднее и с аналитикой, которой нет ни у кого.",
+              )}
             </p>
             <div className="mt-8 flex flex-wrap gap-3.5">
               <a href={MAILTO.business}>
                 <PrimaryButton className="px-6 py-3.5 text-[15px]">
-                  Обсудить оцифровку объекта <ArrowRight className="h-4 w-4" />
+                  {t("Обсудить оцифровку объекта")} <ArrowRight className="h-4 w-4" />
                 </PrimaryButton>
               </a>
-              <GhostButton href="#offer">Что входит</GhostButton>
+              <GhostButton href="#offer">{t("Что входит")}</GhostButton>
             </div>
             <div className="mt-9 flex flex-wrap gap-x-9 gap-y-5">
-              <HeroStat n="от 150 000 ₸" l="за объект" />
-              <HeroStat n="2D / 3D" l="планы объекта" />
-              <HeroStat n="минуты" l="вместо дней ручной работы" />
+              <HeroStat n={t("от 150 000 ₸")} l={t("за объект")} />
+              <HeroStat n="2D / 3D" l={t("планы объекта")} />
+              <HeroStat n={t("минуты")} l={t("вместо дней ручной работы")} />
             </div>
           </div>
 
@@ -194,12 +197,13 @@ export default function BusinessLanding() {
             <div className="relative h-[400px] overflow-hidden rounded-[20px] border border-border bg-surface shadow-pop sm:h-[460px] lg:h-[500px]">
               <LandingHero3D className="h-full w-full" />
               <span className="pointer-events-none absolute right-3 top-3 rounded-[10px] border border-accent/30 bg-accent-weak px-2.5 py-1 text-[11px] font-semibold text-accent">
-                3D-двойник объекта
+                {t("3D-двойник объекта")}
               </span>
             </div>
             <p className="mt-3 px-1 text-[12.5px] leading-relaxed text-faint">
-              Интерактивный 3D-двойник из планов объекта. Реальная геометрия ЖК «Хайвилл-Астана».
-              Вращайте, кликайте по помещениям.
+              {t(
+                "Интерактивный 3D-двойник из планов объекта. Реальная геометрия ЖК «Хайвилл-Астана». Вращайте, кликайте по помещениям.",
+              )}
             </p>
           </div>
         </div>
@@ -211,14 +215,15 @@ export default function BusinessLanding() {
           <div className="grid grid-cols-1 items-center gap-10 rounded-[24px] border border-border bg-surface p-7 shadow-card lg:grid-cols-[1.1fr_.9fr] lg:p-11 [&>div]:min-w-0">
             <div>
               <span className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
-                Что входит
+                {t("Что входит")}
               </span>
               <h2 className="mt-3.5 text-[clamp(1.55rem,3.4vw,2.3rem)] font-extrabold leading-tight tracking-tight">
-                Всё об объекте — в одном портале
+                {t("Всё об объекте — в одном портале")}
               </h2>
               <p className="mt-4 max-w-[520px] text-[16px] leading-relaxed text-muted">
-                Цифровой паспорт собирает документы, планы и оценку риска в одном месте — вместо
-                разрозненных файлов и папок.
+                {t(
+                  "Цифровой паспорт собирает документы, планы и оценку риска в одном месте — вместо разрозненных файлов и папок.",
+                )}
               </p>
               <ul className="mt-6 space-y-2.5">
                 {INCLUDES.map((b) => (
@@ -226,14 +231,14 @@ export default function BusinessLanding() {
                     <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent-weak text-accent">
                       <Check className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
                     </span>
-                    {b}
+                    {t(b)}
                   </li>
                 ))}
               </ul>
               <div className="mt-8">
                 <a href={MAILTO.business}>
                   <PrimaryButton className="px-6 py-3.5 text-[15px]">
-                    Обсудить оцифровку объекта <ArrowRight className="h-4 w-4" />
+                    {t("Обсудить оцифровку объекта")} <ArrowRight className="h-4 w-4" />
                   </PrimaryButton>
                 </a>
               </div>
@@ -243,18 +248,18 @@ export default function BusinessLanding() {
             <div className="rounded-[18px] border border-border bg-surface-2 p-4">
               <div className="mb-3 flex items-center gap-2 text-[12px] font-medium text-muted">
                 <Building2 className="h-4 w-4 text-accent" aria-hidden />
-                Цифровой паспорт · план помещения
+                {t("Цифровой паспорт · план помещения")}
               </div>
               <FloorPlan2D plan={plan("apt-4k")} compact className="w-full" />
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11.5px] text-faint">
                 <span className="inline-flex items-center gap-1.5">
-                  <Layers className="h-3.5 w-3.5" aria-hidden /> 2D / 3D-планы
+                  <Layers className="h-3.5 w-3.5" aria-hidden /> {t("2D / 3D-планы")}
                 </span>
                 <span className="inline-flex items-center gap-1.5">
-                  <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> Аудит ПБ
+                  <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> {t("Аудит ПБ")}
                 </span>
                 <span className="inline-flex items-center gap-1.5">
-                  <BarChart3 className="h-3.5 w-3.5" aria-hidden /> Риск-оценка
+                  <BarChart3 className="h-3.5 w-3.5" aria-hidden /> {t("Риск-оценка")}
                 </span>
               </div>
             </div>
@@ -268,9 +273,11 @@ export default function BusinessLanding() {
           <Reveal>
             <SectionHead
               center
-              eyebrow="Как это работает"
-              title="Из документов — в цифровой 3D-двойник"
-              sub="Планы и экспликации объекта превращаются в калиброванную геометрию — и сразу становятся интерактивными."
+              eyebrow={t("Как это работает")}
+              title={t("Из документов — в цифровой 3D-двойник")}
+              sub={t(
+                "Планы и экспликации объекта превращаются в калиброванную геометрию — и сразу становятся интерактивными.",
+              )}
             />
           </Reveal>
           <div className="mt-14 grid items-stretch gap-5 md:grid-cols-3">
@@ -315,16 +322,17 @@ export default function BusinessLanding() {
                       {p.k}
                     </span>
                   </div>
-                  <h3 className="mt-3 text-[16.5px] font-bold tracking-tight">{p.title}</h3>
-                  <p className="mt-2 text-[14px] leading-relaxed text-muted">{p.text}</p>
+                  <h3 className="mt-3 text-[16.5px] font-bold tracking-tight">{t(p.title)}</h3>
+                  <p className="mt-2 text-[14px] leading-relaxed text-muted">{t(p.text)}</p>
                 </div>
               </div>
               </Reveal>
             ))}
           </div>
           <p className="mt-6 text-center text-[12.5px] text-faint">
-            На примере поквартирной экспликации ЖК «Хайвилл-Астана». Полигоны калиброваны по
-            реальным площадям — это оцифровка документа, а не иллюстрация.
+            {t(
+              "На примере поквартирной экспликации ЖК «Хайвилл-Астана». Полигоны калиброваны по реальным площадям — это оцифровка документа, а не иллюстрация.",
+            )}
           </p>
         </Section>
       </div>
@@ -334,9 +342,11 @@ export default function BusinessLanding() {
         <Reveal>
           <SectionHead
             center
-            eyebrow="Для кого"
-            title="Кому подходит цифровой паспорт"
-            sub="Любому объекту, где есть обязанность по пожарной безопасности и ценно видеть риск заранее."
+            eyebrow={t("Для кого")}
+            title={t("Кому подходит цифровой паспорт")}
+            sub={t(
+              "Любому объекту, где есть обязанность по пожарной безопасности и ценно видеть риск заранее.",
+            )}
           />
         </Reveal>
         <div className="mt-12 grid gap-[18px] sm:grid-cols-2 lg:grid-cols-4">
@@ -346,8 +356,8 @@ export default function BusinessLanding() {
                 <span className="grid h-[42px] w-[42px] place-items-center rounded-xl border border-border bg-surface-2 text-fg">
                   <a.icon className="h-5 w-5" strokeWidth={1.9} />
                 </span>
-                <h3 className="mt-4 text-[16px] font-bold tracking-tight">{a.title}</h3>
-                <p className="mt-2 text-[13.5px] leading-relaxed text-muted">{a.text}</p>
+                <h3 className="mt-4 text-[16px] font-bold tracking-tight">{t(a.title)}</h3>
+                <p className="mt-2 text-[13.5px] leading-relaxed text-muted">{t(a.text)}</p>
               </div>
             </Reveal>
           ))}
@@ -360,9 +370,9 @@ export default function BusinessLanding() {
           <Reveal>
             <SectionHead
               center
-              eyebrow="Риск в цифрах"
-              title="Почему это касается вашего объекта"
-              sub="Официальная статистика МЧС РК и ДЧС Астаны — без страшилок, просто цифры."
+              eyebrow={t("Риск в цифрах")}
+              title={t("Почему это касается вашего объекта")}
+              sub={t("Официальная статистика МЧС РК и ДЧС Астаны — без страшилок, просто цифры.")}
             />
           </Reveal>
           <div className="mt-12 grid gap-[18px] sm:grid-cols-2 lg:grid-cols-4">
@@ -378,20 +388,21 @@ export default function BusinessLanding() {
                         suffix={f.count.suffix}
                       />
                     ) : (
-                      f.n
+                      t(f.n)
                     )}
                   </div>
-                  <p className="mt-3 flex-1 text-[13.5px] leading-relaxed text-muted">{f.label}</p>
+                  <p className="mt-3 flex-1 text-[13.5px] leading-relaxed text-muted">{t(f.label)}</p>
                   <p className="mt-4 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-faint">
-                    {f.source}
+                    {t(f.source)}
                   </p>
                 </div>
               </Reveal>
             ))}
           </div>
           <p className="mx-auto mt-8 max-w-[620px] text-center text-[13.5px] leading-relaxed text-muted">
-            Цифровой паспорт закрывает первопричину: аудит находит нарушения до пожара, а
-            риск-оценка показывает, какие объекты и системы требуют внимания в первую очередь.
+            {t(
+              "Цифровой паспорт закрывает первопричину: аудит находит нарушения до пожара, а риск-оценка показывает, какие объекты и системы требуют внимания в первую очередь.",
+            )}
           </p>
         </Section>
       </div>
@@ -402,9 +413,11 @@ export default function BusinessLanding() {
           <Reveal>
             <SectionHead
               center
-              eyebrow="Стоимость"
-              title="Прозрачные пакеты, а не «звоните — обсудим»"
-              sub="Продаём не отдельный документ, а комплексный паспорт, где премию оправдывают скорость, 2D/3D и риск-карта."
+              eyebrow={t("Стоимость")}
+              title={t("Прозрачные пакеты, а не «звоните — обсудим»")}
+              sub={t(
+                "Продаём не отдельный документ, а комплексный паспорт, где премию оправдывают скорость, 2D/3D и риск-карта.",
+              )}
             />
           </Reveal>
           <div className="mt-12 grid gap-5 md:grid-cols-3">
@@ -418,24 +431,25 @@ export default function BusinessLanding() {
                 >
                   {p.featured && (
                     <span className="mb-3 inline-flex w-fit rounded-full bg-accent-weak px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-[0.1em] text-accent">
-                      Основной пакет
+                      {t("Основной пакет")}
                     </span>
                   )}
-                  <h3 className="text-[17px] font-bold tracking-tight">{p.name}</h3>
-                  <p className="mt-2 min-h-[42px] text-[13.5px] leading-relaxed text-muted">{p.what}</p>
+                  <h3 className="text-[17px] font-bold tracking-tight">{t(p.name)}</h3>
+                  <p className="mt-2 min-h-[42px] text-[13.5px] leading-relaxed text-muted">{t(p.what)}</p>
                   <div className="mt-5 border-t border-border pt-5">
                     <div className="text-[clamp(1.5rem,3vw,1.9rem)] font-extrabold tracking-tight tabular">
-                      {p.price}
+                      {t(p.price)}
                     </div>
-                    <div className="mt-1 text-[12.5px] text-muted">{p.unit}</div>
+                    <div className="mt-1 text-[12.5px] text-muted">{t(p.unit)}</div>
                   </div>
                 </div>
               </Reveal>
             ))}
           </div>
           <p className="mt-6 text-center text-[12.5px] leading-relaxed text-faint">
-            Цены — ориентир и финализируются по составу и объёму объекта. Расход на ИИ-извлечение —
-            сотые доли процента стоимости; всё остальное — работа над качеством паспорта.
+            {t(
+              "Цены — ориентир и финализируются по составу и объёму объекта. Расход на ИИ-извлечение — сотые доли процента стоимости; всё остальное — работа над качеством паспорта.",
+            )}
           </p>
         </Section>
       </div>
@@ -452,14 +466,14 @@ export default function BusinessLanding() {
                 <Landmark className="h-5 w-5" strokeWidth={1.9} />
               </span>
               <div>
-                <h3 className="text-[17px] font-bold tracking-tight">Работаете в госсекторе?</h3>
+                <h3 className="text-[17px] font-bold tracking-tight">{t("Работаете в госсекторе?")}</h3>
                 <p className="mt-1 text-[14px] text-muted">
-                  Для ДЧС и акиматов — ведомственная платформа с картой риска по всему городу.
+                  {t("Для ДЧС и акиматов — ведомственная платформа с картой риска по всему городу.")}
                 </p>
               </div>
             </div>
             <span className="inline-flex items-center gap-2 text-[14.5px] font-semibold text-accent">
-              Платформа для ДЧС
+              {t("Платформа для ДЧС")}
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </span>
           </Link>
@@ -479,30 +493,31 @@ export default function BusinessLanding() {
               aria-hidden
             />
             <h2 className="relative text-[clamp(1.6rem,3.6vw,2.4rem)] font-extrabold leading-tight tracking-tight">
-              Оцифруем ваш объект
+              {t("Оцифруем ваш объект")}
             </h2>
             <p className="relative mx-auto mt-4 max-w-[520px] text-[17px] text-muted">
-              Пришлите планы и документы — соберём цифровой паспорт с 2D/3D и риск-оценкой. Обсудим
-              объём и сроки под ваш объект.
+              {t(
+                "Пришлите планы и документы — соберём цифровой паспорт с 2D/3D и риск-оценкой. Обсудим объём и сроки под ваш объект.",
+              )}
             </p>
             <div className="relative mt-8 flex flex-wrap justify-center gap-3.5">
               <a href={MAILTO.business}>
                 <PrimaryButton className="px-6 py-3.5 text-[15px]">
-                  Обсудить оцифровку объекта
+                  {t("Обсудить оцифровку объекта")}
                 </PrimaryButton>
               </a>
               <GhostButton href="/gov" className="bg-surface">
-                Для ДЧС и акиматов
+                {t("Для ДЧС и акиматов")}
               </GhostButton>
             </div>
             <p className="relative mt-5 text-[13px] text-faint">
-              ИИ-извлечение · 2D/3D-планы · предиктивная риск-оценка объекта
+              {t("ИИ-извлечение · 2D/3D-планы · предиктивная риск-оценка объекта")}
             </p>
           </div>
         </Reveal>
       </section>
 
-      <LandingFooter tagline="Цифровой паспорт объекта · ТРЦ, ЖК, офисы, застройщики" />
+      <LandingFooter tagline={t("Цифровой паспорт объекта · ТРЦ, ЖК, офисы, застройщики")} />
     </div>
   );
 }

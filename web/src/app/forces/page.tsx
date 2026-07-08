@@ -17,6 +17,7 @@ import {
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/auth";
 import { SEVERITY } from "@/lib/risk";
+import { useT, useLocale, intlLocale } from "@/lib/i18n";
 import {
   Card,
   PageHeader,
@@ -146,6 +147,8 @@ function Row({
 /* ── Page ── */
 
 export default function ForcesPage() {
+  const t = useT();
+  const { locale } = useLocale();
   const [presets, setPresets] = useState<Preset[]>([]);
   const [barrels, setBarrels] = useState<Barrel[]>([]);
   const [p, setP] = useState({ ...defaults });
@@ -187,7 +190,7 @@ export default function ForcesPage() {
   /** Numeric field bound to a param key — same logic as original `num()` helper */
   function num(k: keyof typeof defaults, label: string, step = 1) {
     return (
-      <Field label={label}>
+      <Field label={t(label)}>
         <Input
           type="number"
           step={step}
@@ -210,16 +213,18 @@ export default function ForcesPage() {
     <AppShell>
       <div className="mx-auto max-w-[1400px] p-5 sm:p-7 lg:p-8">
         <PageHeader
-          title="Расчёт сил и средств"
-          subtitle="Методика ДЧС РК · «Есеп Евразия» — время развития, геометрия пожара, расход воды, стволы, машины, личный состав, ранг"
+          title={t("Расчёт сил и средств")}
+          subtitle={t(
+            "Методика ДЧС РК · «Есеп Евразия» — время развития, геометрия пожара, расход воды, стволы, машины, личный состав, ранг",
+          )}
         />
 
         <div className="mt-6 grid gap-5 lg:grid-cols-[360px_1fr]">
           {/* ── LEFT: Form ── */}
           <Card className="h-fit p-5 space-y-5">
             {/* Объект */}
-            <FormSection label="Объект">
-              <Field label="Тип объекта">
+            <FormSection label={t("Объект")}>
+              <Field label={t("Тип объекта")}>
                 <Select
                   onChange={(e) => {
                     const pr = presets.find((x) => x.key === e.target.value);
@@ -242,12 +247,12 @@ export default function ForcesPage() {
             <div className="border-t border-border" />
 
             {/* Геометрия */}
-            <FormSection label="Геометрия пожара">
+            <FormSection label={t("Геометрия пожара")}>
               <div className="grid grid-cols-2 gap-3">
                 {num("directions", "Направлений n")}
                 {num("width_m", "Ширина a, м")}
                 {num("depth_m", "Глубина h, м")}
-                <Field label="Ствол">
+                <Field label={t("Ствол")}>
                   <Select
                     value={p.barrel}
                     onChange={(e) => set("barrel", e.target.value)}
@@ -265,7 +270,7 @@ export default function ForcesPage() {
             <div className="border-t border-border" />
 
             {/* Логистика */}
-            <FormSection label="Логистика">
+            <FormSection label={t("Логистика")}>
               <div className="grid grid-cols-2 gap-3">
                 {num("distance_km", "Расст. до ПЧ, км", 0.1)}
                 {num("travel_speed_kmh", "Скорость, км/ч")}
@@ -277,7 +282,7 @@ export default function ForcesPage() {
             <div className="border-t border-border" />
 
             {/* Время */}
-            <FormSection label="Время (мин)">
+            <FormSection label={t("Время (мин)")}>
               <div className="grid grid-cols-2 gap-3">
                 {num("detection_min", "Тобн, мин", 0.5)}
                 {num("gather_min", "Тсбора, мин", 0.5)}
@@ -288,20 +293,20 @@ export default function ForcesPage() {
               className="w-full mt-1"
               onClick={calc}
               disabled={loading}
-              aria-label="Рассчитать"
+              aria-label={t("Рассчитать")}
             >
               <Calculator className="h-4 w-4" aria-hidden />
-              {loading ? "Вычисляем…" : "Рассчитать"}
+              {loading ? t("Вычисляем…") : t("Рассчитать")}
             </Button>
           </Card>
 
           {/* ── RIGHT: Results ── */}
-          <section aria-label="Результаты расчёта" className="space-y-4">
+          <section aria-label={t("Результаты расчёта")} className="space-y-4">
             {res === null ? (
               <EmptyState
                 icon={ChevronDown}
-                title="Результаты появятся здесь"
-                description="Задайте параметры и нажмите «Рассчитать»"
+                title={t("Результаты появятся здесь")}
+                description={t("Задайте параметры и нажмите «Рассчитать»")}
                 className="h-full min-h-[320px]"
               />
             ) : (
@@ -309,71 +314,71 @@ export default function ForcesPage() {
                 {/* Headline metrics */}
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <MetricCard
-                    label="Ранг пожара"
+                    label={t("Ранг пожара")}
                     value={res.result.rank}
                     icon={Flame}
                     severity={rankSev}
-                    hint="по методике ДЧС РК"
+                    hint={t("по методике ДЧС РК")}
                   />
                   <MetricCard
-                    label="Стволы (туш.+защ.)"
+                    label={t("Стволы (туш.+защ.)")}
                     value={`${res.result.barrels_ext}+${res.result.barrels_def}`}
                     icon={Crosshair}
-                    hint={`${res.result.barrels_ext + res.result.barrels_def} ствола всего`}
+                    hint={`${res.result.barrels_ext + res.result.barrels_def} ${t("ствола всего")}`}
                   />
                   <MetricCard
-                    label="Пож. машины (АЦ)"
+                    label={t("Пож. машины (АЦ)")}
                     value={res.result.trucks}
                     icon={Truck}
-                    hint={`${res.result.squads} отд.`}
+                    hint={`${res.result.squads} ${t("отд.")}`}
                   />
                   <MetricCard
-                    label="Личный состав"
+                    label={t("Личный состав")}
                     value={res.result.personnel}
                     icon={Users}
-                    hint="чел. на тушение"
+                    hint={t("чел. на тушение")}
                   />
                 </div>
 
                 {/* Three detail groups */}
                 <div className="grid gap-3 md:grid-cols-3">
-                  <GroupCard title="Время развития (мин)" icon={Clock}>
-                    <Row k="Тследования" v={res.time.t_travel} />
-                    <Row k="Тразвёртывания" v={res.time.t_deploy} />
+                  <GroupCard title={t("Время развития (мин)")} icon={Clock}>
+                    <Row k={t("Тследования")} v={res.time.t_travel} />
+                    <Row k={t("Тразвёртывания")} v={res.time.t_deploy} />
                     <div className="my-1 border-t border-border" />
-                    <Row k="Т1св (свободного)" v={res.time.t_free} bold />
+                    <Row k={t("Т1св (свободного)")} v={res.time.t_free} bold />
                   </GroupCard>
 
-                  <GroupCard title="Геометрия пожара" icon={Layers}>
-                    <Row k="Путь огня R, м" v={res.fire.radius_m} />
-                    <Row k="Sпожара, м²" v={res.fire.s_fire_m2} />
+                  <GroupCard title={t("Геометрия пожара")} icon={Layers}>
+                    <Row k={t("Путь огня R, м")} v={res.fire.radius_m} />
+                    <Row k={t("Sпожара, м²")} v={res.fire.s_fire_m2} />
                     <div className="my-1 border-t border-border" />
-                    <Row k="Sтушения, м²" v={res.fire.s_ext_m2} bold />
+                    <Row k={t("Sтушения, м²")} v={res.fire.s_ext_m2} bold />
                   </GroupCard>
 
-                  <GroupCard title="Расход воды (л/с)" icon={Droplets}>
-                    <Row k="Qтр тушение" v={res.flow.q_req_ext} />
-                    <Row k="Qтр защита" v={res.flow.q_req_def} />
+                  <GroupCard title={t("Расход воды (л/с)")} icon={Droplets}>
+                    <Row k={t("Qтр тушение")} v={res.flow.q_req_ext} />
+                    <Row k={t("Qтр защита")} v={res.flow.q_req_def} />
                     <div className="my-1 border-t border-border" />
-                    <Row k="Qфакт" v={res.flow.q_act} bold />
+                    <Row k={t("Qфакт")} v={res.flow.q_act} bold />
                   </GroupCard>
                 </div>
 
                 {/* Bottom two groups */}
                 <div className="grid gap-3 md:grid-cols-2">
-                  <GroupCard title="Личный состав — расшифровка" icon={Users}>
+                  <GroupCard title={t("Личный состав — расшифровка")} icon={Users}>
                     {Object.entries(res.result.personnel_breakdown).map(([k, v]) => (
                       <Row key={k} k={k} v={v} />
                     ))}
                   </GroupCard>
 
-                  <GroupCard title="Итоги" icon={BarChart3}>
-                    <Row k="Отделений" v={res.result.squads} bold />
-                    <Row k="Ранг пожара" v={res.result.rank} bold />
+                  <GroupCard title={t("Итоги")} icon={BarChart3}>
+                    <Row k={t("Отделений")} v={res.result.squads} bold />
+                    <Row k={t("Ранг пожара")} v={res.result.rank} bold />
                     <div className="my-1 border-t border-border" />
                     <Row
-                      k="Вода на 10 мин, л"
-                      v={res.result.water_liters_10min.toLocaleString("ru")}
+                      k={t("Вода на 10 мин, л")}
+                      v={res.result.water_liters_10min.toLocaleString(intlLocale(locale))}
                       bold
                     />
                   </GroupCard>

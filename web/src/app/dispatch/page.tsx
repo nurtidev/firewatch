@@ -20,6 +20,7 @@ import AppShell from "@/components/AppShell";
 import CalloutPack from "@/components/CalloutPack";
 import CalloutRow from "@/components/CalloutRow";
 import { apiFetch } from "@/lib/auth";
+import { useT } from "@/lib/i18n";
 import { apiErrorText } from "@/lib/api-error";
 import { scoreSeverity } from "@/lib/risk";
 import {
@@ -55,6 +56,7 @@ const DEFAULT_LNG = 71.43;
 type ListFilter = "active" | "closed" | "all";
 
 export default function DispatchPage() {
+  const t = useT();
   const [tab, setTab] = useState<ListFilter>("active");
   const { callouts, error: listError, reload: loadList } = useCalloutList(tab, 30000);
 
@@ -85,8 +87,8 @@ export default function DispatchPage() {
     <AppShell>
       <div className="mx-auto max-w-[1400px] p-5 sm:p-7 lg:p-8">
         <PageHeader
-          title="Пульт ЦОУ"
-          subtitle="Регистрация боевого выезда и боевой пакет караулу"
+          title={t("Пульт ЦОУ")}
+          subtitle={t("Регистрация боевого выезда и боевой пакет караулу")}
         />
 
         <div className="mt-6 grid gap-5 lg:grid-cols-[420px_1fr]">
@@ -96,14 +98,14 @@ export default function DispatchPage() {
 
             <div>
               <div className="mb-2 flex items-center justify-between gap-2">
-                <SectionLabel>Выезды</SectionLabel>
+                <SectionLabel>{t("Выезды")}</SectionLabel>
                 <Tabs
                   active={tab}
                   onChange={(id) => setTab(id as ListFilter)}
                   tabs={[
-                    { id: "active", label: "Активные" },
-                    { id: "closed", label: "Закрытые" },
-                    { id: "all", label: "Все" },
+                    { id: "active", label: t("Активные") },
+                    { id: "closed", label: t("Закрытые") },
+                    { id: "all", label: t("Все") },
                   ]}
                 />
               </div>
@@ -123,8 +125,8 @@ export default function DispatchPage() {
               ) : callouts && callouts.length === 0 ? (
                 <EmptyState
                   icon={Radio}
-                  title={tab === "active" ? "Активных выездов нет" : "Выездов нет"}
-                  description="Как только выезд будет зарегистрирован, он появится здесь."
+                  title={tab === "active" ? t("Активных выездов нет") : t("Выездов нет")}
+                  description={t("Как только выезд будет зарегистрирован, он появится здесь.")}
                 />
               ) : (
                 <div className="space-y-2">
@@ -154,8 +156,10 @@ export default function DispatchPage() {
             {!packLoading && !packError && !pack && (
               <EmptyState
                 icon={Radio}
-                title="Выберите выезд"
-                description="Зарегистрируйте новый выезд слева или выберите активный из списка, чтобы увидеть боевой пакет."
+                title={t("Выберите выезд")}
+                description={t(
+                  "Зарегистрируйте новый выезд слева или выберите активный из списка, чтобы увидеть боевой пакет.",
+                )}
                 className="min-h-[320px]"
               />
             )}
@@ -177,6 +181,7 @@ export default function DispatchPage() {
 /* ───────────────────────────── Register form ──────────────────────────── */
 
 function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => void }) {
+  const t = useT();
   const [manual, setManual] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<BuildingSearchResult[]>([]);
@@ -240,7 +245,7 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
 
   function locate() {
     if (!("geolocation" in navigator)) {
-      setError("Геолокация не поддерживается на этом устройстве — введите координаты вручную.");
+      setError(t("Геолокация не поддерживается на этом устройстве — введите координаты вручную."));
       return;
     }
     setError(null);
@@ -249,7 +254,7 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
         setLat(pos.coords.latitude.toFixed(6));
         setLng(pos.coords.longitude.toFixed(6));
       },
-      () => setError("Не удалось получить местоположение — введите координаты вручную."),
+      () => setError(t("Не удалось получить местоположение — введите координаты вручную.")),
       { enableHighAccuracy: true, timeout: 10000 },
     );
   }
@@ -257,7 +262,7 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
   async function submit() {
     setError(null);
     if (!manual && !selected) {
-      setError("Выберите здание из списка или переключитесь на «Точка без здания».");
+      setError(t("Выберите здание из списка или переключитесь на «Точка без здания»."));
       return;
     }
     let latNum = 0;
@@ -266,11 +271,11 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
       latNum = Number(lat);
       lngNum = Number(lng);
       if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) {
-        setError("Координаты должны быть числами.");
+        setError(t("Координаты должны быть числами."));
         return;
       }
       if (latNum < -90 || latNum > 90 || lngNum < -180 || lngNum > 180) {
-        setError("Координаты вне допустимого диапазона.");
+        setError(t("Координаты вне допустимого диапазона."));
         return;
       }
     }
@@ -296,14 +301,15 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
         throw new Error(
-          apiErrorText(d.detail, "Не удалось зарегистрировать выезд") ?? "Не удалось зарегистрировать выезд",
+          apiErrorText(d.detail, t("Не удалось зарегистрировать выезд")) ??
+            t("Не удалось зарегистрировать выезд"),
         );
       }
       const created: CalloutPackData = await r.json();
       onCreated(created);
       reset();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось зарегистрировать выезд");
+      setError(e instanceof Error ? e.message : t("Не удалось зарегистрировать выезд"));
     } finally {
       setSubmitting(false);
     }
@@ -312,9 +318,9 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
   return (
     <Card className="p-4">
       <div className="mb-3 flex items-center justify-between">
-        <SectionLabel>Новый выезд</SectionLabel>
+        <SectionLabel>{t("Новый выезд")}</SectionLabel>
         <label className="flex items-center gap-2 text-xs text-muted">
-          Точка без здания
+          {t("Точка без здания")}
           <button
             type="button"
             role="switch"
@@ -342,7 +348,7 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
 
       {!manual ? (
         <div className="relative">
-          <Field label="Адрес здания">
+          <Field label={t("Адрес здания")}>
             <div className="relative">
               <Search
                 className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint"
@@ -354,12 +360,12 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
                   setSelected(null);
                   setQuery(e.target.value);
                 }}
-                placeholder="Начните вводить адрес…"
+                placeholder={t("Начните вводить адрес…")}
                 className="pl-8"
               />
             </div>
           </Field>
-          {searching && <p className="mt-1 text-xs text-faint">Поиск…</p>}
+          {searching && <p className="mt-1 text-xs text-faint">{t("Поиск…")}</p>}
           {!selected && results.length > 0 && (
             <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border border-border-strong bg-surface shadow-pop">
               {results.map((b) => (
@@ -375,7 +381,7 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
                 >
                   <span className="min-w-0 truncate">
                     <span className="text-fg">{b.address}</span>
-                    {b.district && <span className="text-faint"> · {b.district} р-н</span>}
+                    {b.district && <span className="text-faint"> · {b.district} {t("р-н")}</span>}
                   </span>
                   {b.risk_score != null && (
                     <ScoreBadge
@@ -391,40 +397,40 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
         </div>
       ) : (
         <div className="space-y-3">
-          <Field label="Адрес (произвольный текст, необязательно)">
+          <Field label={t("Адрес (произвольный текст, необязательно)")}>
             <Input
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              placeholder="Например: перекрёсток ул. Абая и просп. Республики"
+              placeholder={t("Например: перекрёсток ул. Абая и просп. Республики")}
             />
           </Field>
           <div className="grid grid-cols-2 gap-2.5">
-            <Field label="Широта (lat)">
+            <Field label={t("Широта (lat)")}>
               <Input value={lat} onChange={(e) => setLat(e.target.value)} inputMode="decimal" className="tabular" />
             </Field>
-            <Field label="Долгота (lng)">
+            <Field label={t("Долгота (lng)")}>
               <Input value={lng} onChange={(e) => setLng(e.target.value)} inputMode="decimal" className="tabular" />
             </Field>
           </div>
           <Button size="sm" variant="secondary" type="button" onClick={locate}>
             <LocateFixed className="h-3.5 w-3.5" />
-            Моё местоположение
+            {t("Моё местоположение")}
           </Button>
         </div>
       )}
 
       <div className="mt-4">
-        <SectionLabel className="mb-2">Тип вызова</SectionLabel>
+        <SectionLabel className="mb-2">{t("Тип вызова")}</SectionLabel>
         <div className="grid grid-cols-2 gap-2">
-          {CALLOUT_TYPES.map((t) => {
-            const meta = CALLOUT_TYPE_META[t];
+          {CALLOUT_TYPES.map((ct) => {
+            const meta = CALLOUT_TYPE_META[ct];
             const Icon = meta.icon;
-            const active = calloutType === t;
+            const active = calloutType === ct;
             return (
               <button
-                key={t}
+                key={ct}
                 type="button"
-                onClick={() => setCalloutType(t)}
+                onClick={() => setCalloutType(ct)}
                 aria-pressed={active}
                 className={cn(
                   "flex items-center gap-2 rounded-lg border-2 px-3 py-2.5 text-left transition-colors duration-[var(--dur-fast)]",
@@ -434,7 +440,7 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" aria-hidden />
-                <span className="text-xs font-medium leading-tight">{meta.label}</span>
+                <span className="text-xs font-medium leading-tight">{t(meta.label)}</span>
               </button>
             );
           })}
@@ -442,12 +448,12 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
       </div>
 
       <div className="mt-4">
-        <Field label="Заметка (необязательно)">
+        <Field label={t("Заметка (необязательно)")}>
           <Textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
             rows={2}
-            placeholder="Детали вызова для караула"
+            placeholder={t("Детали вызова для караула")}
           />
         </Field>
       </div>
@@ -456,7 +462,7 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
 
       <Button variant="primary" size="xl" className="mt-4 w-full" disabled={submitting} onClick={() => void submit()}>
         {submitting ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Siren className="h-5 w-5" />}
-        Зарегистрировать выезд
+        {t("Зарегистрировать выезд")}
       </Button>
     </Card>
   );
@@ -465,6 +471,7 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
 /* ───────────────────────────── Close callout ──────────────────────────── */
 
 function CloseCalloutBar({ onClose }: { onClose: (note: string) => Promise<boolean> }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -475,7 +482,7 @@ function CloseCalloutBar({ onClose }: { onClose: (note: string) => Promise<boole
       <div className="flex justify-end">
         <Button size="sm" variant="danger" onClick={() => setOpen(true)}>
           <X className="h-3.5 w-3.5" />
-          Закрыть выезд
+          {t("Закрыть выезд")}
         </Button>
       </div>
     );
@@ -483,7 +490,7 @@ function CloseCalloutBar({ onClose }: { onClose: (note: string) => Promise<boole
 
   return (
     <Card className="p-3.5">
-      <Field label="Комментарий к закрытию (необязательно)">
+      <Field label={t("Комментарий к закрытию (необязательно)")}>
         <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
       </Field>
       {error && <p className="mt-2 text-xs text-critical">{error}</p>}
@@ -498,14 +505,14 @@ function CloseCalloutBar({ onClose }: { onClose: (note: string) => Promise<boole
             const ok = await onClose(note);
             setBusy(false);
             if (ok) setOpen(false);
-            else setError("Не удалось закрыть выезд — проверьте связь.");
+            else setError(t("Не удалось закрыть выезд — проверьте связь."));
           }}
         >
           {busy ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-          Подтвердить закрытие
+          {t("Подтвердить закрытие")}
         </Button>
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => setOpen(false)}>
-          Отмена
+          {t("Отмена")}
         </Button>
       </div>
     </Card>

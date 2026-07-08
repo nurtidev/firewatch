@@ -25,6 +25,7 @@ import {
   type ReactNode,
 } from "react";
 import { cn } from "@/lib/cn";
+import { useLocale, useT, intlLocale } from "@/lib/i18n";
 
 const useIsomorphicLayoutEffect =
   typeof window !== "undefined" ? useLayoutEffect : useEffect;
@@ -141,8 +142,8 @@ export function Reveal({
   );
 }
 
-function formatNumber(n: number, decimals: number): string {
-  return n.toLocaleString("ru-RU", {
+function formatNumber(n: number, decimals: number, locale: string): string {
+  return n.toLocaleString(locale, {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   });
@@ -182,6 +183,11 @@ export function CountUp({
   className?: string;
 }) {
   const { ref, active, reducedMotion, wasHidden } = useScrollReveal<HTMLSpanElement>();
+  const { locale } = useLocale();
+  const tr = useT();
+  const numberLocale = intlLocale(locale);
+  // Suffixes like " млрд ₸" carry language — translate the word part, keep the spacing.
+  const suffixText = /[А-Яа-яЁё]/.test(suffix) ? ` ${tr(suffix.trim())}` : suffix;
   const [display, setDisplay] = useState(value);
   const startedRef = useRef(false);
 
@@ -203,8 +209,8 @@ export function CountUp({
     return () => cancelAnimationFrame(raf);
   }, [active, reducedMotion, wasHidden, value, duration]);
 
-  const finalText = `${prefix}${formatNumber(value, decimals)}${suffix}`;
-  const currentText = `${prefix}${formatNumber(display, decimals)}${suffix}`;
+  const finalText = `${prefix}${formatNumber(value, decimals, numberLocale)}${suffixText}`;
+  const currentText = `${prefix}${formatNumber(display, decimals, numberLocale)}${suffixText}`;
 
   return (
     <span

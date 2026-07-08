@@ -47,6 +47,7 @@ import { roomTypeMeta } from "@/lib/floorplan";
 import type { RealRoom } from "@/data/floorplans/hayvill";
 import { apiFetch, apiSrc, useAuth } from "@/lib/auth";
 import { apiErrorText } from "@/lib/api-error";
+import { useT, useLocale, intlLocale } from "@/lib/i18n";
 import { SEVERITY, type Severity } from "@/lib/risk";
 import {
   Card,
@@ -119,7 +120,7 @@ type CardListItem = {
   created_at: string;
 };
 
-/* ─── Structured ПТП (operational plan) shape ────────────────────────────── */
+/* ─── Структурированный ПТП (operational plan) shape ────────────────────────────── */
 
 type Room = { name?: string; area_m2?: number | string; type?: string };
 type FloorPlan = { floor?: string; source_file?: string; rooms?: Room[] };
@@ -216,6 +217,8 @@ export default function CardsPage() {
 }
 
 function CardsPageInner() {
+  const t = useT();
+  const { locale } = useLocale();
   const { user } = useAuth();
   const searchParams = useSearchParams();
   const deepLinkId = searchParams.get("id");
@@ -278,12 +281,12 @@ function CardsPageInner() {
       const res = await apiFetch(`/cards`, { method: "POST", body });
       if (!res.ok) {
         const msg = await res.json().catch(() => ({}));
-        throw new Error((msg as { detail?: string }).detail || `Ошибка ${res.status}`);
+        throw new Error((msg as { detail?: string }).detail || `${t("Ошибка")} ${res.status}`);
       }
       setCard(await res.json());
       refreshList();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось обработать файл");
+      setError(e instanceof Error ? e.message : t("Не удалось обработать файл"));
     } finally {
       setUploading(false);
     }
@@ -318,7 +321,7 @@ function CardsPageInner() {
         const msg = await res.json().catch(() => ({}));
         setError(
           (msg as { detail?: string }).detail ||
-            `Не удалось сохранить решение (${res.status})`,
+            `${t("Не удалось сохранить решение")} (${res.status})`,
         );
       }
     } finally {
@@ -351,8 +354,10 @@ function CardsPageInner() {
       } else {
         const msg = await res.json().catch(() => ({}));
         setError(
-          apiErrorText((msg as { detail?: unknown }).detail, `Не удалось сохранить решение (${res.status})`) ??
-            `Не удалось сохранить решение (${res.status})`,
+          apiErrorText(
+            (msg as { detail?: unknown }).detail,
+            `${t("Не удалось сохранить решение")} (${res.status})`,
+          ) ?? `${t("Не удалось сохранить решение")} (${res.status})`,
         );
       }
     } finally {
@@ -361,7 +366,7 @@ function CardsPageInner() {
   }
 
   async function deleteCard(id: number, label: string) {
-    if (!window.confirm(`Удалить карточку «${label}»? Действие необратимо.`)) return;
+    if (!window.confirm(`${t("Удалить карточку")} «${label}»? ${t("Действие необратимо.")}`)) return;
     setError(null);
     const res = await apiFetch(`/cards/${id}`, { method: "DELETE" });
     if (res.ok) {
@@ -369,7 +374,7 @@ function CardsPageInner() {
       refreshList();
     } else {
       const msg = await res.json().catch(() => ({}));
-      setError((msg as { detail?: string }).detail || `Не удалось удалить (${res.status})`);
+      setError((msg as { detail?: string }).detail || `${t("Не удалось удалить")} (${res.status})`);
     }
   }
 
@@ -409,9 +414,9 @@ function CardsPageInner() {
         </div>
         <div className="text-center">
           <p className="text-sm text-fg">
-            Перетащите файл сюда или{" "}
+            {t("Перетащите файл сюда или")}{" "}
             <label className="cursor-pointer text-accent underline-offset-2 hover:underline">
-              выберите вручную
+              {t("выберите вручную")}
               <input
                 ref={fileRef}
                 type="file"
@@ -421,7 +426,7 @@ function CardsPageInner() {
               />
             </label>
           </p>
-          <p className="mt-1 text-xs text-faint">PDF, PNG, JPEG — до 20 МБ</p>
+          <p className="mt-1 text-xs text-faint">{t("PDF, PNG, JPEG — до 20 МБ")}</p>
         </div>
 
         {selectedFilename && (
@@ -441,12 +446,12 @@ function CardsPageInner() {
           {uploading ? (
             <>
               <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent-fg/30 border-t-accent-fg" />
-              Обработка…
+              {t("Обработка…")}
             </>
           ) : (
             <>
               <ScanLine className="h-4 w-4" />
-              Извлечь данные
+              {t("Извлечь данные")}
             </>
           )}
         </Button>
@@ -465,8 +470,8 @@ function CardsPageInner() {
     <AppShell>
       <div className="mx-auto max-w-[1400px] p-5 sm:p-7 lg:p-8">
         <PageHeader
-          title="ИИ-обработка оперкарточек"
-          subtitle="Скан/PDF → извлечение полей по форме МЧС РК → автопредписания"
+          title={t("ИИ-обработка оперкарточек")}
+          subtitle={t("Скан/PDF → извлечение полей по форме МЧС РК → автопредписания")}
           actions={
             <div className="flex items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2.5 py-1">
               <ScanLine className="h-3.5 w-3.5 text-accent" />
@@ -482,7 +487,7 @@ function CardsPageInner() {
               title={
                 <span className="inline-flex items-center gap-2">
                   <Upload className="h-4 w-4 text-faint" aria-hidden />
-                  Загрузить новую карточку
+                  {t("Загрузить новую карточку")}
                 </span>
               }
               className="mt-6"
@@ -491,7 +496,7 @@ function CardsPageInner() {
             </Collapsible>
           ) : (
             <Card className="mt-6 p-5">
-              <SectionLabel className="mb-4">Загрузить карточку</SectionLabel>
+              <SectionLabel className="mb-4">{t("Загрузить карточку")}</SectionLabel>
               {uploadZone}
             </Card>
           )
@@ -532,7 +537,7 @@ function CardsPageInner() {
                 ) : (
                   <ImageIcon className="h-4 w-4 text-info" />
                 )}
-                <SectionLabel>Оригинал</SectionLabel>
+                <SectionLabel>{t("Оригинал")}</SectionLabel>
                 <span className="ml-auto max-w-[200px] truncate text-xs text-faint">
                   {card.filename}
                 </span>
@@ -541,23 +546,22 @@ function CardsPageInner() {
                 {card.has_file === false ? (
                   <div className="flex h-[560px] w-full flex-col items-center justify-center gap-2 rounded-sm border border-dashed border-border px-6 text-center">
                     <FileText className="h-7 w-7 text-faint" aria-hidden />
-                    <p className="text-sm text-muted">Оригинал недоступен</p>
+                    <p className="text-sm text-muted">{t("Оригинал недоступен")}</p>
                     <p className="max-w-[280px] text-xs text-faint">
-                      Файл не сохранён на сервере. Извлечённые ИИ данные показаны
-                      справа.
+                      {t("Файл не сохранён на сервере. Извлечённые ИИ данные показаны справа.")}
                     </p>
                   </div>
                 ) : card.media_type === "application/pdf" ? (
                   <iframe
                     src={apiSrc(`/cards/${card.id}/file`)}
                     className="h-[560px] w-full rounded-sm bg-white"
-                    title="Оригинал карточки PDF"
+                    title={t("Оригинал карточки PDF")}
                   />
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={apiSrc(`/cards/${card.id}/file`)}
-                    alt="Оригинал карточки"
+                    alt={t("Оригинал карточки")}
                     className="max-h-[560px] w-full rounded-sm object-contain"
                   />
                 )}
@@ -568,20 +572,20 @@ function CardsPageInner() {
             <div className="flex flex-col gap-5">
               {/* Extracted fields */}
               <Card className="p-5">
-                <SectionLabel className="mb-4">Извлечено ИИ</SectionLabel>
+                <SectionLabel className="mb-4">{t("Извлечено ИИ")}</SectionLabel>
                 <dl className="space-y-2">
                   {FIELDS.map(([key, label]) => {
                     const v = card.extracted?.[key];
                     if (v == null || v === "") return null;
                     return (
                       <div key={key} className="flex gap-3 text-sm">
-                        <dt className="w-36 shrink-0 text-faint">{label}</dt>
+                        <dt className="w-36 shrink-0 text-faint">{t(label)}</dt>
                         <dd className="min-w-0 text-fg">{String(v)}</dd>
                       </div>
                     );
                   })}
                   {FIELDS.every(([key]) => !card.extracted?.[key]) && (
-                    <p className="text-sm text-faint">Поля не извлечены</p>
+                    <p className="text-sm text-faint">{t("Поля не извлечены")}</p>
                   )}
                 </dl>
               </Card>
@@ -607,7 +611,7 @@ function CardsPageInner() {
         {/* ── Processed cards list ── */}
         <div className="mt-8">
           <div className="mb-3 flex items-center justify-between">
-            <SectionLabel>Обработанные карточки</SectionLabel>
+            <SectionLabel>{t("Обработанные карточки")}</SectionLabel>
             {!listLoading && list.length > 0 && (
               <Badge>{list.length}</Badge>
             )}
@@ -629,8 +633,10 @@ function CardsPageInner() {
             ) : list.length === 0 ? (
               <EmptyState
                 icon={ScanLine}
-                title="Карточек нет"
-                description="Загрузите первый скан или PDF оперкарточки, чтобы ИИ извлёк поля и сформировал предписания."
+                title={t("Карточек нет")}
+                description={t(
+                  "Загрузите первый скан или PDF оперкарточки, чтобы ИИ извлёк поля и сформировал предписания.",
+                )}
                 className="border-0"
               />
             ) : (
@@ -643,7 +649,7 @@ function CardsPageInner() {
                     <button
                       onClick={() => openCard(c.id)}
                       className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"
-                      aria-label={`Открыть карточку: ${c.address || c.filename}`}
+                      aria-label={`${t("Открыть карточку")}: ${c.address || c.filename}`}
                     >
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface-3 text-faint group-hover:text-muted">
                         {c.filename.endsWith(".pdf") ? (
@@ -664,7 +670,7 @@ function CardsPageInner() {
                         <span className="flex items-center gap-1 text-xs text-faint">
                           <Calendar className="h-3 w-3" />
                           <span className="tabular">
-                            {new Date(c.created_at).toLocaleDateString("ru", {
+                            {new Date(c.created_at).toLocaleDateString(intlLocale(locale), {
                               day: "2-digit",
                               month: "short",
                               year: "numeric",
@@ -675,7 +681,7 @@ function CardsPageInner() {
                       <div className="flex shrink-0 items-center gap-2">
                         {c.prescriptions > 0 && (
                           <Badge tone={c.prescriptions >= 3 ? "accent" : "neutral"}>
-                            {c.prescriptions} предпис.
+                            {c.prescriptions} {t("предпис.")}
                           </Badge>
                         )}
                         <ChevronRight className="h-4 w-4 text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-muted" />
@@ -685,8 +691,8 @@ function CardsPageInner() {
                       <button
                         onClick={() => deleteCard(c.id, c.address || c.filename)}
                         className="mr-3 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-faint opacity-0 transition-[opacity,color] duration-[var(--dur-fast)] hover:bg-critical-bg hover:text-critical focus-visible:opacity-100 group-hover:opacity-100"
-                        aria-label={`Удалить карточку: ${c.address || c.filename}`}
-                        title="Удалить карточку"
+                        aria-label={`${t("Удалить карточку")}: ${c.address || c.filename}`}
+                        title={t("Удалить карточку")}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -731,18 +737,20 @@ function PrescriptionsPanel({
   ) => void;
   className?: string;
 }) {
+  const t = useT();
+  const { locale } = useLocale();
   if (card.prescriptions.length === 0) return null;
 
   return (
     <Card className={cn("p-5", className)}>
       <div className="mb-1 flex items-center justify-between">
-        <SectionLabel>Автопредписания</SectionLabel>
+        <SectionLabel>{t("Автопредписания")}</SectionLabel>
         <Badge tone="accent">{card.prescriptions.length}</Badge>
       </div>
       <p className="mb-4 text-xs text-muted">
-        Сформированы ИИ по извлечённым данным. Предписание —
-        административный акт: выдаётся владельцу только после
-        подтверждения инспектором.
+        {t(
+          "Сформированы ИИ по извлечённым данным. Предписание — административный акт: выдаётся владельцу только после подтверждения инспектором.",
+        )}
       </p>
       <ol className="space-y-3">
         {card.prescriptions.map((p) => {
@@ -755,7 +763,7 @@ function PrescriptionsPanel({
                 {p.deadline_days != null && (
                   <span className="inline-flex items-center gap-1 text-xs text-faint">
                     <Clock className="h-3.5 w-3.5" />
-                    <span className="tabular">{p.deadline_days} дн.</span>
+                    <span className="tabular">{p.deadline_days} {t("дн.")}</span>
                   </span>
                 )}
                 <span
@@ -765,7 +773,7 @@ function PrescriptionsPanel({
                   )}
                 >
                   <st.icon className="h-3 w-3" />
-                  {st.label}
+                  {t(st.label)}
                 </span>
               </div>
               {p.issue && <p className="mt-2 text-xs text-muted">{p.issue}</p>}
@@ -779,7 +787,7 @@ function PrescriptionsPanel({
                     disabled={reviewing === p.id}
                     onClick={() => onReviewPrescription(p.id, "approved")}
                   >
-                    <Check className="h-4 w-4" /> Утвердить
+                    <Check className="h-4 w-4" /> {t("Утвердить")}
                   </Button>
                   <Button
                     size="sm"
@@ -787,14 +795,15 @@ function PrescriptionsPanel({
                     disabled={reviewing === p.id}
                     onClick={() => onReviewPrescription(p.id, "rejected")}
                   >
-                    <X className="h-4 w-4" /> Отклонить
+                    <X className="h-4 w-4" /> {t("Отклонить")}
                   </Button>
                 </div>
               ) : (
                 p.reviewed_by && (
                   <p className="mt-2 text-2xs text-faint">
-                    {st.verb}: {p.reviewed_by}
-                    {p.reviewed_at && ` · ${new Date(p.reviewed_at).toLocaleString("ru")}`}
+                    {t(st.verb)}: {p.reviewed_by}
+                    {p.reviewed_at &&
+                      ` · ${new Date(p.reviewed_at).toLocaleString(intlLocale(locale))}`}
                   </p>
                 )
               )}
@@ -818,9 +827,10 @@ function PrescriptionsPanel({
   );
 }
 
-/* ─── Structured ПТП view (digital operational plan / building plan) ──────── */
+/* ─── Структурированный ПТП view (digital operational plan / building plan) ──────── */
 
 function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: string }) {
+  const t = useT();
   const obj = ex.object ?? {};
   const resp = ex.response ?? {};
   const contacts = (ex.contacts ?? []).filter((c) => c.role || c.name || c.phone);
@@ -858,20 +868,20 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
   // Surface a tab only when it carries content — no empty sections.
   const tabs: TabItem[] = (
     [
-      { id: "overview", label: "Обзор", icon: Building2 },
+      { id: "overview", label: t("Обзор"), icon: Building2 },
       floors.length > 0 && {
-        id: "floors", label: "Этажи и 3D", icon: Layers, count: floors.length,
+        id: "floors", label: t("Этажи и 3D"), icon: Layers, count: floors.length,
       },
       schemes && {
-        id: "schemes", label: "Схемы ДЧС", icon: Map, count: totalSchemePages(schemes),
+        id: "schemes", label: t("Схемы ДЧС"), icon: Map, count: totalSchemePages(schemes),
       },
-      hasResponse && { id: "response", label: "Реагирование", icon: Truck },
+      hasResponse && { id: "response", label: t("Реагирование"), icon: Truck },
       water.length > 0 && {
-        id: "water", label: "Водоисточники", icon: Droplets, count: water.length,
+        id: "water", label: t("Водоисточники"), icon: Droplets, count: water.length,
       },
-      hasForce && { id: "force", label: "Расчёт сил", icon: Calculator },
+      hasForce && { id: "force", label: t("Расчёт сил"), icon: Calculator },
       contacts.length > 0 && {
-        id: "contacts", label: "Контакты", icon: Phone, count: contacts.length,
+        id: "contacts", label: t("Контакты"), icon: Phone, count: contacts.length,
       },
     ] as (TabItem | false)[]
   ).filter(Boolean) as TabItem[];
@@ -886,7 +896,7 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
         <div className="p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <SectionLabel>Оперативный план тушения (ПТП)</SectionLabel>
+              <SectionLabel>{t("Оперативный план тушения (ПТП)")}</SectionLabel>
               <h2 className="mt-1 text-xl font-semibold leading-snug text-fg">
                 {obj.name ?? filename}
               </h2>
@@ -903,7 +913,7 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
                   label={
                     <span className="inline-flex items-center gap-1">
                       <Baby className="h-3.5 w-3.5" aria-hidden />
-                      Детский сад в составе
+                      {t("Детский сад в составе")}
                     </span>
                   }
                 />
@@ -914,19 +924,19 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
           )}
         </div>
         <div className="grid grid-cols-2 divide-x divide-border border-t border-border sm:grid-cols-4">
-          <SummaryStat icon={Flame} label="Ранг пожара" value={resp.preassigned_rank ?? "—"} accent />
+          <SummaryStat icon={Flame} label={t("Ранг пожара")} value={resp.preassigned_rank ?? "—"} accent />
           <SummaryStat
             icon={Timer}
-            label="Прибытие"
+            label={t("Прибытие")}
             value={resp.arrival_min != null ? String(resp.arrival_min) : "—"}
-            unit={resp.arrival_min != null ? "мин" : undefined}
+            unit={resp.arrival_min != null ? t("мин") : undefined}
           />
-          <SummaryStat icon={Layers} label="Этажей · экспл." value={floors.length > 0 ? String(floors.length) : "—"} />
+          <SummaryStat icon={Layers} label={t("Этажей · экспл.")} value={floors.length > 0 ? String(floors.length) : "—"} />
           <SummaryStat
             icon={Ruler}
-            label="Площадь"
+            label={t("Площадь")}
             value={obj.total_area_ha != null ? String(obj.total_area_ha) : "—"}
-            unit={obj.total_area_ha != null ? "га" : undefined}
+            unit={obj.total_area_ha != null ? t("га") : undefined}
           />
         </div>
       </Card>
@@ -937,20 +947,20 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
       {tab === "overview" && (
         <div className="grid gap-5 fw-fade-in lg:grid-cols-2">
           <Card className="p-5">
-            <SectionLabel className="mb-3">Характеристика объекта</SectionLabel>
+            <SectionLabel className="mb-3">{t("Характеристика объекта")}</SectionLabel>
             <dl className="space-y-2 text-sm">
-              <Row label="Категория" value={obj.category} />
-              <Row label="Степень огнестойкости" value={obj.fire_resistance_degree} />
+              <Row label={t("Категория")} value={obj.category} />
+              <Row label={t("Степень огнестойкости")} value={obj.fire_resistance_degree} />
               <Row
-                label="Общая площадь"
-                value={obj.total_area_ha != null ? `${obj.total_area_ha} га` : null}
+                label={t("Общая площадь")}
+                value={obj.total_area_ha != null ? `${obj.total_area_ha} ${t("га")}` : null}
               />
-              <Row label="Назначение" value={obj.occupancy} />
+              <Row label={t("Назначение")} value={obj.occupancy} />
             </dl>
           </Card>
           {(obj.blocks?.length ?? 0) > 0 && (
             <Card className="p-5">
-              <SectionLabel className="mb-3">Блоки / этажность</SectionLabel>
+              <SectionLabel className="mb-3">{t("Блоки / этажность")}</SectionLabel>
               <ul className="space-y-2 text-sm">
                 {obj.blocks!.map((b, i) => (
                   <li key={i} className="flex gap-3">
@@ -972,13 +982,16 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
           <Card className="p-5">
             <div className="flex items-center gap-2">
               <Box className="h-3.5 w-3.5 text-faint" aria-hidden />
-              <SectionLabel>3D-модель объекта</SectionLabel>
+              <SectionLabel>{t("3D-модель объекта")}</SectionLabel>
             </div>
             <p className="mt-1 text-xs text-muted">
-              Этажи по экспликации. Вращайте мышью, колесо — зум, клик по этажу —
               {realPlan
-                ? " раскрыть его реальный план в 3D (комнаты по типам, клик — помещение)."
-                : " показать его помещения ниже."}
+                ? t(
+                    "Этажи по экспликации. Вращайте мышью, колесо — зум, клик по этажу — раскрыть его реальный план в 3D (комнаты по типам, клик — помещение).",
+                  )
+                : t(
+                    "Этажи по экспликации. Вращайте мышью, колесо — зум, клик по этажу — показать его помещения ниже.",
+                  )}
             </p>
             <div className="mt-3 grid gap-4 lg:grid-cols-[1fr_240px] lg:items-start">
               <Building3D
@@ -991,19 +1004,19 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
               />
               <div className="space-y-3 text-sm">
                 <div className="rounded-lg border border-border bg-surface-2 p-3">
-                  <div className="text-2xs uppercase tracking-wider text-faint">Выбран этаж</div>
+                  <div className="text-2xs uppercase tracking-wider text-faint">{t("Выбран этаж")}</div>
                   <div className="mt-0.5 text-lg font-semibold text-fg">{floor?.floor ?? "—"}</div>
                   <div className="mt-1 text-xs text-muted">
-                    {floor?.rooms?.length ?? 0} помещений
+                    {floor?.rooms?.length ?? 0} {t("помещений")}
                   </div>
                   <div className="mt-1.5">
                     {realPlan ? (
                       <span className="inline-flex items-center gap-1 rounded-md border border-accent/30 bg-accent-weak px-1.5 py-0.5 text-2xs font-medium text-accent">
-                        Реальная геометрия
+                        {t("Реальная геометрия")}
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-3 px-1.5 py-0.5 text-2xs text-muted">
-                        Схематично
+                        {t("Схематично")}
                       </span>
                     )}
                   </div>
@@ -1011,7 +1024,7 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
                 {realPlan && (
                   <div className="rounded-lg border border-border bg-surface-2 p-3">
                     <div className="text-2xs uppercase tracking-wider text-faint">
-                      Помещение (3D)
+                      {t("Помещение (3D)")}
                     </div>
                     {roomSel ? (
                       <>
@@ -1022,13 +1035,13 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
                             style={{ background: roomTypeMeta(roomSel.type).color }}
                             aria-hidden
                           />
-                          {roomTypeMeta(roomSel.type).label}
-                          <span className="tabular">· {roomSel.area_m2} м²</span>
+                          {t(roomTypeMeta(roomSel.type).label)}
+                          <span className="tabular">· {roomSel.area_m2} {t("м²")}</span>
                         </div>
                       </>
                     ) : (
                       <div className="mt-0.5 text-xs text-faint">
-                        Кликните по комнате в 3D-плане этажа
+                        {t("Кликните по комнате в 3D-плане этажа")}
                       </div>
                     )}
                   </div>
@@ -1039,11 +1052,11 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
 
           <Card className="p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <SectionLabel>План этажа{realPlan ? "" : " · экспликация"}</SectionLabel>
+              <SectionLabel>{realPlan ? t("План этажа") : t("План этажа · экспликация")}</SectionLabel>
               <span className="text-2xs text-faint">
                 {realPlan
-                  ? "Реальные полигоны из ПТП (оцифровка Visio) — калибровка по площадям"
-                  : "Схематическая планировка по площадям — не архитектурный чертёж"}
+                  ? t("Реальные полигоны из ПТП (оцифровка Visio) — калибровка по площадям")
+                  : t("Схематическая планировка по площадям — не архитектурный чертёж")}
               </span>
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5">
@@ -1062,10 +1075,10 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
                     <span
                       className="inline-block h-1.5 w-1.5 rounded-full bg-accent"
                       aria-hidden
-                      title="реальная геометрия"
+                      title={t("реальная геометрия")}
                     />
                   )}
-                  {f.floor ?? `Этаж ${i + 1}`}
+                  {f.floor ?? `${t("Этаж")} ${i + 1}`}
                 </button>
               ))}
             </div>
@@ -1080,7 +1093,7 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
                 <details className="mt-4 group">
                   <summary className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-muted transition-colors hover:text-fg">
                     <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" aria-hidden />
-                    Таблица помещений ({floor.rooms?.length ?? 0})
+                    {t("Таблица помещений")} ({floor.rooms?.length ?? 0})
                   </summary>
                   <FloorTable floor={floor} />
                 </details>
@@ -1091,9 +1104,9 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
           {apartments.length > 0 && (
             <Card className="p-5">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <SectionLabel>Планировки квартир</SectionLabel>
+                <SectionLabel>{t("Планировки квартир")}</SectionLabel>
                 <span className="text-2xs text-faint">
-                  Реальная геометрия из поквартирных экспликаций (ПТП)
+                  {t("Реальная геометрия из поквартирных экспликаций (ПТП)")}
                 </span>
               </div>
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -1103,7 +1116,7 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
                     <figcaption className="flex items-baseline justify-between gap-2">
                       <span className="truncate text-sm font-medium text-fg">{a.title}</span>
                       <span className="shrink-0 tabular text-xs text-muted">
-                        {planTotalArea(a)} м²
+                        {planTotalArea(a)} {t("м²")}
                       </span>
                     </figcaption>
                   </figure>
@@ -1120,18 +1133,18 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
       {/* ── Реагирование ── */}
       {tab === "response" && (
         <Card className="p-5 fw-fade-in">
-          <SectionLabel className="mb-3">Реагирование</SectionLabel>
+          <SectionLabel className="mb-3">{t("Реагирование")}</SectionLabel>
           <dl className="space-y-2 text-sm">
-            <Row label="Ближайшая ПЧ" value={resp.nearest_station} />
+            <Row label={t("Ближайшая ПЧ")} value={resp.nearest_station} />
             <Row
-              label="Расстояние / прибытие"
+              label={t("Расстояние / прибытие")}
               value={[
-                resp.distance_km != null ? `${resp.distance_km} км` : null,
-                resp.arrival_min != null ? `${resp.arrival_min} мин` : null,
+                resp.distance_km != null ? `${resp.distance_km} ${t("км")}` : null,
+                resp.arrival_min != null ? `${resp.arrival_min} ${t("мин")}` : null,
               ].filter(Boolean).join(" · ") || null}
             />
-            <Row label="Маршрут" value={resp.route} />
-            <Row label="Ранг пожара" value={resp.preassigned_rank} />
+            <Row label={t("Маршрут")} value={resp.route} />
+            <Row label={t("Ранг пожара")} value={resp.preassigned_rank} />
           </dl>
         </Card>
       )}
@@ -1139,7 +1152,7 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
       {/* ── Водоисточники ── */}
       {tab === "water" && (
         <Card className="p-5 fw-fade-in">
-          <SectionLabel className="mb-3">Водоисточники</SectionLabel>
+          <SectionLabel className="mb-3">{t("Водоисточники")}</SectionLabel>
           <ul className="divide-y divide-border/60 text-sm">
             {water.map((w, i) => (
               <li
@@ -1151,7 +1164,7 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
                   {w.note && <span className="text-faint"> · {w.note}</span>}
                 </span>
                 {w.distance_m != null && (
-                  <span className="shrink-0 tabular text-muted">{w.distance_m} м</span>
+                  <span className="shrink-0 tabular text-muted">{w.distance_m} {t("м")}</span>
                 )}
               </li>
             ))}
@@ -1165,7 +1178,7 @@ function StructuredPlanView({ ex, filename }: { ex: StructuredPlan; filename: st
       {/* ── Контакты ── */}
       {tab === "contacts" && (
         <Card className="p-5 fw-fade-in">
-          <SectionLabel className="mb-3">Контакты и ответственные</SectionLabel>
+          <SectionLabel className="mb-3">{t("Контакты и ответственные")}</SectionLabel>
           <ul className="divide-y divide-border/60">
             {contacts.map((c, i) => (
               <li
@@ -1231,14 +1244,15 @@ function SummaryStat({
 
 /** Floor explication table — rooms with type + area. */
 function FloorTable({ floor }: { floor: FloorPlan }) {
+  const t = useT();
   return (
     <div className="mt-4 overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border text-left text-2xs uppercase tracking-wider text-faint">
-            <th className="py-2 pr-3 font-medium">Помещение</th>
-            <th className="py-2 pr-3 font-medium">Тип</th>
-            <th className="py-2 text-right font-medium">Площадь, м²</th>
+            <th className="py-2 pr-3 font-medium">{t("Помещение")}</th>
+            <th className="py-2 pr-3 font-medium">{t("Тип")}</th>
+            <th className="py-2 text-right font-medium">{t("Площадь, м²")}</th>
           </tr>
         </thead>
         <tbody>
@@ -1284,6 +1298,7 @@ const FORCE_FIELDS: Record<string, { label: string; unit?: string; num?: boolean
 const FORCE_SECONDARY = new Set(["source", "note_2020"]);
 
 function ForceCalcView({ fc }: { fc: Record<string, unknown> }) {
+  const t = useT();
   const meta = (k: string) => FORCE_FIELDS[k] ?? { label: k.replace(/_/g, " ") };
   const entries = Object.entries(fc).filter(([, v]) => v != null && v !== "");
   const order = Object.keys(FORCE_FIELDS);
@@ -1303,17 +1318,17 @@ function ForceCalcView({ fc }: { fc: Record<string, unknown> }) {
 
   return (
     <Card className="p-5 fw-fade-in">
-      <SectionLabel className="mb-3">Расчёт сил и средств</SectionLabel>
+      <SectionLabel className="mb-3">{t("Расчёт сил и средств")}</SectionLabel>
 
       {nums.length > 0 && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
           {nums.map(([k, v]) => (
             <div key={k} className="rounded-lg border border-border bg-surface-2 px-3 py-2.5">
-              <div className="text-2xs uppercase tracking-wider text-faint">{meta(k).label}</div>
+              <div className="text-2xs uppercase tracking-wider text-faint">{t(meta(k).label)}</div>
               <div className="mt-1 text-lg font-semibold tabular text-fg">
                 {String(v)}
                 {meta(k).unit && (
-                  <span className="ml-1 text-xs font-normal text-muted">{meta(k).unit}</span>
+                  <span className="ml-1 text-xs font-normal text-muted">{t(meta(k).unit!)}</span>
                 )}
               </div>
             </div>
@@ -1325,7 +1340,7 @@ function ForceCalcView({ fc }: { fc: Record<string, unknown> }) {
         <dl className="mt-4 space-y-2.5">
           {primary.map(([k, v]) => (
             <div key={k} className="grid gap-0.5 sm:grid-cols-[180px_1fr] sm:gap-4">
-              <dt className="text-sm text-faint">{meta(k).label}</dt>
+              <dt className="text-sm text-faint">{t(meta(k).label)}</dt>
               <dd className="min-w-0 break-words text-sm text-fg">{asText(v)}</dd>
             </div>
           ))}
@@ -1333,11 +1348,11 @@ function ForceCalcView({ fc }: { fc: Record<string, unknown> }) {
       )}
 
       {secondary.length > 0 && (
-        <Collapsible title="Источник и примечания" className="mt-4">
+        <Collapsible title={t("Источник и примечания")} className="mt-4">
           <dl className="space-y-2.5">
             {secondary.map(([k, v]) => (
               <div key={k} className="grid gap-0.5 sm:grid-cols-[180px_1fr] sm:gap-4">
-                <dt className="text-sm text-faint">{meta(k).label}</dt>
+                <dt className="text-sm text-faint">{t(meta(k).label)}</dt>
                 <dd className="min-w-0 break-words text-sm text-fg">{asText(v)}</dd>
               </div>
             ))}
@@ -1375,10 +1390,12 @@ function RemediationBlock({
   reviewing: boolean;
   onReview: (status: "accepted" | "declined", note?: string) => void;
 }) {
+  const t = useT();
+  const { locale } = useLocale();
   const meta = REMEDIATION_STATUS[remediation.status] ?? REMEDIATION_STATUS.pending;
   const [declining, setDeclining] = useState(false);
   const [note, setNote] = useState("");
-  const created = new Date(remediation.created_at).toLocaleString("ru-RU", {
+  const created = new Date(remediation.created_at).toLocaleString(intlLocale(locale), {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -1389,7 +1406,7 @@ function RemediationBlock({
   return (
     <div className="mt-3 rounded-md border border-border-strong bg-surface p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <SectionLabel>Заявка владельца об устранении</SectionLabel>
+        <SectionLabel>{t("Заявка владельца об устранении")}</SectionLabel>
         <span
           className={cn(
             "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium",
@@ -1397,7 +1414,7 @@ function RemediationBlock({
           )}
         >
           <meta.icon className="h-3 w-3" aria-hidden />
-          {meta.label}
+          {t(meta.label)}
         </span>
       </div>
 
@@ -1416,7 +1433,7 @@ function RemediationBlock({
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={apiSrc(`/portal/photo/${id}`)}
-                alt="Фото устранения"
+                alt={t("Фото устранения")}
                 className="h-full w-full object-cover"
               />
             </a>
@@ -1431,7 +1448,7 @@ function RemediationBlock({
 
       {remediation.status !== "pending" && (
         <p className="mt-2 text-2xs text-faint">
-          {remediation.status === "accepted" ? "Подтвердил" : "Отклонил"}
+          {remediation.status === "accepted" ? t("Подтвердил") : t("Отклонил")}
           {remediation.reviewed_by && `: ${remediation.reviewed_by}`}
           {remediation.review_note && ` · ${remediation.review_note}`}
         </p>
@@ -1440,12 +1457,12 @@ function RemediationBlock({
       {remediation.status === "pending" && canReview && (
         declining ? (
           <div className="mt-3">
-            <Field label="Причина отклонения (необязательно)">
+            <Field label={t("Причина отклонения (необязательно)")}>
               <Textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 rows={2}
-                placeholder="Что не устранено или не подтверждено"
+                placeholder={t("Что не устранено или не подтверждено")}
               />
             </Field>
             <div className="mt-2 flex items-center gap-2">
@@ -1460,7 +1477,7 @@ function RemediationBlock({
                 ) : (
                   <X className="h-3.5 w-3.5" />
                 )}
-                Отклонить заявку
+                {t("Отклонить заявку")}
               </Button>
               <Button
                 size="sm"
@@ -1471,7 +1488,7 @@ function RemediationBlock({
                   setNote("");
                 }}
               >
-                Отмена
+                {t("Отмена")}
               </Button>
             </div>
           </div>
@@ -1488,10 +1505,10 @@ function RemediationBlock({
               ) : (
                 <ClipboardList className="h-4 w-4" />
               )}
-              Подтвердить устранение
+              {t("Подтвердить устранение")}
             </Button>
             <Button size="sm" variant="ghost" disabled={reviewing} onClick={() => setDeclining(true)}>
-              <X className="h-4 w-4" /> Отклонить
+              <X className="h-4 w-4" /> {t("Отклонить")}
             </Button>
           </div>
         )

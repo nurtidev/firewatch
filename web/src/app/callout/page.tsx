@@ -12,11 +12,13 @@ import AppShell from "@/components/AppShell";
 import CalloutPack from "@/components/CalloutPack";
 import CalloutRow from "@/components/CalloutRow";
 import { PageHeader, Button, Skeleton, EmptyState, Banner } from "@/components/ui";
+import { useT } from "@/lib/i18n";
 import { useCalloutList, useCalloutPack } from "@/lib/dispatch";
 
 const POLL_MS = 15000;
 
 export default function CalloutPage() {
+  const t = useT();
   const { callouts, error: listError } = useCalloutList("active", POLL_MS);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [autoSelected, setAutoSelected] = useState(false);
@@ -39,7 +41,10 @@ export default function CalloutPage() {
       <div className="mx-auto max-w-[1400px] p-5 sm:p-7 lg:p-8">
         {showList ? (
           <>
-            <PageHeader title="Боевой выезд" subtitle="Активные выезды — выберите, чтобы открыть боевой пакет" />
+            <PageHeader
+              title={t("Боевой выезд")}
+              subtitle={t("Активные выезды — выберите, чтобы открыть боевой пакет")}
+            />
 
             {listError && (
               <Banner tone="critical" className="mt-4">
@@ -57,8 +62,8 @@ export default function CalloutPage() {
               <EmptyState
                 className="mt-8"
                 icon={Siren}
-                title="Активных выездов нет"
-                description="Как только диспетчер зарегистрирует выезд, он появится здесь."
+                title={t("Активных выездов нет")}
+                description={t("Как только диспетчер зарегистрирует выезд, он появится здесь.")}
               />
             ) : (
               <div className="mt-5 space-y-3">
@@ -72,7 +77,8 @@ export default function CalloutPage() {
           <>
             <div className="mb-4 flex items-center gap-2">
               <Button size="lg" variant="secondary" onClick={() => setSelectedId(null)}>
-                <ArrowLeft className="h-4 w-4" />К списку
+                <ArrowLeft className="h-4 w-4" />
+                {t("К списку")}
               </Button>
             </div>
 

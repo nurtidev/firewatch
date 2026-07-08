@@ -6,6 +6,8 @@ import { ArrowRight, ShieldCheck, Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { DEFAULT_ROUTE } from "@/lib/nav";
 import { Button, Input, Field } from "@/components/ui";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { useT } from "@/lib/i18n";
 
 const DEMO = [
   { username: "minister", label: "Замминистра", hint: "руководство ведомства" },
@@ -16,6 +18,7 @@ const DEMO = [
 export default function LoginPage() {
   const { login } = useAuth();
   const router = useRouter();
+  const t = useT();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +31,7 @@ export default function LoginPage() {
       const user = await login(u, p);
       router.replace(DEFAULT_ROUTE[user.role]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Ошибка входа");
+      setError(e instanceof Error ? e.message : t("Ошибка входа"));
     } finally {
       setBusy(false);
     }
@@ -36,6 +39,11 @@ export default function LoginPage() {
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden p-6">
+      {/* Language switch (chrome; login body strings are Wave 1) */}
+      <div className="absolute right-5 top-5 z-10">
+        <LanguageSwitcher />
+      </div>
+
       {/* Ambient brand glow — single, restrained */}
       <div
         className="pointer-events-none absolute -top-40 left-1/2 h-[420px] w-[620px] -translate-x-1/2 rounded-full opacity-[0.12] blur-[120px]"
@@ -49,7 +57,7 @@ export default function LoginPage() {
             FireWatch<span className="text-accent">.</span>
           </div>
           <p className="mt-2 text-2xs font-medium uppercase tracking-[0.18em] text-faint">
-            Предиктивная платформа · ДЧС РК
+            {t("Предиктивная платформа · ДЧС РК")}
           </p>
         </div>
 
@@ -60,21 +68,21 @@ export default function LoginPage() {
           }}
           className="space-y-4 rounded-xl border border-border bg-surface p-6 shadow-pop"
         >
-          <Field label="Логин">
+          <Field label={t("Логин")}>
             <Input
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Введите логин"
+              placeholder={t("Введите логин")}
               autoFocus
               autoComplete="username"
             />
           </Field>
-          <Field label="Пароль">
+          <Field label={t("Пароль")}>
             <Input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Введите пароль"
+              placeholder={t("Введите пароль")}
               autoComplete="current-password"
             />
           </Field>
@@ -91,11 +99,11 @@ export default function LoginPage() {
           <Button type="submit" disabled={busy} className="w-full">
             {busy ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" /> Вход…
+                <Loader2 className="h-4 w-4 animate-spin" /> {t("Вход…")}
               </>
             ) : (
               <>
-                Войти <ArrowRight className="h-4 w-4" />
+                {t("Войти")} <ArrowRight className="h-4 w-4" />
               </>
             )}
           </Button>
@@ -103,7 +111,7 @@ export default function LoginPage() {
 
         <div className="mt-6">
           <p className="mb-2.5 text-center text-2xs uppercase tracking-[0.16em] text-faint">
-            Быстрый вход для демонстрации
+            {t("Быстрый вход для демонстрации")}
           </p>
           <div className="grid grid-cols-3 gap-2">
             {DEMO.map((d) => (
@@ -113,9 +121,9 @@ export default function LoginPage() {
                 disabled={busy}
                 className="rounded-lg border border-border bg-surface px-2 py-2.5 text-center transition-colors hover:border-border-strong hover:bg-surface-2 disabled:opacity-50"
               >
-                <div className="text-xs font-medium text-fg">{d.label}</div>
+                <div className="text-xs font-medium text-fg">{t(d.label)}</div>
                 <div className="mt-0.5 text-2xs leading-tight text-faint">
-                  {d.hint}
+                  {t(d.hint)}
                 </div>
               </button>
             ))}
@@ -124,7 +132,7 @@ export default function LoginPage() {
 
         <p className="mt-6 flex items-center justify-center gap-1.5 text-2xs text-faint">
           <ShieldCheck className="h-3.5 w-3.5" />
-          Защищённый доступ · только для сотрудников ДЧС
+          {t("Защищённый доступ · только для сотрудников ДЧС")}
         </p>
       </div>
     </main>

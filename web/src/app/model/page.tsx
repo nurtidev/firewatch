@@ -5,6 +5,7 @@ import { Brain, Target, Gauge, Layers, TrendingUp } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import DemoBanner from "@/components/DemoBanner";
 import { apiFetch } from "@/lib/auth";
+import { intlLocale, useLocale, useT } from "@/lib/i18n";
 import { featureLabel } from "@/lib/risk";
 import {
   Badge,
@@ -47,6 +48,8 @@ type ModelCard = { model_version: string; metrics: Metrics };
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 
 export default function ModelPage() {
+  const t = useT();
+  const { locale } = useLocale();
   const [data, setData] = useState<ModelCard | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,8 +59,8 @@ export default function ModelPage() {
         r.ok ? r.json() : Promise.reject(await r.json().catch(() => ({}))),
       )
       .then(setData)
-      .catch((d) => setError(d?.detail || "Метрики модели недоступны"));
-  }, []);
+      .catch((d) => setError(d?.detail || t("Метрики модели недоступны")));
+  }, [t]);
 
   const m = data?.metrics;
 
@@ -65,13 +68,13 @@ export default function ModelPage() {
     <AppShell>
       <div className="mx-auto max-w-[1400px] space-y-6 p-5 sm:p-7 lg:p-8">
         <PageHeader
-          title="Модель ИИ"
-          subtitle="Предиктивная модель риска пожара — валидация на отложенной выборке"
+          title={t("Модель ИИ")}
+          subtitle={t("Предиктивная модель риска пожара — валидация на отложенной выборке")}
           actions={
             data ? (
               <div className="flex items-center gap-2">
                 <Badge tone="accent">{data.model_version}</Badge>
-                <Badge>метрики сборки</Badge>
+                <Badge>{t("метрики сборки")}</Badge>
               </div>
             ) : null
           }
@@ -83,7 +86,7 @@ export default function ModelPage() {
           <EmptyState
             tone="error"
             icon={Brain}
-            title="Метрики недоступны"
+            title={t("Метрики недоступны")}
             description={error}
           />
         )}
@@ -108,47 +111,46 @@ export default function ModelPage() {
                 label="ROC-AUC"
                 value={m.roc_auc.toFixed(3)}
                 icon={Target}
-                hint="0.5 — случайно · 1.0 — идеал"
+                hint={t("0.5 — случайно · 1.0 — идеал")}
               />
               <MetricCard
                 label="PR-AUC"
                 value={m.pr_auc.toFixed(3)}
                 icon={TrendingUp}
-                hint="Точность на редком классе"
+                hint={t("Точность на редком классе")}
               />
               <MetricCard
-                label="Brier (калибр.)"
+                label={t("Brier (калибр.)")}
                 value={m.brier_calibrated.toFixed(3)}
                 icon={Gauge}
-                hint={`до калибровки ${m.brier_raw.toFixed(3)}`}
+                hint={`${t("до калибровки")} ${m.brier_raw.toFixed(3)}`}
               />
               <MetricCard
-                label="Базовая частота"
+                label={t("Базовая частота")}
                 value={pct(m.base_rate)}
                 icon={Layers}
-                hint={`тест: ${m.n.toLocaleString("ru")} объектов`}
+                hint={`${t("тест:")} ${m.n.toLocaleString(intlLocale(locale))} ${t("объектов")}`}
               />
             </div>
 
             {/* Lift — operational value */}
             <Card className="p-5">
               <div className="flex items-center justify-between">
-                <SectionLabel>Приоритизация проверок · Lift</SectionLabel>
+                <SectionLabel>{t("Приоритизация проверок · Lift")}</SectionLabel>
               </div>
               <p className="mt-1 text-xs text-muted">
-                Во сколько раз проверка топ-N% самых рисковых объектов находит больше
-                пожаров, чем случайная выборка.
+                {t("Во сколько раз проверка топ-N% самых рисковых объектов находит больше пожаров, чем случайная выборка.")}
               </p>
               <div className="mt-4 space-y-3">
                 {m.lift.map((l) => (
                   <div key={l.fraction} className="grid grid-cols-[5rem_1fr_auto] items-center gap-3">
                     <span className="text-sm font-medium text-fg">
-                      Топ {Math.round(l.fraction * 100)}%
+                      {t("Топ")} {Math.round(l.fraction * 100)}%
                     </span>
                     <div>
                       <ProgressBar value={l.recall_captured * 100} />
                       <div className="mt-1 text-2xs text-faint">
-                        захват {pct(l.recall_captured)} пожаров · точность {pct(l.precision)}
+                        {t("захват")} {pct(l.recall_captured)} {t("пожаров")} · {t("точность")} {pct(l.precision)}
                       </div>
                     </div>
                     <span className="tabular text-lg font-semibold text-accent">
@@ -162,16 +164,15 @@ export default function ModelPage() {
             {/* Calibration + feature importance */}
             <div className="grid gap-4 lg:grid-cols-2">
               <Card className="p-5">
-                <SectionLabel>Калибровка · прогноз vs факт</SectionLabel>
+                <SectionLabel>{t("Калибровка · прогноз vs факт")}</SectionLabel>
                 <p className="mt-1 text-xs text-muted">
-                  Чем ближе предсказанная вероятность к наблюдаемой частоте, тем
-                  надёжнее интерпретировать риск как процент.
+                  {t("Чем ближе предсказанная вероятность к наблюдаемой частоте, тем надёжнее интерпретировать риск как процент.")}
                 </p>
                 <div className="mt-4 space-y-1.5">
                   <div className="grid grid-cols-[1fr_4rem_4rem] gap-2 text-2xs uppercase tracking-wider text-faint">
-                    <span>Диапазон</span>
-                    <span className="text-right">Прогноз</span>
-                    <span className="text-right">Факт</span>
+                    <span>{t("Диапазон")}</span>
+                    <span className="text-right">{t("Прогноз")}</span>
+                    <span className="text-right">{t("Факт")}</span>
                   </div>
                   {m.calibration.map((c) => (
                     <div
@@ -191,10 +192,9 @@ export default function ModelPage() {
               </Card>
 
               <Card className="p-5">
-                <SectionLabel>Вклад факторов · gain</SectionLabel>
+                <SectionLabel>{t("Вклад факторов · gain")}</SectionLabel>
                 <p className="mt-1 text-xs text-muted">
-                  Какие признаки модель использует сильнее всего при ранжировании
-                  риска.
+                  {t("Какие признаки модель использует сильнее всего при ранжировании риска.")}
                 </p>
                 <FeatureImportance data={m.feature_importance_gain} />
               </Card>
@@ -207,6 +207,7 @@ export default function ModelPage() {
 }
 
 function ManagementSummary({ metrics }: { metrics: Metrics }) {
+  const t = useT();
   // Use the smallest reported fraction (the most selective top-N%) — that is the
   // operating point a leader cares about: "if we inspect the top X%, how many
   // fires do we catch?"
@@ -215,18 +216,16 @@ function ManagementSummary({ metrics }: { metrics: Metrics }) {
   const coverage = Math.round(top.fraction * 100);
   const caught = Math.round(top.recall_captured * 10);
   return (
-    <Banner tone="info" icon={Target} title="Что это даёт службе">
-      Проверяя {coverage}% самых рисковых объектов, модель выявляет{" "}
-      <span className="font-semibold text-fg">{caught} из 10</span> зданий, где
-      случится пожар — в{" "}
-      <span className="font-semibold text-fg">×{top.lift.toFixed(1)}</span> раз
-      результативнее случайного обхода. Это позволяет сфокусировать инспекторов
-      там, где риск выше всего.
+    <Banner tone="info" icon={Target} title={t("Что это даёт службе")}>
+      {t("Проверяя")} {coverage}% {t("самых рисковых объектов, модель выявляет")}{" "}
+      <span className="font-semibold text-fg">{caught} {t("из 10")}</span> {t("зданий, где случится пожар — в")}{" "}
+      <span className="font-semibold text-fg">×{top.lift.toFixed(1)}</span> {t("раз результативнее случайного обхода. Это позволяет сфокусировать инспекторов там, где риск выше всего.")}
     </Banner>
   );
 }
 
 function FeatureImportance({ data }: { data: Record<string, number> }) {
+  const t = useT();
   const entries = Object.entries(data).sort((a, b) => b[1] - a[1]);
   const max = entries.length ? entries[0][1] : 1;
   return (
@@ -234,7 +233,7 @@ function FeatureImportance({ data }: { data: Record<string, number> }) {
       {entries.map(([name, value]) => (
         <div key={name}>
           <div className="flex items-baseline justify-between text-xs">
-            <span className="text-muted">{featureLabel(name)}</span>
+            <span className="text-muted">{t(featureLabel(name))}</span>
             <span className="tabular text-faint">{value.toFixed(1)}</span>
           </div>
           <ProgressBar value={(value / max) * 100} className="mt-1" />

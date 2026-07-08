@@ -18,6 +18,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { MousePointerClick } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import { roomTypeMeta } from "@/lib/floorplan";
 import { planCenter } from "@/lib/realgeom";
 import { extrudePolygon, hexColor } from "@/lib/planGeometry";
@@ -38,6 +39,7 @@ function prefersReducedMotion(): boolean {
 }
 
 export default function LandingHero3D({ className }: { className?: string }) {
+  const t = useT();
   const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [room, setRoom] = useState<RealRoom | null>(null);
@@ -226,15 +228,15 @@ export default function LandingHero3D({ className }: { className?: string }) {
             <span className="truncate text-[13px] font-semibold text-fg">{room.name}</span>
           </div>
           <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-muted">
-            <span>{meta.label}</span>
+            <span>{t(meta.label)}</span>
             <span aria-hidden>·</span>
-            <span className="tabular">{room.area_m2} м²</span>
+            <span className="tabular">{room.area_m2} {t("м²")}</span>
           </div>
         </div>
       ) : (
         <div className="pointer-events-none absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-[10px] border border-border bg-surface/80 px-2.5 py-1.5 text-[11.5px] text-muted backdrop-blur">
           <MousePointerClick className="h-3.5 w-3.5" aria-hidden />
-          Клик по помещению
+          {t("Клик по помещению")}
         </div>
       )}
     </div>

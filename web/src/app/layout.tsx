@@ -3,6 +3,7 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider, THEME_INIT_SCRIPT } from "@/lib/theme";
+import { LocaleProvider, LOCALE_INIT_SCRIPT } from "@/lib/i18n";
 
 const inter = Inter({
   subsets: ["latin", "cyrillic"],
@@ -31,12 +32,15 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        {/* No-FOUC: set the theme class before first paint. */}
+        {/* No-FOUC: set the theme class and <html lang> before first paint. */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }} />
       </head>
       <body>
         <ThemeProvider>
-          <AuthProvider>{children}</AuthProvider>
+          <LocaleProvider>
+            <AuthProvider>{children}</AuthProvider>
+          </LocaleProvider>
         </ThemeProvider>
       </body>
     </html>

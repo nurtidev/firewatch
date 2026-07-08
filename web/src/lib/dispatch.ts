@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Flame, CloudFog, BellRing, CircleHelp } from "lucide-react";
 import { apiFetch } from "./auth";
+import { intlLocale, type Locale } from "./i18n";
 import { SEVERITY, type SeverityMeta } from "./risk";
 import type { ReportCategory, ReportStatus } from "./reports";
 
@@ -128,17 +129,25 @@ export const BLOCKING_REPORT_CATEGORIES: ReportCategory[] = ["blocked_access", "
 /* ───────────────────────────── Time ────────────────────────────── */
 
 /** Coarse relative time ("7 мин назад") — abbreviated units sidestep Russian
- *  plural declension (1 минуту / 2 минуты / 5 минут) without looking clipped. */
-export function relativeTimeRu(iso: string): string {
+ *  plural declension (1 минуту / 2 минуты / 5 минут) without looking clipped.
+ *  Not a component — a caller that needs it localized passes its own
+ *  `locale` (for the Intl fallback) and `t` (for the three fixed suffixes)
+ *  instead of this helper importing the i18n hooks itself. Defaults keep the
+ *  original Russian-only behaviour for callers that don't pass them. */
+export function relativeTimeRu(
+  iso: string,
+  locale: Locale = "ru",
+  t: (ru: string) => string = (ru) => ru,
+): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "";
   const diffSec = Math.max(0, Math.round((Date.now() - then) / 1000));
-  if (diffSec < 60) return "только что";
+  if (diffSec < 60) return t("только что");
   const diffMin = Math.round(diffSec / 60);
-  if (diffMin < 60) return `${diffMin} мин назад`;
+  if (diffMin < 60) return `${diffMin} ${t("мин назад")}`;
   const diffHour = Math.round(diffMin / 60);
-  if (diffHour < 24) return `${diffHour} ч назад`;
-  return new Date(iso).toLocaleString("ru-RU", {
+  if (diffHour < 24) return `${diffHour} ${t("ч назад")}`;
+  return new Date(iso).toLocaleString(intlLocale(locale), {
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
