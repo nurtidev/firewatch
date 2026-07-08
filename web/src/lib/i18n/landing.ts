@@ -294,6 +294,7 @@ export const dict: { en: Record<string, string>; kk: Record<string, string> } = 
       "Scan of the cover sheet of the Alanda residential complex fire suppression plan",
     "Скан страницы плана тушения с таблицей тактико-технических характеристик здания":
       "Scan of a fire plan page with the building's tactical and technical specifications table",
+    "Схемы объекта": "Facility schemes",
     "Генеральный план объекта": "Facility site plan",
     "Схема водоисточников": "Water sources scheme",
     "20 345 м²": "20,345 m²",
@@ -705,6 +706,7 @@ export const dict: { en: Record<string, string>; kk: Record<string, string> } = 
       "«Аланда» ТҮК өрт сөндіру жоспарының титул парағының сканы",
     "Скан страницы плана тушения с таблицей тактико-технических характеристик здания":
       "Ғимараттың тактикалық-техникалық сипаттамалары кестесі бар өрт сөндіру жоспары бетінің сканы",
+    "Схемы объекта": "Нысан сызбалары",
     "Генеральный план объекта": "Нысанның бас жоспары",
     "Схема водоисточников": "Су көздерінің сызбасы",
     "20 345 м²": "20 345 м²",

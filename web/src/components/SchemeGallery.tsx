@@ -49,7 +49,7 @@ export default function SchemeGallery({ schemes }: { schemes: ObjectSchemes }) {
         return (
           <Card key={g.id} className="p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <SectionLabel>{g.label}</SectionLabel>
+              <SectionLabel>{t(g.label)}</SectionLabel>
               <Badge>{g.pages.length} {t(plural(g.pages.length))}</Badge>
             </div>
             <p className="mt-1 text-2xs text-faint">{t("Источник:")} {g.source}</p>
@@ -64,13 +64,13 @@ export default function SchemeGallery({ schemes }: { schemes: ObjectSchemes }) {
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={p.src}
-                      alt={p.title}
+                      alt={t(p.title)}
                       loading="lazy"
                       className="h-full w-full object-contain transition-transform duration-[var(--dur-base)] group-hover:scale-[1.03]"
                     />
                   </div>
                   <div className="truncate px-2.5 py-1.5 text-2xs text-muted">
-                    {p.title}
+                    {t(p.title)}
                   </div>
                 </button>
               ))}
@@ -136,14 +136,14 @@ function Lightbox({
       className="fixed inset-0 z-50 flex flex-col bg-black/85 backdrop-blur-sm fw-fade-in"
       role="dialog"
       aria-modal="true"
-      aria-label={page.title}
+      aria-label={t(page.title)}
     >
       {/* Верхняя панель */}
       <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
         <div className="min-w-0">
-          <div className="truncate text-sm font-medium">{page.title}</div>
+          <div className="truncate text-sm font-medium">{t(page.title)}</div>
           <div className="text-2xs text-white/60">
-            {page.group} · {index + 1} / {total}
+            {t(page.group)} · {index + 1} / {total}
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -170,7 +170,7 @@ function Lightbox({
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={page.src}
-          alt={page.title}
+          alt={t(page.title)}
           onClick={() => setZoom((z) => !z)}
           className={cn(
             "select-none bg-white",
