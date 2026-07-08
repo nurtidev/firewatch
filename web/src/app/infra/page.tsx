@@ -136,11 +136,11 @@ export default function InfraPage() {
 
       {/* ── Stat bar — bottom-left ────────────────────────────────────────── */}
       <div
-        className="absolute bottom-4 left-4 z-10 rounded-lg border border-border bg-surface/80 shadow-pop backdrop-blur"
+        className="absolute bottom-4 left-4 right-4 z-10 rounded-lg border border-border bg-surface/80 shadow-pop backdrop-blur sm:right-auto"
         role="region"
         aria-label={t("Статистика инфраструктуры")}
       >
-        <div className="flex divide-x divide-border">
+        <div className="grid grid-cols-2 divide-border sm:flex sm:divide-x">
           <InfraStat
             icon={Flame}
             value={stats?.stations}
@@ -235,7 +235,7 @@ function InfraStat({
         : "text-fg";
 
   return (
-    <div className="flex flex-col gap-0.5 px-4 py-3 first:pl-4 last:pr-4">
+    <div className="flex flex-col gap-0.5 px-3 py-2.5 sm:px-4 sm:py-3">
       <div className="flex items-center gap-1.5">
         <Icon className={`h-3.5 w-3.5 ${severity ? colorClass : "text-faint"}`} />
         <SectionLabel>{label}</SectionLabel>
