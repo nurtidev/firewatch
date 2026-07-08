@@ -26,6 +26,7 @@ import {
 import AppShell from "@/components/AppShell";
 import DemoBanner from "@/components/DemoBanner";
 import { apiFetch, useAuth } from "@/lib/auth";
+import { intlLocale, useLocale, useT } from "@/lib/i18n";
 import { navForRole } from "@/lib/nav";
 import { scoreSeverity, SEVERITY } from "@/lib/risk";
 import {
@@ -71,6 +72,8 @@ const MODULE_META: Record<string, { desc: string; icon: LucideIcon }> = {
 };
 
 export default function Dashboard() {
+  const t = useT();
+  const { locale } = useLocale();
   const { user, ready } = useAuth();
   const router = useRouter();
   const [ov, setOv] = useState<Overview | null>(null);
@@ -94,10 +97,10 @@ export default function Dashboard() {
       .then(([o, p]) => {
         setOv(o);
         setProgress(p);
-        setUpdated(new Date().toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" }));
+        setUpdated(new Date().toLocaleTimeString(intlLocale(locale), { hour: "2-digit", minute: "2-digit" }));
       })
       .catch(() => setError(true));
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     // Inspectors get redirected to /routes above and have no /overview access —
@@ -124,14 +127,14 @@ export default function Dashboard() {
     <AppShell>
       <div className="mx-auto max-w-[1400px] p-5 sm:p-7 lg:p-8">
         <PageHeader
-          title="Оперативная сводка · Астана"
-          subtitle="Состояние пожарной безопасности города по данным ДЧС и модели риска"
+          title={t("Оперативная сводка · Астана")}
+          subtitle={t("Состояние пожарной безопасности города по данным ДЧС и модели риска")}
           actions={
             <>
               <LiveIndicator updated={updated} className="hidden sm:inline-flex" />
-              <Button variant="secondary" size="sm" onClick={load} aria-label="Обновить">
+              <Button variant="secondary" size="sm" onClick={load} aria-label={t("Обновить")}>
                 <RefreshCw className="h-4 w-4" />
-                <span className="hidden sm:inline">Обновить</span>
+                <span className="hidden sm:inline">{t("Обновить")}</span>
               </Button>
             </>
           }
@@ -144,11 +147,11 @@ export default function Dashboard() {
             className="mt-8"
             tone="error"
             icon={ServerCrash}
-            title="Сводка недоступна"
-            description="Сервис данных ДЧС не отвечает. Проверьте подключение и обновите страницу."
+            title={t("Сводка недоступна")}
+            description={t("Сервис данных ДЧС не отвечает. Проверьте подключение и обновите страницу.")}
             action={
               <Button variant="secondary" size="sm" onClick={load}>
-                <RefreshCw className="h-4 w-4" /> Повторить
+                <RefreshCw className="h-4 w-4" /> {t("Повторить")}
               </Button>
             }
           />
@@ -157,32 +160,32 @@ export default function Dashboard() {
             {/* Primary KPIs */}
             <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
               <MetricCard
-                label="Средний риск города"
+                label={t("Средний риск города")}
                 value={ov?.avg_score ?? "—"}
                 unit="/ 100"
                 icon={Gauge}
                 severity={avgSev}
                 loading={loading}
-                hint={avgSev && <StatusChip severity={avgSev} />}
+                hint={avgSev && <StatusChip severity={avgSev} label={t(avgSev.label)} />}
               />
               <MetricCard
-                label="Здания высокого риска"
-                value={ov?.high_risk?.toLocaleString("ru") ?? "—"}
+                label={t("Здания высокого риска")}
+                value={ov?.high_risk?.toLocaleString(intlLocale(locale)) ?? "—"}
                 icon={Flame}
                 severity={SEVERITY.high}
                 loading={loading}
-                hint={ov && `${Math.round((100 * ov.high_risk) / Math.max(1, ov.buildings))}% от всех объектов`}
+                hint={ov && `${Math.round((100 * ov.high_risk) / Math.max(1, ov.buildings))}% ${t("от всех объектов")}`}
               />
               <MetricCard
-                label="Неисправные гидранты"
+                label={t("Неисправные гидранты")}
                 value={ov?.broken_hydrants ?? "—"}
                 icon={Droplets}
                 severity={SEVERITY.critical}
                 loading={loading}
-                hint="требуют ремонта"
+                hint={t("требуют ремонта")}
               />
               <MetricCard
-                label="Инспекции сегодня"
+                label={t("Инспекции сегодня")}
                 value={loading ? "—" : `${opsDone}`}
                 unit={loading ? undefined : `/ ${opsTotal}`}
                 icon={ClipboardCheck}
@@ -190,27 +193,27 @@ export default function Dashboard() {
                 loading={loading}
                 hint={
                   opsViol > 0
-                    ? `${opsViol} нарушений зафиксировано`
-                    : "нарушений не зафиксировано"
+                    ? `${opsViol} ${t("нарушений зафиксировано")}`
+                    : t("нарушений не зафиксировано")
                 }
               />
             </div>
 
             {/* Secondary strip */}
             <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <MiniStat icon={Building2} value={ov?.buildings} label="зданий в базе" loading={loading} />
-              <MiniStat icon={Users} value={ov?.inspectors} label="инспекторов" loading={loading} />
-              <MiniStat icon={ScanLine} value={ov?.cards} label="карточек обработано" loading={loading} />
-              <MiniStat icon={FileWarning} value={ov?.prescriptions} label="предписаний выдано" loading={loading} />
+              <MiniStat icon={Building2} value={ov?.buildings} label={t("зданий в базе")} loading={loading} />
+              <MiniStat icon={Users} value={ov?.inspectors} label={t("инспекторов")} loading={loading} />
+              <MiniStat icon={ScanLine} value={ov?.cards} label={t("карточек обработано")} loading={loading} />
+              <MiniStat icon={FileWarning} value={ov?.prescriptions} label={t("предписаний выдано")} loading={loading} />
             </div>
 
             {/* Risk distribution + live ops */}
             <div className="mt-6 grid gap-5 lg:grid-cols-3">
               <Card className="p-5 lg:col-span-2">
                 <div className="flex items-center justify-between">
-                  <SectionLabel>Распределение риска по городу</SectionLabel>
+                  <SectionLabel>{t("Распределение риска по городу")}</SectionLabel>
                   <span className="text-2xs text-faint">
-                    {ov ? `${ov.buildings.toLocaleString("ru")} объектов` : ""}
+                    {ov ? `${ov.buildings.toLocaleString(intlLocale(locale))} ${t("объектов")}` : ""}
                   </span>
                 </div>
                 {loading ? (
@@ -227,12 +230,12 @@ export default function Dashboard() {
 
               <Card className="flex flex-col p-5">
                 <div className="flex items-center justify-between">
-                  <SectionLabel>Инспекции сегодня</SectionLabel>
+                  <SectionLabel>{t("Инспекции сегодня")}</SectionLabel>
                   <Link
                     href="/control"
                     className="inline-flex items-center gap-0.5 text-2xs text-muted hover:text-accent"
                   >
-                    Контроль <ArrowUpRight className="h-3 w-3" />
+                    {t("Контроль")} <ArrowUpRight className="h-3 w-3" />
                   </Link>
                 </div>
 
@@ -245,8 +248,8 @@ export default function Dashboard() {
                 ) : !progress || progress.length === 0 ? (
                   <EmptyState
                     className="mt-4 border-0 bg-transparent py-6"
-                    title="Нет активных маршрутов"
-                    description="На сегодня инспекции не назначены."
+                    title={t("Нет активных маршрутов")}
+                    description={t("На сегодня инспекции не назначены.")}
                   />
                 ) : (
                   <div className="mt-4 space-y-3">
@@ -280,7 +283,7 @@ export default function Dashboard() {
 
             {/* Modules */}
             <div className="mt-8">
-              <SectionLabel>Модули платформы</SectionLabel>
+              <SectionLabel>{t("Модули платформы")}</SectionLabel>
               <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {modules.map((n) => {
                   const meta = MODULE_META[n.href];
@@ -293,11 +296,11 @@ export default function Dashboard() {
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1 text-sm font-medium text-fg">
-                            {n.label}
+                            {t(n.label)}
                             <ChevronRight className="h-3.5 w-3.5 text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-accent" />
                           </div>
                           <div className="mt-0.5 text-xs leading-relaxed text-muted">
-                            {meta.desc}
+                            {t(meta.desc)}
                           </div>
                         </div>
                       </Card>
@@ -324,6 +327,7 @@ function MiniStat({
   label: string;
   loading?: boolean;
 }) {
+  const { locale } = useLocale();
   return (
     <Card className="flex items-center gap-3 p-3.5">
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-surface-2 text-faint">
@@ -334,7 +338,7 @@ function MiniStat({
           <Skeleton className="h-6 w-12" />
         ) : (
           <div className="text-lg font-semibold tabular leading-none text-fg">
-            {value == null ? "—" : value.toLocaleString("ru")}
+            {value == null ? "—" : value.toLocaleString(intlLocale(locale))}
           </div>
         )}
         <div className="mt-1 text-2xs text-faint">{label}</div>
@@ -354,10 +358,12 @@ function RiskDistribution({
   low: number;
   total: number;
 }) {
+  const t = useT();
+  const { locale } = useLocale();
   const segs = [
-    { sev: SEVERITY.high, label: "Высокий", band: "71–100", n: high },
-    { sev: SEVERITY.elevated, label: "Средний", band: "36–70", n: mid },
-    { sev: SEVERITY.normal, label: "Низкий", band: "0–35", n: low },
+    { sev: SEVERITY.high, label: t("Высокий"), band: "71–100", n: high },
+    { sev: SEVERITY.elevated, label: t("Средний"), band: "36–70", n: mid },
+    { sev: SEVERITY.normal, label: t("Низкий"), band: "0–35", n: low },
   ];
   const safeTotal = Math.max(1, total);
   return (
@@ -380,7 +386,7 @@ function RiskDistribution({
               <span className="text-xs text-muted">{s.label}</span>
             </div>
             <div className="mt-1.5 text-lg font-semibold tabular leading-none text-fg">
-              {s.n.toLocaleString("ru")}
+              {s.n.toLocaleString(intlLocale(locale))}
             </div>
             <div className="mt-1 text-2xs text-faint">
               {Math.round((100 * s.n) / safeTotal)}% · {s.band}

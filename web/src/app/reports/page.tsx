@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch, apiSrc, useAuth } from "@/lib/auth";
+import { intlLocale, useLocale, useT } from "@/lib/i18n";
 import {
   PageHeader,
   Card,
@@ -55,6 +56,7 @@ type Filter = "all" | ReportStatus;
 /* ───────────────────────────── Page ────────────────────────────── */
 
 export default function ReportsPage() {
+  const t = useT();
   const { user } = useAuth();
   const canCreate =
     user?.role === "inspector" ||
@@ -74,8 +76,8 @@ export default function ReportsPage() {
     apiFetch(`/reports`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("reports"))))
       .then((data: Report[]) => setReports(data))
-      .catch(() => setError("Не удалось загрузить донесения. Проверьте связь и обновите страницу."));
-  }, []);
+      .catch(() => setError(t("Не удалось загрузить донесения. Проверьте связь и обновите страницу.")));
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -99,13 +101,13 @@ export default function ReportsPage() {
     <AppShell>
       <div className="mx-auto max-w-[1400px] p-5 sm:p-7 lg:p-8">
         <PageHeader
-          title="Донесения"
-          subtitle="Полевые донесения: препятствия пожаротушению вне плановых проверок"
+          title={t("Донесения")}
+          subtitle={t("Полевые донесения: препятствия пожаротушению вне плановых проверок")}
           actions={
             canCreate ? (
               <Button onClick={() => setShowCreate(true)}>
                 <Plus className="h-4 w-4" />
-                Новое донесение
+                {t("Новое донесение")}
               </Button>
             ) : undefined
           }
@@ -135,10 +137,10 @@ export default function ReportsPage() {
               active={filter}
               onChange={(id) => setFilter(id as Filter)}
               tabs={[
-                { id: "all", label: "Все", count: counts.all },
+                { id: "all", label: t("Все"), count: counts.all },
                 ...REPORT_STATUSES.map((s) => ({
                   id: s,
-                  label: STATUS_META[s].label,
+                  label: t(STATUS_META[s].label),
                   count: counts[s],
                 })),
               ]}
@@ -147,11 +149,11 @@ export default function ReportsPage() {
             {visible.length === 0 ? (
               <EmptyState
                 icon={Siren}
-                title={filter === "all" ? "Донесений пока нет" : "Нет донесений с этим статусом"}
+                title={filter === "all" ? t("Донесений пока нет") : t("Нет донесений с этим статусом")}
                 description={
                   filter === "all"
-                    ? "Полевые донесения о препятствиях пожаротушению появятся здесь."
-                    : "Переключите фильтр, чтобы увидеть остальные донесения."
+                    ? t("Полевые донесения о препятствиях пожаротушению появятся здесь.")
+                    : t("Переключите фильтр, чтобы увидеть остальные донесения.")
                 }
               />
             ) : (
@@ -189,12 +191,14 @@ function ReportCard({
   canModerate: boolean;
   onChanged: () => void;
 }) {
+  const t = useT();
+  const { locale } = useLocale();
   const cat = CATEGORY_META[report.category];
   const CatIcon = cat.icon;
   const status = STATUS_META[report.status];
   const actionable = canModerate && (report.status === "open" || report.status === "in_progress");
 
-  const created = new Date(report.created_at).toLocaleString("ru-RU", {
+  const created = new Date(report.created_at).toLocaleString(intlLocale(locale), {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -202,7 +206,7 @@ function ReportCard({
     minute: "2-digit",
   });
   const resolved = report.resolved_at
-    ? new Date(report.resolved_at).toLocaleString("ru-RU", {
+    ? new Date(report.resolved_at).toLocaleString(intlLocale(locale), {
         day: "2-digit",
         month: "2-digit",
         year: "numeric",
@@ -211,7 +215,7 @@ function ReportCard({
       })
     : null;
 
-  const location = [report.address, report.district && `${report.district} р-н`]
+  const location = [report.address, report.district && `${report.district} ${t("р-н")}`]
     .filter(Boolean)
     .join(" · ");
 
@@ -226,7 +230,7 @@ function ReportCard({
             <CatIcon className={cn("h-[18px] w-[18px]", cat.severity.text)} />
           </span>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-fg">{cat.label}</p>
+            <p className="text-sm font-semibold text-fg">{t(cat.label)}</p>
             <p className="mt-0.5 flex items-center gap-1.5 text-xs text-faint">
               <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />
               <span className={cn("truncate", !location && "tabular")}>
@@ -235,7 +239,7 @@ function ReportCard({
             </p>
           </div>
         </div>
-        <StatusChip severity={status.severity} label={status.label} className="shrink-0" />
+        <StatusChip severity={status.severity} label={t(status.label)} className="shrink-0" />
       </div>
 
       {report.description && (
@@ -255,7 +259,7 @@ function ReportCard({
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={apiSrc(`/routes/visit/photo/${id}`)}
-                alt="Фото донесения"
+                alt={t("Фото донесения")}
                 className="h-full w-full object-cover"
               />
             </a>
@@ -279,7 +283,7 @@ function ReportCard({
           <p className="text-muted">
             {report.resolved_by && (
               <>
-                {report.status === "resolved" ? "Решено" : "Отклонено"} · {report.resolved_by}
+                {report.status === "resolved" ? t("Решено") : t("Отклонено")} · {report.resolved_by}
                 {resolved && <span className="tabular"> · {resolved}</span>}
               </>
             )}
@@ -296,6 +300,7 @@ function ReportCard({
 /* ───────────────────────────── ReportActions ───────────────────── */
 
 function ReportActions({ report, onChanged }: { report: Report; onChanged: () => void }) {
+  const t = useT();
   const [pending, setPending] = useState<"in_progress" | "resolved" | "dismissed" | null>(null);
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -315,13 +320,15 @@ function ReportActions({ report, onChanged }: { report: Report; onChanged: () =>
       });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
-        throw new Error(apiErrorText(d.detail, "Не удалось обновить статус") ?? "Не удалось обновить статус");
+        throw new Error(
+          apiErrorText(d.detail, t("Не удалось обновить статус")) ?? t("Не удалось обновить статус"),
+        );
       }
       setPending(null);
       setNote("");
       onChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось обновить статус");
+      setError(e instanceof Error ? e.message : t("Не удалось обновить статус"));
     } finally {
       setSubmitting(false);
     }
@@ -330,12 +337,14 @@ function ReportActions({ report, onChanged }: { report: Report; onChanged: () =>
   if (pending === "resolved" || pending === "dismissed") {
     return (
       <div className="mt-3 rounded-md border border-border-strong bg-surface-2 p-3">
-        <Field label={pending === "resolved" ? "Комментарий к решению" : "Причина отклонения"}>
+        <Field label={pending === "resolved" ? t("Комментарий к решению") : t("Причина отклонения")}>
           <Textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
             rows={2}
-            placeholder={pending === "resolved" ? "Что сделано для устранения" : "Почему донесение отклонено"}
+            placeholder={
+              pending === "resolved" ? t("Что сделано для устранения") : t("Почему донесение отклонено")
+            }
           />
         </Field>
         {error && <p className="mt-2 text-xs text-critical">{error}</p>}
@@ -347,7 +356,7 @@ function ReportActions({ report, onChanged }: { report: Report; onChanged: () =>
             onClick={() => void submit(pending, note)}
           >
             {submitting ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-            Подтвердить
+            {t("Подтвердить")}
           </Button>
           <Button
             size="sm"
@@ -359,7 +368,7 @@ function ReportActions({ report, onChanged }: { report: Report; onChanged: () =>
               setError(null);
             }}
           >
-            Отмена
+            {t("Отмена")}
           </Button>
         </div>
       </div>
@@ -371,16 +380,16 @@ function ReportActions({ report, onChanged }: { report: Report; onChanged: () =>
       {report.status === "open" && (
         <Button size="sm" variant="secondary" disabled={submitting} onClick={() => void submit("in_progress")}>
           <Play className="h-3.5 w-3.5" />
-          В работу
+          {t("В работу")}
         </Button>
       )}
       <Button size="sm" variant="success" disabled={submitting} onClick={() => setPending("resolved")}>
         <Check className="h-3.5 w-3.5" />
-        Решено
+        {t("Решено")}
       </Button>
       <Button size="sm" variant="danger" disabled={submitting} onClick={() => setPending("dismissed")}>
         <X className="h-3.5 w-3.5" />
-        Отклонено
+        {t("Отклонено")}
       </Button>
       {error && <p className="text-xs text-critical">{error}</p>}
     </div>
@@ -390,6 +399,7 @@ function ReportActions({ report, onChanged }: { report: Report; onChanged: () =>
 /* ───────────────────────────── CreateReportSheet ───────────────── */
 
 function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const t = useT();
   const [category, setCategory] = useState<ReportCategory | null>(null);
   const [description, setDescription] = useState("");
   const [lat, setLat] = useState(String(DEFAULT_LAT));
@@ -402,7 +412,7 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
 
   function locate() {
     if (!("geolocation" in navigator)) {
-      setError("Геолокация не поддерживается на этом устройстве — введите координаты вручную.");
+      setError(t("Геолокация не поддерживается на этом устройстве — введите координаты вручную."));
       return;
     }
     setGeoBusy(true);
@@ -414,7 +424,7 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
         setGeoBusy(false);
       },
       () => {
-        setError("Не удалось получить местоположение — введите координаты вручную.");
+        setError(t("Не удалось получить местоположение — введите координаты вручную."));
         setGeoBusy(false);
       },
       { enableHighAccuracy: true, timeout: 10000 },
@@ -428,33 +438,33 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
     try {
       for (const file of Array.from(files)) {
         if (file.size > MAX_PHOTO_BYTES) {
-          setError("Фото больше 2 МБ — уменьшите размер перед добавлением.");
+          setError(t("Фото больше 2 МБ — уменьшите размер перед добавлением."));
           continue;
         }
         const fd = new FormData();
         fd.append("file", file);
         const r = await apiFetch(`/routes/visit/photo`, { method: "POST", body: fd });
-        if (!r.ok) throw new Error("Не удалось загрузить фото — проверьте связь.");
+        if (!r.ok) throw new Error(t("Не удалось загрузить фото — проверьте связь."));
         const d = await r.json();
         setPhotos((p) => [...p, d.id as string]);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Ошибка загрузки фото");
+      setError(e instanceof Error ? e.message : t("Ошибка загрузки фото"));
     } finally {
       setUploading(false);
     }
   }
 
   function validate(): string | null {
-    if (!category) return "Выберите категорию донесения.";
-    if (photos.length === 0) return "Приложите хотя бы одно фото.";
+    if (!category) return t("Выберите категорию донесения.");
+    if (photos.length === 0) return t("Приложите хотя бы одно фото.");
     const latNum = Number(lat);
     const lngNum = Number(lng);
     if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) {
-      return "Координаты должны быть числами.";
+      return t("Координаты должны быть числами.");
     }
     if (latNum < -90 || latNum > 90 || lngNum < -180 || lngNum > 180) {
-      return "Координаты вне допустимого диапазона.";
+      return t("Координаты вне допустимого диапазона.");
     }
     return null;
   }
@@ -481,11 +491,13 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
       });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
-        throw new Error(apiErrorText(d.detail, "Не удалось отправить донесение") ?? "Не удалось отправить донесение");
+        throw new Error(
+          apiErrorText(d.detail, t("Не удалось отправить донесение")) ?? t("Не удалось отправить донесение"),
+        );
       }
       onCreated();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось отправить донесение");
+      setError(e instanceof Error ? e.message : t("Не удалось отправить донесение"));
     } finally {
       setSaving(false);
     }
@@ -498,7 +510,7 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
       className="fixed inset-0 z-50 flex flex-col bg-bg fw-fade-in"
       role="dialog"
       aria-modal="true"
-      aria-label="Новое донесение"
+      aria-label={t("Новое донесение")}
     >
       <header className="shrink-0 border-b border-border bg-surface">
         <div className="flex items-center gap-2 px-2 py-2">
@@ -506,11 +518,11 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
             type="button"
             onClick={onClose}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg"
-            aria-label="Закрыть"
+            aria-label={t("Закрыть")}
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <p className="text-[15px] font-semibold text-fg">Новое донесение</p>
+          <p className="text-[15px] font-semibold text-fg">{t("Новое донесение")}</p>
         </div>
       </header>
 
@@ -518,7 +530,7 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
         <div className="mx-auto max-w-2xl space-y-5">
           {/* Category */}
           <section>
-            <SectionLabel className="mb-2">Категория</SectionLabel>
+            <SectionLabel className="mb-2">{t("Категория")}</SectionLabel>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {REPORT_CATEGORIES.map((c) => {
                 const meta = CATEGORY_META[c];
@@ -544,7 +556,7 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
                       />
                     )}
                     <Icon className="h-5 w-5" aria-hidden />
-                    <span className="text-xs font-medium leading-tight">{meta.label}</span>
+                    <span className="text-xs font-medium leading-tight">{t(meta.label)}</span>
                   </button>
                 );
               })}
@@ -553,12 +565,12 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
 
           {/* Description */}
           <section>
-            <Field label="Описание (необязательно)">
+            <Field label={t("Описание (необязательно)")}>
               <Textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
-                placeholder="Детали: что именно мешает пожаротушению"
+                placeholder={t("Детали: что именно мешает пожаротушению")}
               />
             </Field>
           </section>
@@ -566,18 +578,18 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
           {/* Location */}
           <section>
             <div className="mb-2 flex items-center justify-between">
-              <SectionLabel>Геоточка</SectionLabel>
+              <SectionLabel>{t("Геоточка")}</SectionLabel>
               <Button size="sm" variant="secondary" onClick={locate} disabled={busy}>
                 {geoBusy ? (
                   <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                 ) : (
                   <LocateFixed className="h-3.5 w-3.5" />
                 )}
-                Моё местоположение
+                {t("Моё местоположение")}
               </Button>
             </div>
             <div className="grid grid-cols-2 gap-2.5">
-              <Field label="Широта (lat)">
+              <Field label={t("Широта (lat)")}>
                 <Input
                   value={lat}
                   onChange={(e) => setLat(e.target.value)}
@@ -585,7 +597,7 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
                   className="tabular"
                 />
               </Field>
-              <Field label="Долгота (lng)">
+              <Field label={t("Долгота (lng)")}>
                 <Input
                   value={lng}
                   onChange={(e) => setLng(e.target.value)}
@@ -598,19 +610,19 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
 
           {/* Photos */}
           <section>
-            <SectionLabel className="mb-2">Фото {photos.length > 0 && `· ${photos.length}`}</SectionLabel>
+            <SectionLabel className="mb-2">{t("Фото")} {photos.length > 0 && `· ${photos.length}`}</SectionLabel>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-2.5">
               {photos.map((id, i) => (
                 <div key={id} className="relative aspect-square overflow-hidden rounded-lg border border-border">
                   <div className="flex h-full w-full flex-col items-center justify-center gap-1 bg-normal-bg text-normal">
                     <Check className="h-5 w-5" />
-                    <span className="text-2xs">загружено</span>
+                    <span className="text-2xs">{t("загружено")}</span>
                   </div>
                   <button
                     type="button"
                     onClick={() => setPhotos((p) => p.filter((_, j) => j !== i))}
                     className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-bg/80 text-fg backdrop-blur hover:bg-critical hover:text-white"
-                    aria-label="Удалить фото"
+                    aria-label={t("Удалить фото")}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -627,7 +639,7 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
                 ) : (
                   <Camera className="h-5 w-5" aria-hidden />
                 )}
-                <span className="text-2xs">{uploading ? "Загрузка" : "Добавить"}</span>
+                <span className="text-2xs">{uploading ? t("Загрузка") : t("Добавить")}</span>
                 <input
                   type="file"
                   accept="image/*"
@@ -642,7 +654,7 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
                 />
               </label>
             </div>
-            <p className="mt-2 text-2xs text-faint">Не менее одного фото — доказательство препятствия.</p>
+            <p className="mt-2 text-2xs text-faint">{t("Не менее одного фото — доказательство препятствия.")}</p>
           </section>
         </div>
       </div>
@@ -666,7 +678,7 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
             className="w-full"
           >
             {saving ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Siren className="h-5 w-5" />}
-            Отправить донесение
+            {t("Отправить донесение")}
           </Button>
         </div>
       </footer>

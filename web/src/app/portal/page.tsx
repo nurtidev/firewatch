@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch, apiSrc } from "@/lib/auth";
+import { intlLocale, useLocale, useT } from "@/lib/i18n";
 import { apiErrorText } from "@/lib/api-error";
 import { scoreSeverity } from "@/lib/risk";
 import {
@@ -47,6 +48,7 @@ import {
 const MAX_PHOTOS = 5;
 
 export default function PortalPage() {
+  const t = useT();
   const [summary, setSummary] = useState<PortalSummary | null>(null);
   const [prescriptions, setPrescriptions] = useState<PortalPrescription[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,9 +68,9 @@ export default function PortalPage() {
         setPrescriptions(p);
       })
       .catch(() =>
-        setError("Не удалось загрузить данные по вашему объекту. Проверьте связь и обновите страницу."),
+        setError(t("Не удалось загрузить данные по вашему объекту. Проверьте связь и обновите страницу.")),
       );
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -90,8 +92,8 @@ export default function PortalPage() {
     <AppShell>
       <div className="mx-auto max-w-[1400px] p-5 sm:p-7 lg:p-8">
         <PageHeader
-          title="Мой объект"
-          subtitle="Предписания по вашим зданиям и статус их устранения"
+          title={t("Мой объект")}
+          subtitle={t("Предписания по вашим зданиям и статус их устранения")}
         />
 
         {error && (
@@ -116,19 +118,21 @@ export default function PortalPage() {
             <EmptyState
               className="mt-8"
               icon={Building2}
-              title="Объекты не привязаны"
-              description="К вашему аккаунту пока не привязано ни одного объекта — обратитесь в ДЧС, чтобы это исправить."
+              title={t("Объекты не привязаны")}
+              description={t(
+                "К вашему аккаунту пока не привязано ни одного объекта — обратитесь в ДЧС, чтобы это исправить.",
+              )}
             />
           ) : (
             <div className="mt-6 space-y-6">
               <div className="grid grid-cols-2 gap-3 sm:max-w-md">
                 <MetricCard
-                  label="Активных предписаний"
+                  label={t("Активных предписаний")}
                   value={summary.counts.prescriptions_active}
                   icon={ClipboardList}
                 />
                 <MetricCard
-                  label="Заявок на проверке"
+                  label={t("Заявок на проверке")}
                   value={summary.counts.remediations_pending}
                   icon={Clock3}
                 />
@@ -161,6 +165,7 @@ function BuildingSection({
   prescriptions: PortalPrescription[];
   onChanged: () => void;
 }) {
+  const t = useT();
   const sev = building.risk_score != null ? scoreSeverity(building.risk_score) : null;
 
   return (
@@ -176,7 +181,7 @@ function BuildingSection({
               {building.district && (
                 <span className="inline-flex items-center gap-1">
                   <MapPin className="h-3.5 w-3.5" aria-hidden />
-                  {building.district} р-н
+                  {building.district} {t("р-н")}
                 </span>
               )}
               {building.building_type && (
@@ -186,7 +191,7 @@ function BuildingSection({
                 </span>
               )}
               {building.floors != null && (
-                <span className="tabular">{building.floors} эт.</span>
+                <span className="tabular">{building.floors} {t("эт.")}</span>
               )}
             </p>
           </div>
@@ -200,8 +205,8 @@ function BuildingSection({
         {prescriptions.length === 0 ? (
           <EmptyState
             icon={ClipboardList}
-            title="Предписаний нет"
-            description="По этому объекту сейчас нет действующих предписаний."
+            title={t("Предписаний нет")}
+            description={t("По этому объекту сейчас нет действующих предписаний.")}
           />
         ) : (
           <ol className="space-y-3">
@@ -224,11 +229,13 @@ function PrescriptionRow({
   prescription: PortalPrescription;
   onChanged: () => void;
 }) {
+  const t = useT();
+  const { locale } = useLocale();
   const sev = prescriptionSeverity(p.severity);
   const [claiming, setClaiming] = useState(false);
 
   const dueLabel = p.due_date
-    ? new Date(p.due_date).toLocaleDateString("ru-RU", {
+    ? new Date(p.due_date).toLocaleDateString(intlLocale(locale), {
         day: "2-digit",
         month: "2-digit",
         year: "numeric",
@@ -242,7 +249,7 @@ function PrescriptionRow({
     <li>
       <Card className="p-4">
         <div className="flex flex-wrap items-center gap-2">
-          <StatusChip severity={sev} />
+          <StatusChip severity={sev} label={t(sev.label)} />
           {dueLabel && (
             <span
               className={cn(
@@ -256,7 +263,7 @@ function PrescriptionRow({
                 <CalendarDays className="h-3.5 w-3.5" aria-hidden />
               )}
               <span className="tabular">{dueLabel}</span>
-              {p.overdue && <span>· Просрочено</span>}
+              {p.overdue && <span>· {t("Просрочено")}</span>}
             </span>
           )}
           {p.remediation && (
@@ -269,22 +276,22 @@ function PrescriptionRow({
 
         {p.remediation && p.remediation.status === "declined" && p.remediation.review_note && (
           <p className="mt-2 rounded-md border border-critical/40 bg-critical-bg px-3 py-2 text-xs text-fg">
-            Комментарий ДЧС: {p.remediation.review_note}
+            {t("Комментарий ДЧС:")} {p.remediation.review_note}
           </p>
         )}
 
         {p.remediation && p.remediation.status === "accepted" && (
           <p className="mt-2 text-2xs text-faint">
-            Подтвердил{p.remediation.reviewed_by ? `: ${p.remediation.reviewed_by}` : ""}
+            {t("Подтвердил")}{p.remediation.reviewed_by ? `: ${p.remediation.reviewed_by}` : ""}
             {p.remediation.reviewed_at &&
-              ` · ${new Date(p.remediation.reviewed_at).toLocaleDateString("ru-RU")}`}
+              ` · ${new Date(p.remediation.reviewed_at).toLocaleDateString(intlLocale(locale))}`}
           </p>
         )}
 
         {showButton && !claiming && (
           <Button size="sm" variant="primary" className="mt-3" onClick={() => setClaiming(true)}>
             <Send className="h-3.5 w-3.5" />
-            {p.remediation?.status === "declined" ? "Подать повторно" : "Заявить об устранении"}
+            {p.remediation?.status === "declined" ? t("Подать повторно") : t("Заявить об устранении")}
           </Button>
         )}
 
@@ -304,6 +311,7 @@ function PrescriptionRow({
 }
 
 function RemediationChip({ status, className }: { status: RemediationStatus; className?: string }) {
+  const t = useT();
   const meta = REMEDIATION_STATUS[status];
   return (
     <span
@@ -314,7 +322,7 @@ function RemediationChip({ status, className }: { status: RemediationStatus; cla
       )}
     >
       <meta.icon className="h-3 w-3" aria-hidden />
-      {meta.label}
+      {t(meta.label)}
     </span>
   );
 }
@@ -330,6 +338,7 @@ function RemediationForm({
   onCancel: () => void;
   onSubmitted: () => void;
 }) {
+  const t = useT();
   const [note, setNote] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -341,25 +350,25 @@ function RemediationForm({
     setError(null);
     const remaining = MAX_PHOTOS - photos.length;
     if (remaining <= 0) {
-      setError(`Не более ${MAX_PHOTOS} фото.`);
+      setError(`${t("Не более")} ${MAX_PHOTOS} ${t("фото.")}`);
       return;
     }
     setUploading(true);
     try {
       for (const file of Array.from(files).slice(0, remaining)) {
         if (file.size > MAX_PHOTO_BYTES) {
-          setError("Фото больше 2 МБ — уменьшите размер перед добавлением.");
+          setError(t("Фото больше 2 МБ — уменьшите размер перед добавлением."));
           continue;
         }
         const fd = new FormData();
         fd.append("file", file);
         const r = await apiFetch(`/portal/photo`, { method: "POST", body: fd });
-        if (!r.ok) throw new Error("Не удалось загрузить фото — проверьте связь.");
+        if (!r.ok) throw new Error(t("Не удалось загрузить фото — проверьте связь."));
         const d = await r.json();
         setPhotos((p) => [...p, d.id as string]);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Ошибка загрузки фото");
+      setError(e instanceof Error ? e.message : t("Ошибка загрузки фото"));
     } finally {
       setUploading(false);
     }
@@ -367,7 +376,7 @@ function RemediationForm({
 
   async function submit() {
     if (!note.trim()) {
-      setError("Опишите, что было устранено.");
+      setError(t("Опишите, что было устранено."));
       return;
     }
     setSubmitting(true);
@@ -381,12 +390,12 @@ function RemediationForm({
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
         throw new Error(
-          apiErrorText(d.detail, "Не удалось отправить заявку") ?? "Не удалось отправить заявку",
+          apiErrorText(d.detail, t("Не удалось отправить заявку")) ?? t("Не удалось отправить заявку"),
         );
       }
       onSubmitted();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось отправить заявку");
+      setError(e instanceof Error ? e.message : t("Не удалось отправить заявку"));
     } finally {
       setSubmitting(false);
     }
@@ -396,18 +405,18 @@ function RemediationForm({
 
   return (
     <div className="mt-3 rounded-md border border-border-strong bg-surface-2 p-3">
-      <Field label="Что устранено">
+      <Field label={t("Что устранено")}>
         <Textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
           rows={3}
-          placeholder="Опишите, какие меры были приняты по предписанию"
+          placeholder={t("Опишите, какие меры были приняты по предписанию")}
         />
       </Field>
 
       <div className="mt-3">
         <SectionLabel className="mb-2">
-          Фото {photos.length > 0 && `· ${photos.length}/${MAX_PHOTOS}`}
+          {t("Фото")} {photos.length > 0 && `· ${photos.length}/${MAX_PHOTOS}`}
         </SectionLabel>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(72px,1fr))] gap-2">
           {photos.map((id) => (
@@ -415,14 +424,14 @@ function RemediationForm({
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={apiSrc(`/portal/photo/${id}`)}
-                alt="Фото устранения"
+                alt={t("Фото устранения")}
                 className="h-full w-full object-cover"
               />
               <button
                 type="button"
                 onClick={() => setPhotos((p) => p.filter((x) => x !== id))}
                 className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-bg/80 text-fg backdrop-blur hover:bg-critical hover:text-white"
-                aria-label="Удалить фото"
+                aria-label={t("Удалить фото")}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -440,7 +449,7 @@ function RemediationForm({
               ) : (
                 <Camera className="h-4 w-4" aria-hidden />
               )}
-              <span className="text-2xs">{uploading ? "Загрузка" : "Добавить"}</span>
+              <span className="text-2xs">{uploading ? t("Загрузка") : t("Добавить")}</span>
               <input
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
@@ -462,10 +471,10 @@ function RemediationForm({
       <div className="mt-3 flex items-center gap-2">
         <Button size="sm" variant="primary" disabled={busy} onClick={() => void submit()}>
           {submitting ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-          Отправить заявку
+          {t("Отправить заявку")}
         </Button>
         <Button size="sm" variant="ghost" disabled={busy} onClick={onCancel}>
-          Отмена
+          {t("Отмена")}
         </Button>
       </div>
     </div>

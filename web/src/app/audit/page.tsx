@@ -15,6 +15,7 @@ import {
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/auth";
 import { cn } from "@/lib/cn";
+import { intlLocale, useLocale, useT } from "@/lib/i18n";
 import { SEVERITY, type SeverityMeta } from "@/lib/risk";
 import {
   Card,
@@ -86,11 +87,11 @@ function actionLabel(a: string): string {
   return ACTION_LABEL[a] ?? a;
 }
 
-function fmtTime(iso: string) {
+function fmtTime(iso: string, locale: string) {
   const d = new Date(iso);
   return {
-    date: d.toLocaleDateString("ru", { day: "2-digit", month: "short" }),
-    time: d.toLocaleTimeString("ru", {
+    date: d.toLocaleDateString(locale, { day: "2-digit", month: "short" }),
+    time: d.toLocaleTimeString(locale, {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
@@ -99,6 +100,8 @@ function fmtTime(iso: string) {
 }
 
 export default function AuditPage() {
+  const t = useT();
+  const { locale } = useLocale();
   const [data, setData] = useState<AuditData | null>(null);
   const [error, setError] = useState<{ code: number; msg: string } | null>(null);
   const [updated, setUpdated] = useState("");
@@ -121,7 +124,7 @@ export default function AuditPage() {
           const d = await r.json().catch(() => ({}));
           throw {
             code: r.status,
-            msg: (d as { detail?: string }).detail || "Ошибка",
+            msg: (d as { detail?: string }).detail || t("Ошибка"),
           };
         }
         return r.json();
@@ -129,16 +132,16 @@ export default function AuditPage() {
       .then((d: AuditData) => {
         setData(d);
         setUpdated(
-          new Date().toLocaleTimeString("ru", {
+          new Date().toLocaleTimeString(intlLocale(locale), {
             hour: "2-digit",
             minute: "2-digit",
           }),
         );
       })
       .catch((e) =>
-        setError({ code: e.code ?? 0, msg: e.msg ?? "Сервис недоступен" }),
+        setError({ code: e.code ?? 0, msg: e.msg ?? t("Сервис недоступен") }),
       );
-  }, [action, username, limit]);
+  }, [action, username, limit, locale, t]);
 
   useEffect(() => {
     load();
@@ -151,8 +154,8 @@ export default function AuditPage() {
     <AppShell>
       <div className="mx-auto max-w-[1400px] p-5 sm:p-7 lg:p-8">
         <PageHeader
-          title="Журнал аудита"
-          subtitle="Кто, что и когда делал в системе — подотчётность для ДЧС"
+          title={t("Журнал аудита")}
+          subtitle={t("Кто, что и когда делал в системе — подотчётность для ДЧС")}
           actions={
             <>
               <LiveIndicator updated={updated} className="hidden sm:inline-flex" />
@@ -160,10 +163,10 @@ export default function AuditPage() {
                 variant="secondary"
                 size="sm"
                 onClick={load}
-                aria-label="Обновить"
+                aria-label={t("Обновить")}
               >
                 <RefreshCw className="h-4 w-4" />
-                <span className="hidden sm:inline">Обновить</span>
+                <span className="hidden sm:inline">{t("Обновить")}</span>
               </Button>
             </>
           }
@@ -174,19 +177,19 @@ export default function AuditPage() {
             className="mt-8"
             tone="error"
             icon={Lock}
-            title="Доступ ограничен"
-            description="Журнал аудита доступен только руководству ведомства и администраторам."
+            title={t("Доступ ограничен")}
+            description={t("Журнал аудита доступен только руководству ведомства и администраторам.")}
           />
         ) : error ? (
           <EmptyState
             className="mt-8"
             tone="error"
             icon={ServerCrash}
-            title="Журнал недоступен"
+            title={t("Журнал недоступен")}
             description={error.msg}
             action={
               <Button variant="secondary" size="sm" onClick={load}>
-                <RefreshCw className="h-4 w-4" /> Повторить
+                <RefreshCw className="h-4 w-4" /> {t("Повторить")}
               </Button>
             }
           />
@@ -195,14 +198,14 @@ export default function AuditPage() {
             {/* Summary */}
             <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
               <MetricCard
-                label="Всего событий"
-                value={data ? data.total.toLocaleString("ru") : "—"}
+                label={t("Всего событий")}
+                value={data ? data.total.toLocaleString(intlLocale(locale)) : "—"}
                 icon={ScrollText}
                 loading={loading}
-                hint="за всё время"
+                hint={t("за всё время")}
               />
               <MetricCard
-                label="Неудачных входов"
+                label={t("Неудачных входов")}
                 value={data?.failed_logins ?? "—"}
                 icon={ShieldAlert}
                 severity={
@@ -213,16 +216,16 @@ export default function AuditPage() {
                 loading={loading}
                 hint={
                   data && data.failed_logins > 0
-                    ? "проверьте попытки подбора"
-                    : "подозрительной активности нет"
+                    ? t("проверьте попытки подбора")
+                    : t("подозрительной активности нет")
                 }
               />
               <MetricCard
-                label="Показано записей"
+                label={t("Показано записей")}
                 value={data ? data.events.length : "—"}
                 icon={FileClock}
                 loading={loading}
-                hint={`лимит выборки ${limit}`}
+                hint={`${t("лимит выборки")} ${limit}`}
               />
             </div>
 
@@ -235,19 +238,19 @@ export default function AuditPage() {
                 }}
                 className="grid gap-3 sm:grid-cols-[1fr_auto_auto_auto] sm:items-end"
               >
-                <Field label="Пользователь">
+                <Field label={t("Пользователь")}>
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
                     <Input
                       value={userInput}
                       onChange={(e) => setUserInput(e.target.value)}
-                      placeholder="Логин (Enter — найти)"
+                      placeholder={t("Логин (Enter — найти)")}
                       className="pl-8"
-                      aria-label="Фильтр по пользователю"
+                      aria-label={t("Фильтр по пользователю")}
                     />
                   </div>
                 </Field>
-                <Field label="Действие">
+                <Field label={t("Действие")}>
                   <Select
                     value={action}
                     onChange={(e) => setAction(e.target.value)}
@@ -255,12 +258,12 @@ export default function AuditPage() {
                   >
                     {ACTION_OPTIONS.map((a) => (
                       <option key={a} value={a}>
-                        {a === "" ? "Все действия" : actionLabel(a)}
+                        {a === "" ? t("Все действия") : t(actionLabel(a))}
                       </option>
                     ))}
                   </Select>
                 </Field>
-                <Field label="Лимит">
+                <Field label={t("Лимит")}>
                   <Select
                     value={limit}
                     onChange={(e) => setLimit(Number(e.target.value))}
@@ -274,7 +277,7 @@ export default function AuditPage() {
                   </Select>
                 </Field>
                 <Button type="submit" variant="secondary">
-                  <Search className="h-4 w-4" /> Найти
+                  <Search className="h-4 w-4" /> {t("Найти")}
                 </Button>
               </form>
             </Card>
@@ -283,7 +286,7 @@ export default function AuditPage() {
             <Card className="mt-5 overflow-hidden p-0">
               <div className="flex items-center gap-2 border-b border-border px-4 py-3">
                 <ShieldCheck className="h-4 w-4 text-faint" />
-                <SectionLabel>События · от новых к старым</SectionLabel>
+                <SectionLabel>{t("События · от новых к старым")}</SectionLabel>
               </div>
 
               {loading ? (
@@ -301,21 +304,21 @@ export default function AuditPage() {
                 <EmptyState
                   className="m-4 border-0 bg-transparent"
                   icon={FileClock}
-                  title="Событий не найдено"
-                  description="По текущим фильтрам записей нет. Измените условия выборки."
+                  title={t("Событий не найдено")}
+                  description={t("По текущим фильтрам записей нет. Измените условия выборки.")}
                 />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border text-left text-2xs uppercase tracking-wider text-faint">
-                        <th className="px-4 py-2 font-medium">Время</th>
-                        <th className="px-4 py-2 font-medium">Пользователь</th>
-                        <th className="px-4 py-2 font-medium">Действие</th>
+                        <th className="px-4 py-2 font-medium">{t("Время")}</th>
+                        <th className="px-4 py-2 font-medium">{t("Пользователь")}</th>
+                        <th className="px-4 py-2 font-medium">{t("Действие")}</th>
                         <th className="hidden px-4 py-2 font-medium md:table-cell">
-                          Запрос
+                          {t("Запрос")}
                         </th>
-                        <th className="px-4 py-2 text-right font-medium">Код</th>
+                        <th className="px-4 py-2 text-right font-medium">{t("Код")}</th>
                         <th className="hidden px-4 py-2 text-right font-medium lg:table-cell">
                           IP
                         </th>
@@ -324,7 +327,7 @@ export default function AuditPage() {
                     <tbody>
                       {data.events.map((e) => {
                         const sev = eventSeverity(e);
-                        const t = fmtTime(e.ts);
+                        const et = fmtTime(e.ts, intlLocale(locale));
                         const isLogin =
                           e.action.startsWith("login") ||
                           e.action.startsWith("read.") ||
@@ -335,9 +338,9 @@ export default function AuditPage() {
                             className="border-b border-border/60 transition-colors last:border-0 hover:bg-surface-2/50"
                           >
                             <td className="whitespace-nowrap px-4 py-2.5">
-                              <span className="tabular text-fg">{t.time}</span>
+                              <span className="tabular text-fg">{et.time}</span>
                               <span className="ml-2 tabular text-2xs text-faint">
-                                {t.date}
+                                {et.date}
                               </span>
                             </td>
                             <td className="whitespace-nowrap px-4 py-2.5">
@@ -351,7 +354,7 @@ export default function AuditPage() {
                             <td className="whitespace-nowrap px-4 py-2.5">
                               <StatusChip
                                 severity={sev}
-                                label={actionLabel(e.action)}
+                                label={t(actionLabel(e.action))}
                                 icon={isLogin}
                               />
                             </td>
@@ -393,9 +396,7 @@ export default function AuditPage() {
 
             <p className="mt-3 flex items-center gap-1.5 text-2xs text-faint">
               <LogIn className="h-3 w-3" />
-              Записываются входы, изменяющие операции, чтение персональных данных
-              (карточки, объекты) и запросы AI-аналитика. Журнал неизменяем
-              (append-only, WORM).
+              {t("Записываются входы, изменяющие операции, чтение персональных данных (карточки, объекты) и запросы AI-аналитика. Журнал неизменяем (append-only, WORM).")}
             </p>
           </>
         )}

@@ -14,8 +14,12 @@
  * Later files win on key collisions, so keep keys domain-scoped when possible.
  */
 import { dict as common } from "./common";
+import { dict as landing } from "./landing";
+import { dict as analytics } from "./analytics";
+import { dict as objects } from "./objects";
+import { dict as ops } from "./ops";
 
-const DOMAINS = [common];
+const DOMAINS = [common, landing, analytics, objects, ops];
 
 export type Dict = { en: Record<string, string>; kk: Record<string, string> };
 

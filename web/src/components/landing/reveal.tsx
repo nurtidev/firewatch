@@ -25,6 +25,7 @@ import {
   type ReactNode,
 } from "react";
 import { cn } from "@/lib/cn";
+import { useLocale, intlLocale } from "@/lib/i18n";
 
 const useIsomorphicLayoutEffect =
   typeof window !== "undefined" ? useLayoutEffect : useEffect;
@@ -141,8 +142,8 @@ export function Reveal({
   );
 }
 
-function formatNumber(n: number, decimals: number): string {
-  return n.toLocaleString("ru-RU", {
+function formatNumber(n: number, decimals: number, locale: string): string {
+  return n.toLocaleString(locale, {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   });
@@ -182,6 +183,8 @@ export function CountUp({
   className?: string;
 }) {
   const { ref, active, reducedMotion, wasHidden } = useScrollReveal<HTMLSpanElement>();
+  const { locale } = useLocale();
+  const numberLocale = intlLocale(locale);
   const [display, setDisplay] = useState(value);
   const startedRef = useRef(false);
 
@@ -203,8 +206,8 @@ export function CountUp({
     return () => cancelAnimationFrame(raf);
   }, [active, reducedMotion, wasHidden, value, duration]);
 
-  const finalText = `${prefix}${formatNumber(value, decimals)}${suffix}`;
-  const currentText = `${prefix}${formatNumber(display, decimals)}${suffix}`;
+  const finalText = `${prefix}${formatNumber(value, decimals, numberLocale)}${suffix}`;
+  const currentText = `${prefix}${formatNumber(display, decimals, numberLocale)}${suffix}`;
 
   return (
     <span

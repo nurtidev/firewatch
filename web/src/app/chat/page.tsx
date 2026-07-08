@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/auth";
+import { useT } from "@/lib/i18n";
 import { Card, SectionLabel, Button, Input } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
@@ -42,6 +43,7 @@ const SUGGESTIONS = [
 /* ─── Page ───────────────────────────────────────────────────────────────── */
 
 export default function ChatPage() {
+  const t = useT();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -71,7 +73,7 @@ export default function ChatPage() {
           {
             role: "assistant",
             answer: "",
-            error: (data as { detail?: string }).detail || "Ошибка",
+            error: (data as { detail?: string }).detail || t("Ошибка"),
           },
         ]);
       } else {
@@ -80,7 +82,7 @@ export default function ChatPage() {
     } catch {
       setMessages((m) => [
         ...m,
-        { role: "assistant", answer: "", error: "Сеть недоступна" },
+        { role: "assistant", answer: "", error: t("Сеть недоступна") },
       ]);
     } finally {
       setLoading(false);
@@ -94,15 +96,15 @@ export default function ChatPage() {
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-fg">
-              ИИ-аналитик
+              {t("ИИ-аналитик")}
             </h1>
             <p className="mt-0.5 text-sm text-muted">
-              Вопрос на естественном языке → ответ строго из данных ДЧС
+              {t("Вопрос на естественном языке → ответ строго из данных ДЧС")}
             </p>
           </div>
           <div className="flex items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2.5 py-1">
             <Sparkles className="h-3.5 w-3.5 text-accent" />
-            <span className="text-xs text-muted">Аналитик</span>
+            <span className="text-xs text-muted">{t("Аналитик")}</span>
           </div>
         </div>
 
@@ -116,9 +118,9 @@ export default function ChatPage() {
                   <Sparkles className="h-5 w-5 text-accent" />
                 </div>
                 <div className="text-center">
-                  <p className="text-sm font-medium text-fg">FireWatch · Аналитик</p>
+                  <p className="text-sm font-medium text-fg">{t("FireWatch · Аналитик")}</p>
                   <p className="mt-1 text-xs text-faint max-w-sm">
-                    Задайте вопрос обычным языком — система сформирует SQL-запрос и вернёт данные ДЧС
+                    {t("Задайте вопрос обычным языком — система сформирует SQL-запрос и вернёт данные ДЧС")}
                   </p>
                 </div>
                 <div className="flex flex-wrap justify-center gap-2">
@@ -133,7 +135,7 @@ export default function ChatPage() {
                       )}
                     >
                       <Sparkles className="h-3 w-3 text-accent" />
-                      {s}
+                      {t(s)}
                     </button>
                   ))}
                 </div>
@@ -167,15 +169,15 @@ export default function ChatPage() {
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Спросите про данные ДЧС…"
+            placeholder={t("Спросите про данные ДЧС…")}
             className="flex-1"
             disabled={loading}
-            aria-label="Вопрос аналитику"
+            aria-label={t("Вопрос аналитику")}
           />
           <Button
             type="submit"
             disabled={loading || !input.trim()}
-            aria-label="Отправить"
+            aria-label={t("Отправить")}
           >
             <Send className="h-4 w-4" />
           </Button>
@@ -200,6 +202,7 @@ function UserBubble({ text }: { text: string }) {
 /* ─── Assistant bubble ────────────────────────────────────────────────────── */
 
 function AssistantBubble({ m }: { m: Assistant }) {
+  const t = useT();
   const [showSql, setShowSql] = useState(false);
 
   if (m.error) {
@@ -208,7 +211,7 @@ function AssistantBubble({ m }: { m: Assistant }) {
         <div className="max-w-[90%] rounded-lg rounded-tl-sm border border-critical/40 bg-critical-bg px-4 py-3">
           <div className="flex items-center gap-2">
             <AlertOctagon className="h-3.5 w-3.5 shrink-0 text-critical" />
-            <SectionLabel className="text-critical">FireWatch · Аналитик</SectionLabel>
+            <SectionLabel className="text-critical">{t("FireWatch · Аналитик")}</SectionLabel>
           </div>
           <p className="mt-2 text-sm text-critical">{m.error}</p>
         </div>
@@ -222,7 +225,7 @@ function AssistantBubble({ m }: { m: Assistant }) {
         {/* Label */}
         <div className="flex items-center gap-1.5">
           <Sparkles className="h-3 w-3 text-accent" />
-          <SectionLabel className="text-accent">FireWatch · Аналитик</SectionLabel>
+          <SectionLabel className="text-accent">{t("FireWatch · Аналитик")}</SectionLabel>
         </div>
 
         {/* Answer (markdown-aware; the raw pipe-table is dropped when we have
@@ -251,9 +254,9 @@ function AssistantBubble({ m }: { m: Assistant }) {
               aria-expanded={showSql}
             >
               <Code2 className="h-3 w-3" />
-              {showSql ? "Скрыть SQL" : "Источник · SQL"}
+              {showSql ? t("Скрыть SQL") : t("Источник · SQL")}
               {m.row_count != null && (
-                <span className="tabular text-faint">· {m.row_count} стр.</span>
+                <span className="tabular text-faint">· {m.row_count} {t("стр.")}</span>
               )}
               {showSql ? (
                 <ChevronUp className="h-3 w-3" />
@@ -378,6 +381,7 @@ function DataTable({
   rows: (string | number | null)[][];
   rowCount?: number;
 }) {
+  const t = useT();
   const displayed = rows.slice(0, 15);
   const hidden = (rowCount ?? rows.length) - displayed.length;
 
@@ -386,7 +390,7 @@ function DataTable({
       <div className="flex items-center gap-2 border-b border-border bg-surface px-3 py-2">
         <Database className="h-3.5 w-3.5 text-faint" />
         <SectionLabel>
-          {rowCount != null ? `${rowCount} строк` : `${rows.length} строк`}
+          {rowCount != null ? `${rowCount} ${t("строк")}` : `${rows.length} ${t("строк")}`}
         </SectionLabel>
       </div>
       <div className="overflow-x-auto">
@@ -429,7 +433,7 @@ function DataTable({
       </div>
       {hidden > 0 && (
         <div className="border-t border-border px-3 py-2 text-xs text-faint">
-          + ещё {hidden} строк не показаны
+          {t("+ ещё")} {hidden} {t("строк не показаны")}
         </div>
       )}
     </div>
@@ -439,12 +443,13 @@ function DataTable({
 /* ─── Typing indicator ───────────────────────────────────────────────────── */
 
 function TypingIndicator() {
+  const t = useT();
   return (
     <div className="flex justify-start">
       <div className="flex items-center gap-2 rounded-lg rounded-tl-sm border border-border bg-surface-2 px-4 py-3">
         <Sparkles className="h-3 w-3 text-accent" />
-        <SectionLabel className="text-accent">FireWatch · Аналитик</SectionLabel>
-        <span className="flex items-center gap-0.5 ml-1" aria-label="печатает…">
+        <SectionLabel className="text-accent">{t("FireWatch · Аналитик")}</SectionLabel>
+        <span className="flex items-center gap-0.5 ml-1" aria-label={t("печатает…")}>
           {[0, 1, 2].map((i) => (
             <span
               key={i}

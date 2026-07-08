@@ -8,6 +8,7 @@
  */
 import { cn } from "@/lib/cn";
 import { CALLOUT_TYPE_META, relativeTimeRu, type Callout } from "@/lib/dispatch";
+import { useLocale, useT } from "@/lib/i18n";
 
 export default function CalloutRow({
   callout,
@@ -22,6 +23,8 @@ export default function CalloutRow({
   active?: boolean;
   onClick: () => void;
 }) {
+  const t = useT();
+  const { locale } = useLocale();
   const meta = CALLOUT_TYPE_META[callout.callout_type];
   const Icon = meta.icon;
   const large = size === "lg";
@@ -65,10 +68,10 @@ export default function CalloutRow({
               : "mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-faint",
           )}
         >
-          <span className={cn(large && "font-medium", meta.severity.text)}>{meta.label}</span>
-          <span className="tabular">· {relativeTimeRu(callout.created_at)}</span>
+          <span className={cn(large && "font-medium", meta.severity.text)}>{t(meta.label)}</span>
+          <span className="tabular">· {relativeTimeRu(callout.created_at, locale, t)}</span>
           {callout.station && <span className="truncate">· {callout.station.name}</span>}
-          {callout.status === "closed" && <span>· закрыт</span>}
+          {callout.status === "closed" && <span>· {t("закрыт")}</span>}
         </p>
       </div>
     </button>

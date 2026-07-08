@@ -29,6 +29,7 @@ import {
 } from "@/components/landing/chrome";
 import { PIPELINE, MODULES } from "@/components/landing/content";
 import { Reveal, CountUp } from "@/components/landing/reveal";
+import { useT } from "@/lib/i18n";
 
 /* Three.js touches WebGL/window — load client-side only, behind a static-looking
    skeleton so first paint is never blocked. */
@@ -114,20 +115,22 @@ const FORK: {
   },
 ];
 
-const NAV_LINKS: NavLink[] = [
-  { href: "#twin", label: "Цифровой двойник" },
-  { href: "#modules", label: "Платформа" },
-  { href: "#how", label: "Как работает" },
-  { href: "/gov", label: "Для ДЧС" },
-  { href: "/business", label: "Для бизнеса" },
-];
-
 /* ── Page ────────────────────────────────────────────────────────────────── */
 
 export default function Landing() {
+  const t = useT();
+
+  const navLinks: NavLink[] = [
+    { href: "#twin", label: t("Цифровой двойник") },
+    { href: "#modules", label: t("Платформа") },
+    { href: "#how", label: t("Как работает") },
+    { href: "/gov", label: t("Для ДЧС") },
+    { href: "/business", label: t("Для бизнеса") },
+  ];
+
   return (
     <div className="min-h-screen bg-bg text-fg">
-      <LandingHeader navLinks={NAV_LINKS} cta={{ label: "Запросить демо", href: MAILTO.demo }} />
+      <LandingHeader navLinks={navLinks} cta={{ label: t("Запросить демо"), href: MAILTO.demo }} />
 
       {/* ── Hero ── */}
       <section className="relative overflow-hidden px-5 pb-14 pt-14 sm:px-6 sm:pb-20 sm:pt-20">
@@ -143,12 +146,12 @@ export default function Landing() {
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-2 py-1.5 pr-3.5 text-[12.5px] font-semibold text-muted shadow-card">
               <span className="rounded-full bg-accent px-2.5 py-0.5 text-[11px] text-accent-fg">
-                Пилот
+                {t("Пилот")}
               </span>
-              Астана · предиктивная пожарная безопасность
+              {t("Астана · предиктивная пожарная безопасность")}
             </span>
             <h1 className="mt-5 text-[clamp(2.15rem,5vw,3.6rem)] font-extrabold leading-[1.05] tracking-tight">
-              Цифровой двойник объекта{" "}
+              {t("Цифровой двойник объекта")}{" "}
               <span
                 className="bg-clip-text text-transparent"
                 style={{
@@ -156,27 +159,27 @@ export default function Landing() {
                     "linear-gradient(120deg,var(--color-fg) 45%,var(--color-accent) 120%)",
                 }}
               >
-                и прогноз риска
+                {t("и прогноз риска")}
               </span>{" "}
-              — до того, как загорится
+              {t("— до того, как загорится")}
             </h1>
             <p className="mt-5 max-w-[540px] text-[clamp(1rem,2vw,1.2rem)] leading-relaxed text-muted">
-              FireWatch превращает бумажный план тушения в интерактивный 3D-двойник, оценивает
-              риск каждого здания и объясняет почему — чтобы ДЧС действовал на опережение, а не
-              постфактум.
+              {t(
+                "FireWatch превращает бумажный план тушения в интерактивный 3D-двойник, оценивает риск каждого здания и объясняет почему — чтобы ДЧС действовал на опережение, а не постфактум.",
+              )}
             </p>
             <div className="mt-8 flex flex-wrap gap-3.5">
               <a href={MAILTO.demo}>
                 <PrimaryButton className="px-6 py-3.5 text-[15px]">
-                  Запросить демо <ArrowRight className="h-4 w-4" />
+                  {t("Запросить демо")} <ArrowRight className="h-4 w-4" />
                 </PrimaryButton>
               </a>
-              <GhostButton href="#twin">Как это работает</GhostButton>
+              <GhostButton href="#twin">{t("Как это работает")}</GhostButton>
             </div>
             <div className="mt-9 flex flex-wrap gap-x-9 gap-y-5">
-              <HeroStat n="0–100" l="оценка риска здания" />
-              <HeroStat n="<10 мин" l="норматив прибытия" />
-              <HeroStat n="SHAP" l="объяснимая модель" />
+              <HeroStat n="0–100" l={t("оценка риска здания")} />
+              <HeroStat n={t("<10 мин")} l={t("норматив прибытия")} />
+              <HeroStat n="SHAP" l={t("объяснимая модель")} />
             </div>
           </div>
 
@@ -185,12 +188,13 @@ export default function Landing() {
             <div className="relative h-[400px] overflow-hidden rounded-[20px] border border-border bg-surface shadow-pop sm:h-[460px] lg:h-[500px]">
               <LandingHero3D className="h-full w-full" />
               <span className="pointer-events-none absolute right-3 top-3 rounded-[10px] border border-accent/30 bg-accent-weak px-2.5 py-1 text-[11px] font-semibold text-accent">
-                Реальная геометрия · 3D
+                {t("Реальная геометрия · 3D")}
               </span>
             </div>
             <p className="mt-3 px-1 text-[12.5px] leading-relaxed text-faint">
-              Реальная геометрия типового этажа ЖК «Хайвилл-Астана» из оперативного плана
-              тушения. Вращайте, кликайте по помещениям.
+              {t(
+                "Реальная геометрия типового этажа ЖК «Хайвилл-Астана» из оперативного плана тушения. Вращайте, кликайте по помещениям.",
+              )}
             </p>
           </div>
         </div>
@@ -205,21 +209,22 @@ export default function Landing() {
                 <div className="text-[clamp(1.9rem,4vw,2.6rem)] font-extrabold leading-none tracking-tight">
                   <CountUp value={s.n} className="tabular" />
                 </div>
-                <div className="mt-2.5 text-[13px] leading-snug text-muted">{s.l}</div>
+                <div className="mt-2.5 text-[13px] leading-snug text-muted">{t(s.l)}</div>
               </Reveal>
             ))}
           </div>
           <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2.5 border-t border-border pt-6">
-            {TRUST.map((t) => (
-              <span key={t.label} className="inline-flex items-center gap-2 text-[13px] text-muted">
-                <t.icon className="h-4 w-4 text-accent" strokeWidth={2} aria-hidden />
-                {t.label}
+            {TRUST.map((item) => (
+              <span key={item.label} className="inline-flex items-center gap-2 text-[13px] text-muted">
+                <item.icon className="h-4 w-4 text-accent" strokeWidth={2} aria-hidden />
+                {t(item.label)}
               </span>
             ))}
           </div>
           <p className="mt-5 text-[12px] leading-relaxed text-faint">
-            Данные пилота (Астана). Риск-оценки рассчитаны на синтетических признаках и не отражают
-            реальное состояние объектов — до загрузки исторических данных ДЧС.
+            {t(
+              "Данные пилота (Астана). Риск-оценки рассчитаны на синтетических признаках и не отражают реальное состояние объектов — до загрузки исторических данных ДЧС.",
+            )}
           </p>
         </div>
       </Section>
@@ -229,9 +234,11 @@ export default function Landing() {
         <Reveal>
           <SectionHead
             center
-            eyebrow="Два контура"
-            title="Кому нужен FireWatch"
-            sub="Государству — платформа для города и региона. Бизнесу — цифровой паспорт объекта. Выберите свой контур."
+            eyebrow={t("Два контура")}
+            title={t("Кому нужен FireWatch")}
+            sub={t(
+              "Государству — платформа для города и региона. Бизнесу — цифровой паспорт объекта. Выберите свой контур.",
+            )}
           />
         </Reveal>
         <div className="mt-12 grid gap-5 md:grid-cols-2">
@@ -246,23 +253,23 @@ export default function Landing() {
                     <f.icon className="h-5 w-5" strokeWidth={1.9} />
                   </span>
                   <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-accent">
-                    {f.eyebrow}
+                    {t(f.eyebrow)}
                   </span>
                 </div>
                 <h3 className="mt-5 text-[clamp(1.35rem,2.6vw,1.7rem)] font-extrabold tracking-tight">
-                  {f.title}
+                  {t(f.title)}
                 </h3>
-                <p className="mt-2.5 text-[14.5px] leading-relaxed text-muted">{f.sub}</p>
+                <p className="mt-2.5 text-[14.5px] leading-relaxed text-muted">{t(f.sub)}</p>
                 <ul className="mt-5 space-y-2.5">
                   {f.bullets.map((b) => (
                     <li key={b} className="flex items-start gap-2.5 text-[14px] text-fg">
                       <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden />
-                      {b}
+                      {t(b)}
                     </li>
                   ))}
                 </ul>
                 <span className="mt-7 inline-flex items-center gap-2 text-[14.5px] font-semibold text-accent">
-                  {f.cta}
+                  {t(f.cta)}
                   <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                 </span>
               </Link>
@@ -277,9 +284,11 @@ export default function Landing() {
           <Reveal>
             <SectionHead
               center
-              eyebrow="Оцифровка"
-              title="Из бумажного ПТП — в цифровой 3D-двойник"
-              sub="Планы тушения годами лежат в .vsd и сканах. Мы восстанавливаем из них реальную геометрию помещений — и она сразу становится интерактивной."
+              eyebrow={t("Оцифровка")}
+              title={t("Из бумажного ПТП — в цифровой 3D-двойник")}
+              sub={t(
+                "Планы тушения годами лежат в .vsd и сканах. Мы восстанавливаем из них реальную геометрию помещений — и она сразу становится интерактивной.",
+              )}
             />
           </Reveal>
           <div className="mt-14 grid items-stretch gap-5 md:grid-cols-3">
@@ -324,16 +333,17 @@ export default function Landing() {
                       {p.k}
                     </span>
                   </div>
-                  <h3 className="mt-3 text-[16.5px] font-bold tracking-tight">{p.title}</h3>
-                  <p className="mt-2 text-[14px] leading-relaxed text-muted">{p.text}</p>
+                  <h3 className="mt-3 text-[16.5px] font-bold tracking-tight">{t(p.title)}</h3>
+                  <p className="mt-2 text-[14px] leading-relaxed text-muted">{t(p.text)}</p>
                 </div>
               </div>
               </Reveal>
             ))}
           </div>
           <p className="mt-6 text-center text-[12.5px] text-faint">
-            На примере поквартирной экспликации ЖК «Хайвилл-Астана». Полигоны калиброваны по
-            площадям из ПТП — это оцифровка реального документа, а не иллюстрация.
+            {t(
+              "На примере поквартирной экспликации ЖК «Хайвилл-Астана». Полигоны калиброваны по площадям из ПТП — это оцифровка реального документа, а не иллюстрация.",
+            )}
           </p>
         </Section>
       </div>
@@ -343,9 +353,9 @@ export default function Landing() {
         <Reveal>
           <SectionHead
             center
-            eyebrow="Платформа"
-            title="Шесть модулей — один контур безопасности"
-            sub="Каждый закрывает свою боль ведомства и работает с общими данными."
+            eyebrow={t("Платформа")}
+            title={t("Шесть модулей — один контур безопасности")}
+            sub={t("Каждый закрывает свою боль ведомства и работает с общими данными.")}
           />
         </Reveal>
         <div className="mt-12 grid gap-[18px] sm:grid-cols-2 lg:grid-cols-3">
@@ -358,9 +368,9 @@ export default function Landing() {
                   </span>
                   <span className="text-[11px] font-bold tracking-[0.1em] text-faint">{m.k}</span>
                 </div>
-                <h3 className="mt-4 text-[16.5px] font-bold tracking-tight">{m.title}</h3>
-                <p className="mt-2.5 text-[12.5px] font-semibold text-accent">{m.pain}</p>
-                <p className="mt-1.5 text-[14px] leading-relaxed text-muted">{m.text}</p>
+                <h3 className="mt-4 text-[16.5px] font-bold tracking-tight">{t(m.title)}</h3>
+                <p className="mt-2.5 text-[12.5px] font-semibold text-accent">{t(m.pain)}</p>
+                <p className="mt-1.5 text-[14px] leading-relaxed text-muted">{t(m.text)}</p>
               </div>
             </Reveal>
           ))}
@@ -373,9 +383,11 @@ export default function Landing() {
           <Reveal>
             <SectionHead
               center
-              eyebrow="Как работает"
-              title="От данных — к действию за три шага"
-              sub="FireWatch собирает данные, прогнозирует риск и превращает прогноз в конкретные задачи для инспекторов."
+              eyebrow={t("Как работает")}
+              title={t("От данных — к действию за три шага")}
+              sub={t(
+                "FireWatch собирает данные, прогнозирует риск и превращает прогноз в конкретные задачи для инспекторов.",
+              )}
             />
           </Reveal>
           <div className="mt-[52px] grid gap-6 sm:grid-cols-3">
@@ -388,8 +400,8 @@ export default function Landing() {
                   <span className="text-[13px] font-extrabold tracking-wider text-accent">
                     {String(i + 1).padStart(2, "0")}
                   </span>
-                  <h3 className="mt-3.5 text-[19px] font-bold tracking-tight">{s.title}</h3>
-                  <p className="mt-2.5 text-[14.5px] leading-relaxed text-muted">{s.text}</p>
+                  <h3 className="mt-3.5 text-[19px] font-bold tracking-tight">{t(s.title)}</h3>
+                  <p className="mt-2.5 text-[14.5px] leading-relaxed text-muted">{t(s.text)}</p>
                 </div>
               </Reveal>
             ))}
@@ -410,28 +422,29 @@ export default function Landing() {
               aria-hidden
             />
             <h2 className="relative text-[clamp(1.6rem,3.6vw,2.4rem)] font-extrabold leading-tight tracking-tight">
-              Покажем FireWatch на данных вашего региона
+              {t("Покажем FireWatch на данных вашего региона")}
             </h2>
             <p className="relative mx-auto mt-4 max-w-[520px] text-[17px] text-muted">
-              Демо за 30 минут: карта риска, прогноз модели, маршрут инспектора и 3D-двойник объекта
-              на реальном городе.
+              {t(
+                "Демо за 30 минут: карта риска, прогноз модели, маршрут инспектора и 3D-двойник объекта на реальном городе.",
+              )}
             </p>
             <div className="relative mt-8 flex flex-wrap justify-center gap-3.5">
               <a href={MAILTO.demo}>
-                <PrimaryButton className="px-6 py-3.5 text-[15px]">Запросить демо</PrimaryButton>
+                <PrimaryButton className="px-6 py-3.5 text-[15px]">{t("Запросить демо")}</PrimaryButton>
               </a>
               <GhostButton href="/gov" className="bg-surface">
-                Платформа для ДЧС
+                {t("Платформа для ДЧС")}
               </GhostButton>
             </div>
             <p className="relative mt-5 text-[13px] text-faint">
-              Без обязательств · 30 минут · на данных вашего региона
+              {t("Без обязательств · 30 минут · на данных вашего региона")}
             </p>
           </div>
         </Reveal>
       </section>
 
-      <LandingFooter tagline="Предиктивная пожарная безопасность · ДЧС РК · Астана" />
+      <LandingFooter tagline={t("Предиктивная пожарная безопасность · ДЧС РК · Астана")} />
     </div>
   );
 }

@@ -29,6 +29,7 @@ import {
 import { MODULES } from "@/components/landing/content";
 import RiskCityMap from "@/components/landing/RiskCityMap";
 import { Reveal, CountUp } from "@/components/landing/reveal";
+import { useT } from "@/lib/i18n";
 
 const LandingHero3D = dynamic(() => import("@/components/LandingHero3D"), {
   ssr: false,
@@ -40,13 +41,6 @@ const plan = (id: string): RealFloorPlan =>
 const HERO_PLAN = plan("typical");
 
 /* ── Content ─────────────────────────────────────────────────────────────── */
-
-const NAV_LINKS: NavLink[] = [
-  { href: "#modules", label: "Платформа" },
-  { href: "#pilot", label: "Пилот" },
-  { href: "#trust", label: "Безопасность" },
-  { href: "/business", label: "Для бизнеса" },
-];
 
 const PROBLEMS: { icon: LucideIcon; title: string; text: string }[] = [
   {
@@ -152,9 +146,18 @@ const STAKES: {
 /* ── Page ────────────────────────────────────────────────────────────────── */
 
 export default function GovLanding() {
+  const t = useT();
+
+  const navLinks: NavLink[] = [
+    { href: "#modules", label: t("Платформа") },
+    { href: "#pilot", label: t("Пилот") },
+    { href: "#trust", label: t("Безопасность") },
+    { href: "/business", label: t("Для бизнеса") },
+  ];
+
   return (
     <div className="min-h-screen bg-bg text-fg">
-      <LandingHeader navLinks={NAV_LINKS} cta={{ label: "Запросить пилот", href: MAILTO.pilot }} />
+      <LandingHeader navLinks={navLinks} cta={{ label: t("Запросить пилот"), href: MAILTO.pilot }} />
 
       {/* ── Hero ── */}
       <section className="relative overflow-hidden px-5 pb-14 pt-14 sm:px-6 sm:pb-20 sm:pt-20">
@@ -170,12 +173,12 @@ export default function GovLanding() {
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-2 py-1.5 pr-3.5 text-[12.5px] font-semibold text-muted shadow-card">
               <span className="rounded-full bg-accent px-2.5 py-0.5 text-[11px] text-accent-fg">
-                МЧС РК
+                {t("МЧС РК")}
               </span>
-              Ведомственная платформа · пилот в Астане
+              {t("Ведомственная платформа · пилот в Астане")}
             </span>
             <h1 className="mt-5 text-[clamp(2.15rem,5vw,3.6rem)] font-extrabold leading-[1.05] tracking-tight">
-              Прогноз пожарного риска{" "}
+              {t("Прогноз пожарного риска")}{" "}
               <span
                 className="bg-clip-text text-transparent"
                 style={{
@@ -183,26 +186,26 @@ export default function GovLanding() {
                     "linear-gradient(120deg,var(--color-fg) 45%,var(--color-accent) 120%)",
                 }}
               >
-                для всего города
+                {t("для всего города")}
               </span>
             </h1>
             <p className="mt-5 max-w-[550px] text-[clamp(1rem,2vw,1.2rem)] leading-relaxed text-muted">
-              FireWatch оценивает риск каждого из ~250 000 зданий, объясняет каждую оценку и
-              превращает прогноз в маршруты инспекций и карту «слепых зон» прибытия расчётов —
-              чтобы ДЧС действовал на опережение.
+              {t(
+                "FireWatch оценивает риск каждого из ~250 000 зданий, объясняет каждую оценку и превращает прогноз в маршруты инспекций и карту «слепых зон» прибытия расчётов — чтобы ДЧС действовал на опережение.",
+              )}
             </p>
             <div className="mt-8 flex flex-wrap gap-3.5">
               <a href={MAILTO.pilot}>
                 <PrimaryButton className="px-6 py-3.5 text-[15px]">
-                  Запросить пилот <ArrowRight className="h-4 w-4" />
+                  {t("Запросить пилот")} <ArrowRight className="h-4 w-4" />
                 </PrimaryButton>
               </a>
-              <GhostButton href={MAILTO.presentation}>Презентация платформы</GhostButton>
+              <GhostButton href={MAILTO.presentation}>{t("Презентация платформы")}</GhostButton>
             </div>
             <div className="mt-9 flex flex-wrap gap-x-9 gap-y-5">
-              <HeroStat n="~250 000" l="зданий города" />
-              <HeroStat n="<10 мин" l="норматив прибытия" />
-              <HeroStat n="SHAP" l="объяснимая модель" />
+              <HeroStat n="~250 000" l={t("зданий города")} />
+              <HeroStat n={t("<10 мин")} l={t("норматив прибытия")} />
+              <HeroStat n="SHAP" l={t("объяснимая модель")} />
             </div>
           </div>
 
@@ -212,8 +215,9 @@ export default function GovLanding() {
               <RiskCityMap />
             </div>
             <p className="mt-3 px-1 text-[12.5px] leading-relaxed text-faint">
-              Стилизация карты риска на условных данных. Реальная карта строится на исторических
-              данных пожаров вашего региона — каждое здание с оценкой 0–100.
+              {t(
+                "Стилизация карты риска на условных данных. Реальная карта строится на исторических данных пожаров вашего региона — каждое здание с оценкой 0–100.",
+              )}
             </p>
           </div>
         </div>
@@ -225,9 +229,11 @@ export default function GovLanding() {
           <Reveal>
             <SectionHead
               center
-              eyebrow="Задача ведомства"
-              title="Надзор за городом — вручную не масштабируется"
-              sub="Объём объектов и разрозненные документы не дают увидеть риск целиком. FireWatch собирает эту картину в одном контуре."
+              eyebrow={t("Задача ведомства")}
+              title={t("Надзор за городом — вручную не масштабируется")}
+              sub={t(
+                "Объём объектов и разрозненные документы не дают увидеть риск целиком. FireWatch собирает эту картину в одном контуре.",
+              )}
             />
           </Reveal>
           <div className="mt-12 grid gap-5 md:grid-cols-3">
@@ -237,8 +243,8 @@ export default function GovLanding() {
                   <span className="grid h-[46px] w-[46px] place-items-center rounded-xl border border-border bg-surface-2 text-fg">
                     <p.icon className="h-5 w-5" strokeWidth={1.9} />
                   </span>
-                  <h3 className="mt-5 text-[17px] font-bold tracking-tight">{p.title}</h3>
-                  <p className="mt-2.5 text-[14px] leading-relaxed text-muted">{p.text}</p>
+                  <h3 className="mt-5 text-[17px] font-bold tracking-tight">{t(p.title)}</h3>
+                  <p className="mt-2.5 text-[14px] leading-relaxed text-muted">{t(p.text)}</p>
                 </div>
               </Reveal>
             ))}
@@ -251,9 +257,9 @@ export default function GovLanding() {
         <Reveal>
           <SectionHead
             center
-            eyebrow="Цена вопроса"
-            title="Сколько стоит год без приоритизации"
-            sub="Официальная статистика — из выступлений должностных лиц МЧС РК и ДЧС Астаны."
+            eyebrow={t("Цена вопроса")}
+            title={t("Сколько стоит год без приоритизации")}
+            sub={t("Официальная статистика — из выступлений должностных лиц МЧС РК и ДЧС Астаны.")}
           />
         </Reveal>
         <div className="mt-12 grid gap-[18px] sm:grid-cols-2 lg:grid-cols-4">
@@ -269,23 +275,23 @@ export default function GovLanding() {
                       suffix={s.count.suffix}
                     />
                   ) : (
-                    s.n
+                    t(s.n)
                   )}
                 </div>
-                <p className="mt-3 flex-1 text-[13.5px] leading-relaxed text-muted">{s.label}</p>
+                <p className="mt-3 flex-1 text-[13.5px] leading-relaxed text-muted">{t(s.label)}</p>
                 <p className="mt-4 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-faint">
-                  {s.source}
+                  {t(s.source)}
                 </p>
               </div>
             </Reveal>
           ))}
         </div>
         <p className="mx-auto mt-8 max-w-[640px] text-center text-[13.5px] leading-relaxed text-muted">
-          По нашему расчёту система окупается уже в консервативном сценарии.{" "}
+          {t("По нашему расчёту система окупается уже в консервативном сценарии.")}{" "}
           <a href={MAILTO.presentation} className="font-semibold text-accent hover:underline">
-            Запросите детальное экономическое обоснование
+            {t("Запросите детальное экономическое обоснование")}
           </a>{" "}
-          — с методикой, источниками и допущениями.
+          {t("— с методикой, источниками и допущениями.")}
         </p>
       </Section>
 
@@ -294,9 +300,9 @@ export default function GovLanding() {
         <Reveal>
           <SectionHead
             center
-            eyebrow="Платформа"
-            title="Шесть модулей — один контур надзора"
-            sub="Каждый модуль закрывает свою задачу ведомства и работает на общих данных ДЧС."
+            eyebrow={t("Платформа")}
+            title={t("Шесть модулей — один контур надзора")}
+            sub={t("Каждый модуль закрывает свою задачу ведомства и работает на общих данных ДЧС.")}
           />
         </Reveal>
         <div className="mt-12 grid gap-[18px] sm:grid-cols-2 lg:grid-cols-3">
@@ -309,9 +315,9 @@ export default function GovLanding() {
                   </span>
                   <span className="text-[11px] font-bold tracking-[0.1em] text-faint">{m.k}</span>
                 </div>
-                <h3 className="mt-4 text-[16.5px] font-bold tracking-tight">{m.title}</h3>
-                <p className="mt-2.5 text-[12.5px] font-semibold text-accent">{m.pain}</p>
-                <p className="mt-1.5 text-[14px] leading-relaxed text-muted">{m.text}</p>
+                <h3 className="mt-4 text-[16.5px] font-bold tracking-tight">{t(m.title)}</h3>
+                <p className="mt-2.5 text-[12.5px] font-semibold text-accent">{t(m.pain)}</p>
+                <p className="mt-1.5 text-[14px] leading-relaxed text-muted">{t(m.text)}</p>
               </div>
             </Reveal>
           ))}
@@ -324,9 +330,11 @@ export default function GovLanding() {
           <Reveal>
             <SectionHead
               center
-              eyebrow="Пилот"
-              title="Как проходит пилот"
-              sub="3 месяца, 1 район Астаны. ДЧС получает рабочую систему на реальных данных района — и обоснованное решение о развёртывании на весь город."
+              eyebrow={t("Пилот")}
+              title={t("Как проходит пилот")}
+              sub={t(
+                "3 месяца, 1 район Астаны. ДЧС получает рабочую систему на реальных данных района — и обоснованное решение о развёртывании на весь город.",
+              )}
             />
           </Reveal>
           <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -338,18 +346,19 @@ export default function GovLanding() {
                       {i + 1}
                     </span>
                     <span className="text-[12px] font-bold uppercase tracking-[0.1em] text-accent">
-                      {s.week}
+                      {t(s.week)}
                     </span>
                   </div>
-                  <h3 className="mt-4 text-[16px] font-bold tracking-tight">{s.title}</h3>
-                  <p className="mt-2 text-[13.5px] leading-relaxed text-muted">{s.text}</p>
+                  <h3 className="mt-4 text-[16px] font-bold tracking-tight">{t(s.title)}</h3>
+                  <p className="mt-2 text-[13.5px] leading-relaxed text-muted">{t(s.text)}</p>
                 </div>
               </Reveal>
             ))}
           </div>
           <p className="mt-6 text-center text-[12.5px] text-faint">
-            Что нужно от ДЧС: письмо о намерениях (LOI), история пожаров района за 2–3 года и
-            реестр объектов, 1–2 контактных инспектора. Оцифровка до 20 объектов — в рамках пилота.
+            {t(
+              "Что нужно от ДЧС: письмо о намерениях (LOI), история пожаров района за 2–3 года и реестр объектов, 1–2 контактных инспектора. Оцифровка до 20 объектов — в рамках пилота.",
+            )}
           </p>
         </Section>
       </div>
@@ -359,20 +368,22 @@ export default function GovLanding() {
         <Reveal>
           <SectionHead
             center
-            eyebrow="Доверие и безопасность"
-            title="Ведомственный контур — по умолчанию"
-            sub="FireWatch спроектирован под требования госзаказчика: аудируемость, защита персональных данных, объяснимость и работа в форматах МЧС РК."
+            eyebrow={t("Доверие и безопасность")}
+            title={t("Ведомственный контур — по умолчанию")}
+            sub={t(
+              "FireWatch спроектирован под требования госзаказчика: аудируемость, защита персональных данных, объяснимость и работа в форматах МЧС РК.",
+            )}
           />
         </Reveal>
         <div className="mt-12 grid gap-[18px] sm:grid-cols-2 lg:grid-cols-3">
-          {TRUST.map((t, i) => (
-            <Reveal key={t.title} delay={i * 70}>
+          {TRUST.map((item, i) => (
+            <Reveal key={item.title} delay={i * 70}>
               <div className="rounded-[16px] border border-border bg-surface p-6 shadow-card">
                 <span className="grid h-[42px] w-[42px] place-items-center rounded-xl border border-border bg-surface-2 text-accent">
-                  <t.icon className="h-5 w-5" strokeWidth={1.9} />
+                  <item.icon className="h-5 w-5" strokeWidth={1.9} />
                 </span>
-                <h3 className="mt-4 text-[16px] font-bold tracking-tight">{t.title}</h3>
-                <p className="mt-2 text-[14px] leading-relaxed text-muted">{t.text}</p>
+                <h3 className="mt-4 text-[16px] font-bold tracking-tight">{t(item.title)}</h3>
+                <p className="mt-2 text-[14px] leading-relaxed text-muted">{t(item.text)}</p>
               </div>
             </Reveal>
           ))}
@@ -386,19 +397,19 @@ export default function GovLanding() {
             <div className="grid items-center gap-10 lg:grid-cols-[.9fr_1.1fr] lg:gap-16 [&>div]:min-w-0">
               <div>
                 <span className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
-                  Цифровой двойник
+                  {t("Цифровой двойник")}
                 </span>
                 <h2 className="mt-3.5 text-[clamp(1.55rem,3.4vw,2.3rem)] font-extrabold leading-tight tracking-tight">
-                  Бумажный ПТП — в интерактивный 3D
+                  {t("Бумажный ПТП — в интерактивный 3D")}
                 </h2>
                 <p className="mt-4 max-w-[480px] text-[16px] leading-relaxed text-muted">
-                  ИИ восстанавливает из сканов и .vsd реальную геометрию помещений: калиброванные
-                  полигоны с площадями в м², окрашенные по назначению. Тот же двойник — в оперкарточке
-                  объекта.
+                  {t(
+                    "ИИ восстанавливает из сканов и .vsd реальную геометрию помещений: калиброванные полигоны с площадями в м², окрашенные по назначению. Тот же двойник — в оперкарточке объекта.",
+                  )}
                 </p>
                 <div className="mt-7">
                   <GhostButton href="/#twin">
-                    Как устроена оцифровка <ArrowRight className="h-4 w-4" />
+                    {t("Как устроена оцифровка")} <ArrowRight className="h-4 w-4" />
                   </GhostButton>
                 </div>
               </div>
@@ -406,12 +417,13 @@ export default function GovLanding() {
                 <div className="relative h-[360px] overflow-hidden rounded-[20px] border border-border bg-surface shadow-pop sm:h-[420px]">
                   <LandingHero3D className="h-full w-full" />
                   <span className="pointer-events-none absolute right-3 top-3 rounded-[10px] border border-accent/30 bg-accent-weak px-2.5 py-1 text-[11px] font-semibold text-accent">
-                    Реальная геометрия · 3D
+                    {t("Реальная геометрия · 3D")}
                   </span>
                 </div>
                 <p className="mt-3 px-1 text-[12.5px] leading-relaxed text-faint">
-                  Типовой этаж ЖК «Хайвилл-Астана» из оперативного плана тушения — реальный объект
-                  города, уже оцифрованный в системе.
+                  {t(
+                    "Типовой этаж ЖК «Хайвилл-Астана» из оперативного плана тушения — реальный объект города, уже оцифрованный в системе.",
+                  )}
                 </p>
               </div>
             </div>
@@ -432,28 +444,29 @@ export default function GovLanding() {
               aria-hidden
             />
             <h2 className="relative text-[clamp(1.6rem,3.6vw,2.4rem)] font-extrabold leading-tight tracking-tight">
-              Покажем на данных вашего региона
+              {t("Покажем на данных вашего региона")}
             </h2>
             <p className="relative mx-auto mt-4 max-w-[540px] text-[17px] text-muted">
-              Пилот — 3 месяца на одном районе Астаны. Развернём систему на реальных данных района и
-              покажем эффект в цифрах.
+              {t(
+                "Пилот — 3 месяца на одном районе Астаны. Развернём систему на реальных данных района и покажем эффект в цифрах.",
+              )}
             </p>
             <div className="relative mt-8 flex flex-wrap justify-center gap-3.5">
               <a href={MAILTO.pilot}>
-                <PrimaryButton className="px-6 py-3.5 text-[15px]">Запросить пилот</PrimaryButton>
+                <PrimaryButton className="px-6 py-3.5 text-[15px]">{t("Запросить пилот")}</PrimaryButton>
               </a>
               <GhostButton href={MAILTO.presentation} className="bg-surface">
-                Презентация платформы
+                {t("Презентация платформы")}
               </GhostButton>
             </div>
             <p className="relative mt-5 text-[13px] text-faint">
-              Без обязательств · на реальных данных района · с обучением сотрудников
+              {t("Без обязательств · на реальных данных района · с обучением сотрудников")}
             </p>
           </div>
         </Reveal>
       </section>
 
-      <LandingFooter tagline="Ведомственная платформа пожарной безопасности · МЧС РК" />
+      <LandingFooter tagline={t("Ведомственная платформа пожарной безопасности · МЧС РК")} />
     </div>
   );
 }

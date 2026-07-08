@@ -21,6 +21,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { apiFetch, apiSrc } from "@/lib/auth";
+import { useLocale, useT } from "@/lib/i18n";
 import { scoreSeverity, SEVERITY } from "@/lib/risk";
 import { CATEGORY_META } from "@/lib/reports";
 import {
@@ -50,6 +51,8 @@ export default function CalloutPack({
   large?: boolean;
   className?: string;
 }) {
+  const t = useT();
+  const { locale } = useLocale();
   const { callout, building, station, reports, forces_hint } = pack;
   const typeMeta = CALLOUT_TYPE_META[callout.callout_type];
   const TypeIcon = typeMeta.icon;
@@ -85,10 +88,10 @@ export default function CalloutPack({
                 <TypeIcon className={cn("h-[18px] w-[18px]", typeMeta.severity.text)} />
               </span>
               <span className={cn("text-sm font-semibold", typeMeta.severity.text)}>
-                {typeMeta.label}
+                {t(typeMeta.label)}
               </span>
               {callout.status === "closed" && (
-                <StatusChip severity={SEVERITY.info} label="Закрыт" />
+                <StatusChip severity={SEVERITY.info} label={t("Закрыт")} />
               )}
             </div>
             <p
@@ -100,12 +103,16 @@ export default function CalloutPack({
             >
               {callout.address || `${callout.lat.toFixed(5)}, ${callout.lng.toFixed(5)}`}
             </p>
-            {callout.district && <p className="mt-0.5 text-xs text-muted">{callout.district} р-н</p>}
+            {callout.district && (
+              <p className="mt-0.5 text-xs text-muted">
+                {callout.district} {t("р-н")}
+              </p>
+            )}
           </div>
           <div className="shrink-0 space-y-1 text-right text-xs text-faint">
             <p className="inline-flex items-center gap-1 tabular">
               <Clock3 className="h-3.5 w-3.5" aria-hidden />
-              {relativeTimeRu(callout.created_at)}
+              {relativeTimeRu(callout.created_at, locale, t)}
             </p>
             {station && (
               <p className="inline-flex items-center gap-1">
@@ -120,7 +127,7 @@ export default function CalloutPack({
 
       {/* Объект */}
       <section>
-        <SectionLabel className="mb-2">Объект</SectionLabel>
+        <SectionLabel className="mb-2">{t("Объект")}</SectionLabel>
         {building ? (
           <Card className="p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -132,11 +139,11 @@ export default function CalloutPack({
                   </p>
                 )}
                 <p className="flex flex-wrap items-center gap-x-3 gap-y-1 tabular">
-                  {building.floors != null && <span>{building.floors} эт.</span>}
+                  {building.floors != null && <span>{building.floors} {t("эт.")}</span>}
                   {building.year_built != null && (
                     <span className="inline-flex items-center gap-1">
                       <CalendarDays className="h-3.5 w-3.5" aria-hidden />
-                      {building.year_built} г.
+                      {building.year_built} {t("г.")}
                     </span>
                   )}
                 </p>
@@ -148,27 +155,27 @@ export default function CalloutPack({
             {building.card_id != null && (
               <LinkButton href={`/cards?id=${building.card_id}`} size="lg" className="mt-3.5 w-full sm:w-auto">
                 <ScanLine className="h-4 w-4" />
-                Открыть ПТП
+                {t("Открыть ПТП")}
               </LinkButton>
             )}
           </Card>
         ) : (
           <EmptyState
             icon={Building2}
-            title="Здание не привязано"
-            description="Выезд зарегистрирован по координатам, без привязки к объекту."
+            title={t("Здание не привязано")}
+            description={t("Выезд зарегистрирован по координатам, без привязки к объекту.")}
           />
         )}
       </section>
 
       {/* Водоисточники */}
       <section>
-        <SectionLabel className="mb-2">Водоисточники</SectionLabel>
+        <SectionLabel className="mb-2">{t("Водоисточники")}</SectionLabel>
         {hydrants.length === 0 ? (
           <EmptyState
             icon={Droplets}
-            title="Гидрантов рядом нет"
-            description="Уточните водоисточники на месте — ближайшие гидранты не найдены в радиусе поиска."
+            title={t("Гидрантов рядом нет")}
+            description={t("Уточните водоисточники на месте — ближайшие гидранты не найдены в радиусе поиска.")}
           />
         ) : (
           <div className="space-y-2">
@@ -189,12 +196,12 @@ export default function CalloutPack({
 
       {/* Препятствия */}
       <section>
-        <SectionLabel className="mb-2">Препятствия</SectionLabel>
+        <SectionLabel className="mb-2">{t("Препятствия")}</SectionLabel>
         {blocking.length === 0 && other.length === 0 ? (
           <EmptyState
             icon={AlertTriangle}
-            title="Препятствий не обнаружено"
-            description="Заблокированных проездов и водоисточников рядом не зарегистрировано."
+            title={t("Препятствий не обнаружено")}
+            description={t("Заблокированных проездов и водоисточников рядом не зарегистрировано.")}
           />
         ) : (
           <div className="space-y-2">
@@ -210,26 +217,26 @@ export default function CalloutPack({
 
       {/* Силы и средства */}
       <section>
-        <SectionLabel className="mb-2">Силы и средства</SectionLabel>
+        <SectionLabel className="mb-2">{t("Силы и средства")}</SectionLabel>
         {forces_hint ? (
           <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
             <p className="min-w-0 text-sm text-fg">
-              Рекомендованный пресет: <span className="font-semibold">{forces_hint.label}</span>
+              {t("Рекомендованный пресет:")} <span className="font-semibold">{forces_hint.label}</span>
             </p>
             <LinkButton href="/forces" variant="secondary" size="sm" className="shrink-0">
               <Calculator className="h-3.5 w-3.5" />
-              Открыть расчёт
+              {t("Открыть расчёт")}
             </LinkButton>
           </Card>
         ) : (
           <EmptyState
             icon={Calculator}
-            title="Рекомендации нет"
-            description="Параметры пожара для этого выезда не определены — подберите их вручную."
+            title={t("Рекомендации нет")}
+            description={t("Параметры пожара для этого выезда не определены — подберите их вручную.")}
             action={
               <LinkButton href="/forces" variant="secondary" size="sm">
                 <Calculator className="h-3.5 w-3.5" />
-                Открыть расчёт
+                {t("Открыть расчёт")}
               </LinkButton>
             }
           />
@@ -252,6 +259,7 @@ function HydrantRow({
   large?: boolean;
   onChanged: (next: PackHydrant) => void;
 }) {
+  const t = useT();
   const meta = HYDRANT_STATUS_META[hydrant.status];
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -266,11 +274,11 @@ function HydrantRow({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: nextStatus }),
       });
-      if (!r.ok) throw new Error("Не удалось обновить статус гидранта");
+      if (!r.ok) throw new Error(t("Не удалось обновить статус гидранта"));
       const d = await r.json();
       onChanged({ ...hydrant, status: (d.status as HydrantStatus) ?? nextStatus });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось обновить статус");
+      setError(e instanceof Error ? e.message : t("Не удалось обновить статус"));
     } finally {
       setBusy(false);
     }
@@ -280,13 +288,13 @@ function HydrantRow({
     <Card className="flex flex-wrap items-center justify-between gap-3 p-3.5">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <StatusChip severity={meta.severity} label={meta.label} />
+          <StatusChip severity={meta.severity} label={t(meta.label)} />
           {hydrant.hydrant_type && <span className="text-xs text-muted">{hydrant.hydrant_type}</span>}
         </div>
         <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-faint tabular">
-          {hydrant.pressure_bar != null && <span>{hydrant.pressure_bar} бар</span>}
-          {hydrant.diameter_mm != null && <span>⌀ {hydrant.diameter_mm} мм</span>}
-          <span>{hydrant.distance_m} м</span>
+          {hydrant.pressure_bar != null && <span>{hydrant.pressure_bar} {t("бар")}</span>}
+          {hydrant.diameter_mm != null && <span>⌀ {hydrant.diameter_mm} {t("мм")}</span>}
+          <span>{hydrant.distance_m} {t("м")}</span>
         </p>
         {error && <p className="mt-1 text-xs text-critical">{error}</p>}
       </div>
@@ -304,7 +312,7 @@ function HydrantRow({
           ) : (
             <Check className={large ? "h-4 w-4" : "h-3.5 w-3.5"} />
           )}
-          {hydrant.status === "ok" ? "Отметить неисправным" : "Отметить исправным"}
+          {hydrant.status === "ok" ? t("Отметить неисправным") : t("Отметить исправным")}
         </Button>
       )}
     </Card>
@@ -314,6 +322,7 @@ function HydrantRow({
 /* ───────────────────────────── Obstacle report ─────────────────── */
 
 function ObstacleReport({ report, muted = false }: { report: PackReport; muted?: boolean }) {
+  const t = useT();
   const meta = CATEGORY_META[report.category];
   const Icon = meta.icon;
   const contrast = !muted;
@@ -334,9 +343,9 @@ function ObstacleReport({ report, muted = false }: { report: PackReport; muted?:
           <Icon className={cn("h-4 w-4", meta.severity.text)} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className={cn("text-sm font-semibold", meta.severity.text)}>{meta.label}</p>
+          <p className={cn("text-sm font-semibold", meta.severity.text)}>{t(meta.label)}</p>
           {report.description && <p className="mt-0.5 text-sm text-muted">{report.description}</p>}
-          <p className="mt-1 text-xs text-faint tabular">{report.distance_m} м</p>
+          <p className="mt-1 text-xs text-faint tabular">{report.distance_m} {t("м")}</p>
           {report.photos.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">
               {report.photos.map((id) => (
@@ -350,7 +359,7 @@ function ObstacleReport({ report, muted = false }: { report: PackReport; muted?:
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={apiSrc(`/routes/visit/photo/${id}`)}
-                    alt="Фото препятствия"
+                    alt={t("Фото препятствия")}
                     className="h-full w-full object-cover"
                   />
                 </a>

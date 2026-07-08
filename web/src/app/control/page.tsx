@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ClipboardCheck, AlertTriangle, Users, Activity, Lock } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/auth";
+import { intlLocale, useLocale, useT } from "@/lib/i18n";
 import { scoreSeverity, SEVERITY } from "@/lib/risk";
 import {
   Card,
@@ -52,6 +53,8 @@ function stopDotSeverity(status: string) {
 /* ───────────────────────────── Page ────────────────────────────── */
 
 export default function ControlPage() {
+  const t = useT();
+  const { locale } = useLocale();
   const [data, setData] = useState<Progress[] | null>(null);
   const [updated, setUpdated] = useState<string>("");
   const [forbidden, setForbidden] = useState(false);
@@ -68,7 +71,7 @@ export default function ControlPage() {
       .then((d: Progress[]) => {
         setData(d);
         setUpdated(
-          new Date().toLocaleTimeString("ru", {
+          new Date().toLocaleTimeString(intlLocale(locale), {
             hour: "2-digit",
             minute: "2-digit",
             second: "2-digit",
@@ -76,7 +79,7 @@ export default function ControlPage() {
         );
       })
       .catch(() => {});
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     load();
@@ -96,8 +99,8 @@ export default function ControlPage() {
     <AppShell>
       <div className="mx-auto max-w-[1400px] p-5 sm:p-7 lg:p-8">
         <PageHeader
-          title="Контроль выполнения"
-          subtitle="Маршруты инспекторов — статус в реальном времени"
+          title={t("Контроль выполнения")}
+          subtitle={t("Маршруты инспекторов — статус в реальном времени")}
           actions={
             <LiveIndicator updated={updated || undefined} />
           }
@@ -108,15 +111,15 @@ export default function ControlPage() {
             className="mt-8"
             tone="error"
             icon={Lock}
-            title="Доступ ограничен"
-            description="Контроль выполнения доступен супервайзеру, руководству ведомства и администраторам."
+            title={t("Доступ ограничен")}
+            description={t("Контроль выполнения доступен супервайзеру, руководству ведомства и администраторам.")}
           />
         ) : (
         <>
         {/* Summary metric cards */}
         <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-3">
           <MetricCard
-            label="Всего выполнено"
+            label={t("Всего выполнено")}
             value={loading ? "—" : totalDone}
             unit={loading ? undefined : `/ ${totalAll}`}
             icon={ClipboardCheck}
@@ -125,13 +128,13 @@ export default function ControlPage() {
             hint={
               !loading
                 ? totalAll > 0
-                  ? `${Math.round((100 * totalDone) / totalAll)}% объектов проверено`
-                  : "Нет объектов"
+                  ? `${Math.round((100 * totalDone) / totalAll)}% ${t("объектов проверено")}`
+                  : t("Нет объектов")
                 : undefined
             }
           />
           <MetricCard
-            label="Нарушений выявлено"
+            label={t("Нарушений выявлено")}
             value={loading ? "—" : totalViol}
             icon={AlertTriangle}
             severity={totalViol > 0 ? SEVERITY.critical : SEVERITY.normal}
@@ -139,25 +142,25 @@ export default function ControlPage() {
             hint={
               !loading
                 ? totalViol > 0
-                  ? "требуют оформления предписания"
-                  : "нарушений не зафиксировано"
+                  ? t("требуют оформления предписания")
+                  : t("нарушений не зафиксировано")
                 : undefined
             }
           />
           <MetricCard
-            label="Инспекторов на маршруте"
+            label={t("Инспекторов на маршруте")}
             value={loading ? "—" : activeInspectors}
             icon={Users}
             severity={SEVERITY.info}
             loading={loading}
-            hint={!loading ? "активных маршрутов сегодня" : undefined}
+            hint={!loading ? t("активных маршрутов сегодня") : undefined}
             className="col-span-2 lg:col-span-1"
           />
         </div>
 
         {/* Per-inspector grid */}
         <div className="mt-6">
-          <SectionLabel className="mb-3">Маршруты инспекторов</SectionLabel>
+          <SectionLabel className="mb-3">{t("Маршруты инспекторов")}</SectionLabel>
 
           {/* Loading */}
           {loading && (
@@ -181,8 +184,8 @@ export default function ControlPage() {
           {!loading && safeData.length === 0 && (
             <EmptyState
               icon={Activity}
-              title="Нет активных маршрутов"
-              description="На сегодня маршруты инспекторов не сформированы или ещё не начаты."
+              title={t("Нет активных маршрутов")}
+              description={t("На сегодня маршруты инспекторов не сформированы или ещё не начаты.")}
             />
           )}
 
@@ -205,6 +208,7 @@ export default function ControlPage() {
 /* ───────────────────────────── Inspector card ───────────────────── */
 
 function InspectorCard({ progress: p }: { progress: Progress }) {
+  const t = useT();
   const hasViol = p.violations > 0;
   const barSeverity = hasViol ? SEVERITY.high : SEVERITY.normal;
   const pct = p.total > 0 ? Math.round((100 * p.done) / p.total) : 0;
@@ -218,14 +222,14 @@ function InspectorCard({ progress: p }: { progress: Progress }) {
             {p.inspector.name}
           </div>
           <div className="mt-0.5 flex items-center gap-1.5">
-            <Badge>{p.inspector.district} р-н</Badge>
+            <Badge>{p.inspector.district} {t("р-н")}</Badge>
             {hasViol && (
               <Badge
                 className={cn(
                   "border-critical/40 bg-critical-bg text-critical",
                 )}
               >
-                {p.violations} наруш.
+                {p.violations} {t("наруш.")}
               </Badge>
             )}
           </div>
@@ -250,7 +254,7 @@ function InspectorCard({ progress: p }: { progress: Progress }) {
       {/* Stops list */}
       {p.stops.length > 0 && (
         <div className="mt-4 space-y-1.5">
-          <SectionLabel className="mb-1.5">Объекты маршрута</SectionLabel>
+          <SectionLabel className="mb-1.5">{t("Объекты маршрута")}</SectionLabel>
           {p.stops.map((s) => {
             const dotSev = stopDotSeverity(s.status);
             const scoreSev = scoreSeverity(s.score);
@@ -266,8 +270,8 @@ function InspectorCard({ progress: p }: { progress: Progress }) {
                 {/* Status dot */}
                 <span
                   className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotSev.dot)}
-                  aria-label={STOP_STATUS_LABEL[s.status]}
-                  title={STOP_STATUS_LABEL[s.status]}
+                  aria-label={t(STOP_STATUS_LABEL[s.status])}
+                  title={t(STOP_STATUS_LABEL[s.status])}
                 />
 
                 {/* Address */}

@@ -8,6 +8,7 @@ import BuildingPanel from "@/components/BuildingPanel";
 import type { MapFilters } from "@/components/RiskMap";
 import { SEVERITY } from "@/lib/risk";
 import { DEMO_DATA, DEMO_NOTICE_SHORT } from "@/lib/demo";
+import { useT } from "@/lib/i18n";
 import { Field, Select, SectionLabel } from "@/components/ui";
 import { AlertTriangle } from "lucide-react";
 
@@ -48,6 +49,7 @@ const LEGEND = [
 ] as const;
 
 export default function MapPage() {
+  const t = useT();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [filters, setFilters] = useState<MapFilters>({});
   const [collapsed, setCollapsed] = useState(false);
@@ -62,18 +64,18 @@ export default function MapPage() {
       <div
         className="absolute left-4 top-4 z-10 w-64 rounded-lg border border-border bg-surface/80 shadow-pop backdrop-blur"
         role="complementary"
-        aria-label="Панель управления картой"
+        aria-label={t("Панель управления картой")}
       >
         {/* Header row */}
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
             <MapPin className="h-4 w-4 shrink-0 text-accent" aria-hidden />
-            <span className="text-sm font-semibold text-fg">Карта риска</span>
+            <span className="text-sm font-semibold text-fg">{t("Карта риска")}</span>
           </div>
           <button
             onClick={() => setCollapsed((c) => !c)}
             className="rounded p-1 text-faint hover:bg-surface-2 hover:text-muted"
-            aria-label={collapsed ? "Развернуть панель" : "Свернуть панель"}
+            aria-label={collapsed ? t("Развернуть панель") : t("Свернуть панель")}
           >
             {collapsed ? (
               <ChevronDown className="h-4 w-4" />
@@ -86,7 +88,7 @@ export default function MapPage() {
         {!collapsed && (
           <div className="border-t border-border px-4 pb-4 pt-3">
             {/* Subtitle */}
-            <p className="text-2xs text-faint">Астана · ДЧС РК</p>
+            <p className="text-2xs text-faint">{t("Астана · ДЧС РК")}</p>
 
             {/* Demo-data notice — synthetic risk, must be visible on the map */}
             {DEMO_DATA && (
@@ -97,8 +99,8 @@ export default function MapPage() {
             )}
 
             {/* Risk legend */}
-            <div className="mt-3" role="list" aria-label="Легенда риска">
-              <SectionLabel className="mb-2">Уровень риска</SectionLabel>
+            <div className="mt-3" role="list" aria-label={t("Легенда риска")}>
+              <SectionLabel className="mb-2">{t("Уровень риска")}</SectionLabel>
               {LEGEND.map(({ sev, range, label }) => (
                 <div
                   key={sev.key}
@@ -112,7 +114,7 @@ export default function MapPage() {
                       style={{ background: sev.cssVar }}
                       aria-hidden
                     />
-                    <span className="text-xs text-muted">{label}</span>
+                    <span className="text-xs text-muted">{t(label)}</span>
                   </div>
                   <span className="tabular text-2xs text-faint">{range}</span>
                 </div>
@@ -123,8 +125,8 @@ export default function MapPage() {
             <div className="my-3 h-px bg-border" />
 
             {/* Field reports layer — open/in_progress obstacles */}
-            <div role="list" aria-label="Легенда донесений">
-              <SectionLabel className="mb-2">Донесения</SectionLabel>
+            <div role="list" aria-label={t("Легенда донесений")}>
+              <SectionLabel className="mb-2">{t("Донесения")}</SectionLabel>
               <div role="listitem" className="flex items-center gap-2 py-1">
                 <span
                   className="h-2.5 w-2.5 shrink-0 rounded-full border border-white/60"
@@ -132,7 +134,7 @@ export default function MapPage() {
                   aria-hidden
                 />
                 <span className="text-xs text-muted">
-                  Открытые и в работе · цвет по категории, клик — детали
+                  {t("Открытые и в работе · цвет по категории, клик — детали")}
                 </span>
               </div>
             </div>
@@ -142,41 +144,41 @@ export default function MapPage() {
 
             {/* Filters */}
             <div className="space-y-2.5">
-              <Field label="Тип объекта">
+              <Field label={t("Тип объекта")}>
                 <Select
                   value={filters.type ?? ""}
                   onChange={(e) => set("type", e.target.value)}
                 >
                   {TYPES.map(([v, l]) => (
                     <option key={v} value={v}>
-                      {l}
+                      {t(l)}
                     </option>
                   ))}
                 </Select>
               </Field>
 
-              <Field label="Район">
+              <Field label={t("Район")}>
                 <Select
                   value={filters.district ?? ""}
                   onChange={(e) => set("district", e.target.value)}
                 >
-                  <option value="">Все районы</option>
+                  <option value="">{t("Все районы")}</option>
                   {DISTRICTS.map((d) => (
                     <option key={d} value={d}>
-                      {d} р-н
+                      {t(d)} {t("р-н")}
                     </option>
                   ))}
                 </Select>
               </Field>
 
-              <Field label="Уровень риска">
+              <Field label={t("Уровень риска")}>
                 <Select
                   value={filters.risk ?? ""}
                   onChange={(e) => set("risk", e.target.value)}
                 >
                   {RISKS.map(([v, l]) => (
                     <option key={v} value={v}>
-                      {l}
+                      {t(l)}
                     </option>
                   ))}
                 </Select>
@@ -185,7 +187,7 @@ export default function MapPage() {
 
             {/* Hint */}
             <p className="mt-3 text-2xs text-faint">
-              Нажмите на здание — карточка риска с разбором факторов
+              {t("Нажмите на здание — карточка риска с разбором факторов")}
             </p>
           </div>
         )}

@@ -4,12 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Map } from "lucide-react";
 import { Card, SectionLabel, Badge } from "@/components/ui";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import type { ObjectSchemes, SchemePage } from "@/data/schemes";
 
 /** Плоский список страниц + ссылка на группу — для навигации в лайтбоксе. */
 type FlatPage = SchemePage & { group: string };
 
 export default function SchemeGallery({ schemes }: { schemes: ObjectSchemes }) {
+  const t = useT();
   const flat = useMemo<FlatPage[]>(
     () =>
       schemes.groups.flatMap((g) =>
@@ -32,11 +34,12 @@ export default function SchemeGallery({ schemes }: { schemes: ObjectSchemes }) {
       <Card className="p-5">
         <div className="flex items-center gap-2">
           <Map className="h-3.5 w-3.5 text-faint" aria-hidden />
-          <SectionLabel>Схемы ДЧС</SectionLabel>
+          <SectionLabel>{t("Схемы ДЧС")}</SectionLabel>
         </div>
         <p className="mt-1 text-xs text-muted">
-          Оригинальные схемы из ПТП объекта (оцифрованы из Visio). Клик — открыть
-          лист в полном размере с зумом.
+          {t(
+            "Оригинальные схемы из ПТП объекта (оцифрованы из Visio). Клик — открыть лист в полном размере с зумом.",
+          )}
         </p>
       </Card>
 
@@ -47,9 +50,9 @@ export default function SchemeGallery({ schemes }: { schemes: ObjectSchemes }) {
           <Card key={g.id} className="p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <SectionLabel>{g.label}</SectionLabel>
-              <Badge>{g.pages.length} {plural(g.pages.length)}</Badge>
+              <Badge>{g.pages.length} {t(plural(g.pages.length))}</Badge>
             </div>
-            <p className="mt-1 text-2xs text-faint">Источник: {g.source}</p>
+            <p className="mt-1 text-2xs text-faint">{t("Источник:")} {g.source}</p>
             <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
               {g.pages.map((p, i) => (
                 <button
@@ -105,6 +108,7 @@ function Lightbox({
   onPrev: () => void;
   onNext: () => void;
 }) {
+  const t = useT();
   const [zoom, setZoom] = useState(false);
 
   // Зум сбрасывается при смене листа.
@@ -143,10 +147,10 @@ function Lightbox({
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <IconBtn label={zoom ? "Уменьшить" : "Увеличить"} onClick={() => setZoom((z) => !z)}>
+          <IconBtn label={zoom ? t("Уменьшить") : t("Увеличить")} onClick={() => setZoom((z) => !z)}>
             {zoom ? <ZoomOut className="h-5 w-5" /> : <ZoomIn className="h-5 w-5" />}
           </IconBtn>
-          <IconBtn label="Закрыть" onClick={onClose}>
+          <IconBtn label={t("Закрыть")} onClick={onClose}>
             <X className="h-5 w-5" />
           </IconBtn>
         </div>
@@ -180,10 +184,10 @@ function Lightbox({
         {/* Навигация по листам */}
         {total > 1 && (
           <>
-            <NavBtn side="left" onClick={onPrev} label="Предыдущий лист">
+            <NavBtn side="left" onClick={onPrev} label={t("Предыдущий лист")}>
               <ChevronLeft className="h-6 w-6" />
             </NavBtn>
-            <NavBtn side="right" onClick={onNext} label="Следующий лист">
+            <NavBtn side="right" onClick={onNext} label={t("Следующий лист")}>
               <ChevronRight className="h-6 w-6" />
             </NavBtn>
           </>

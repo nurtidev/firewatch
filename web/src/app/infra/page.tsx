@@ -14,6 +14,7 @@ import {
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/auth";
 import { SEVERITY } from "@/lib/risk";
+import { useT, useLocale, intlLocale } from "@/lib/i18n";
 import { SectionLabel, Skeleton } from "@/components/ui";
 
 const InfraMap = dynamic(() => import("@/components/InfraMap"), { ssr: false });
@@ -64,6 +65,8 @@ const LEGEND_ITEMS = [
 ] as const;
 
 export default function InfraPage() {
+  const t = useT();
+  const { locale } = useLocale();
   const [stats, setStats] = useState<Stats | null>(null);
   const [legendCollapsed, setLegendCollapsed] = useState(false);
 
@@ -82,18 +85,18 @@ export default function InfraPage() {
       <div
         className="absolute left-4 top-4 z-10 w-60 rounded-lg border border-border bg-surface/80 shadow-pop backdrop-blur"
         role="complementary"
-        aria-label="Легенда карты инфраструктуры"
+        aria-label={t("Легенда карты инфраструктуры")}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
             <Flame className="h-4 w-4 shrink-0 text-accent" aria-hidden />
-            <span className="text-sm font-semibold text-fg">Инфраструктура</span>
+            <span className="text-sm font-semibold text-fg">{t("Инфраструктура")}</span>
           </div>
           <button
             onClick={() => setLegendCollapsed((c) => !c)}
             className="rounded p-1 text-faint hover:bg-surface-2 hover:text-muted"
-            aria-label={legendCollapsed ? "Развернуть легенду" : "Свернуть легенду"}
+            aria-label={legendCollapsed ? t("Развернуть легенду") : t("Свернуть легенду")}
           >
             {legendCollapsed ? (
               <ChevronDown className="h-4 w-4" />
@@ -107,9 +110,9 @@ export default function InfraPage() {
           <div className="border-t border-border px-4 pb-3 pt-2.5">
             {/* Normative */}
             <p className="text-2xs text-faint">
-              Норматив прибытия:{" "}
+              {t("Норматив прибытия:")}{" "}
               <span className="tabular text-muted">
-                {stats?.normative_min ?? 10} мин
+                {stats?.normative_min ?? 10} {t("мин")}
               </span>
             </p>
 
@@ -117,13 +120,13 @@ export default function InfraPage() {
             <div
               className="mt-3 space-y-2"
               role="list"
-              aria-label="Условные обозначения"
+              aria-label={t("Условные обозначения")}
             >
-              <SectionLabel className="mb-1.5">Обозначения</SectionLabel>
+              <SectionLabel className="mb-1.5">{t("Обозначения")}</SectionLabel>
               {LEGEND_ITEMS.map(({ color, label, shape }) => (
                 <div key={label} role="listitem" className="flex items-center gap-2.5">
                   <LegendSwatch color={color} shape={shape} />
-                  <span className="text-xs text-muted">{label}</span>
+                  <span className="text-xs text-muted">{t(label)}</span>
                 </div>
               ))}
             </div>
@@ -135,25 +138,25 @@ export default function InfraPage() {
       <div
         className="absolute bottom-4 left-4 z-10 rounded-lg border border-border bg-surface/80 shadow-pop backdrop-blur"
         role="region"
-        aria-label="Статистика инфраструктуры"
+        aria-label={t("Статистика инфраструктуры")}
       >
         <div className="flex divide-x divide-border">
           <InfraStat
             icon={Flame}
             value={stats?.stations}
-            label="Пож. части"
+            label={t("Пож. части")}
             loading={loading}
           />
           <InfraStat
             icon={Droplets}
             value={stats?.hydrants}
-            label="Гидрантов"
+            label={t("Гидрантов")}
             loading={loading}
           />
           <InfraStat
             icon={AlertTriangle}
             value={stats?.broken_hydrants}
-            label="Неисправных"
+            label={t("Неисправных")}
             loading={loading}
             severity="high"
           />
@@ -161,10 +164,10 @@ export default function InfraPage() {
             icon={EyeOff}
             value={
               stats
-                ? `${stats.blind_zone_buildings.toLocaleString("ru")} · ${stats.blind_pct}%`
+                ? `${stats.blind_zone_buildings.toLocaleString(intlLocale(locale))} · ${stats.blind_pct}%`
                 : undefined
             }
-            label="В слепых зонах"
+            label={t("В слепых зонах")}
             loading={loading}
             severity="critical"
           />
@@ -223,6 +226,7 @@ function InfraStat({
   loading?: boolean;
   severity?: "high" | "critical";
 }) {
+  const { locale } = useLocale();
   const colorClass =
     severity === "critical"
       ? "text-critical"
@@ -240,7 +244,11 @@ function InfraStat({
         <Skeleton className="mt-1 h-6 w-16" />
       ) : (
         <div className={`tabular text-lg font-semibold leading-tight ${colorClass}`}>
-          {value == null ? "—" : typeof value === "number" ? value.toLocaleString("ru") : value}
+          {value == null
+            ? "—"
+            : typeof value === "number"
+              ? value.toLocaleString(intlLocale(locale))
+              : value}
         </div>
       )}
     </div>

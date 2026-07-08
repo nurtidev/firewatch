@@ -14,6 +14,7 @@ import {
 import { apiFetch } from "@/lib/auth";
 import { scoreSeverity, SEVERITY, featureLabel } from "@/lib/risk";
 import { DEMO_DATA, DEMO_NOTICE_SHORT } from "@/lib/demo";
+import { useT } from "@/lib/i18n";
 import {
   SectionLabel,
   StatusChip,
@@ -56,6 +57,7 @@ export default function BuildingPanel({
   id: number | null;
   onClose: () => void;
 }) {
+  const t = useT();
   const [data, setData] = useState<Detail | null>(null);
   const [state, setState] = useState<PanelState>("idle");
 
@@ -92,19 +94,19 @@ export default function BuildingPanel({
         "border-l border-border bg-surface/80 shadow-pop backdrop-blur",
         "fw-fade-in",
       )}
-      aria-label={`Карточка объекта ${id}`}
+      aria-label={`${t("Карточка объекта")} ${id}`}
       role="complementary"
     >
       {/* ── Header ────────────────────────────────────────────────────── */}
       <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
         <div className="flex items-center gap-2.5">
           <Building2 className="h-4 w-4 text-faint" aria-hidden />
-          <SectionLabel>Объект · {String(id).padStart(4, "0")}</SectionLabel>
+          <SectionLabel>{t("Объект")} · {String(id).padStart(4, "0")}</SectionLabel>
         </div>
         <button
           onClick={onClose}
           className="rounded-md p-1.5 text-faint transition-colors hover:bg-surface-2 hover:text-fg"
-          aria-label="Закрыть карточку"
+          aria-label={t("Закрыть карточку")}
         >
           <X className="h-4 w-4" />
         </button>
@@ -138,8 +140,8 @@ export default function BuildingPanel({
             <EmptyState
               tone="error"
               icon={ServerCrash}
-              title="Данные недоступны"
-              description="Не удалось загрузить карточку объекта. Попробуйте ещё раз."
+              title={t("Данные недоступны")}
+              description={t("Не удалось загрузить карточку объекта. Попробуйте ещё раз.")}
               action={
                 <Button
                   variant="secondary"
@@ -154,7 +156,7 @@ export default function BuildingPanel({
                       .catch(() => setState("error"));
                   }}
                 >
-                  Повторить
+                  {t("Повторить")}
                 </Button>
               }
             />
@@ -166,8 +168,8 @@ export default function BuildingPanel({
           <div className="p-5">
             <EmptyState
               icon={Building2}
-              title="Объект не найден"
-              description="Данные по этому объекту отсутствуют в базе."
+              title={t("Объект не найден")}
+              description={t("Данные по этому объекту отсутствуют в базе.")}
             />
           </div>
         )}
@@ -182,8 +184,8 @@ export default function BuildingPanel({
             <p className="mt-1 text-xs text-muted">
               {[
                 data.type_label,
-                data.floors != null ? `${data.floors} эт.` : null,
-                data.year_built != null ? `${data.year_built} г.` : null,
+                data.floors != null ? `${data.floors} ${t("эт.")}` : null,
+                data.year_built != null ? `${data.year_built} ${t("г.")}` : null,
               ]
                 .filter(Boolean)
                 .join(" · ")}
@@ -192,7 +194,7 @@ export default function BuildingPanel({
             {/* Risk score */}
             {data.score != null && sev && (
               <div className="mt-5">
-                <SectionLabel className="mb-2">Оценка риска</SectionLabel>
+                <SectionLabel className="mb-2">{t("Оценка риска")}</SectionLabel>
                 <div className="flex items-end gap-3">
                   <span
                     className={cn(
@@ -225,10 +227,10 @@ export default function BuildingPanel({
             {/* Detail rows */}
             <div className="mt-5 rounded-lg border border-border bg-surface-2/50">
               {[
-                ["Тип здания", data.type_label],
-                ["Этажей", data.floors != null ? String(data.floors) : "—"],
-                ["Год постройки", data.year_built != null ? String(data.year_built) : "—"],
-                ["ID объекта", String(id).padStart(4, "0")],
+                [t("Тип здания"), data.type_label],
+                [t("Этажей"), data.floors != null ? String(data.floors) : "—"],
+                [t("Год постройки"), data.year_built != null ? String(data.year_built) : "—"],
+                [t("ID объекта"), String(id).padStart(4, "0")],
               ].map(([label, value], i, arr) => (
                 <div
                   key={label}
@@ -248,9 +250,9 @@ export default function BuildingPanel({
               <div className="mt-6">
                 <div className="flex items-center gap-2">
                   <BarChart2 className="h-3.5 w-3.5 text-faint" aria-hidden />
-                  <SectionLabel>SHAP · Вклад факторов</SectionLabel>
+                  <SectionLabel>{t("SHAP · Вклад факторов")}</SectionLabel>
                 </div>
-                <ul className="mt-3 space-y-3" aria-label="Факторы риска">
+                <ul className="mt-3 space-y-3" aria-label={t("Факторы риска")}>
                   {data.explanation.map((f) => {
                     const positive = f.value >= 0;
                     // Positive SHAP = raises risk → high/critical severity color
@@ -259,7 +261,7 @@ export default function BuildingPanel({
                     return (
                       <li key={f.feature}>
                         <div className="flex items-baseline justify-between gap-2 text-xs">
-                          <span className="text-muted">{featureLabel(f.feature)}</span>
+                          <span className="text-muted">{t(featureLabel(f.feature))}</span>
                           <span
                             className={cn(
                               "tabular font-medium",
@@ -304,14 +306,14 @@ export default function BuildingPanel({
                       className="inline-block h-1.5 w-4 rounded-full"
                       style={{ background: SEVERITY.high.cssVar }}
                     />
-                    повышает риск
+                    {t("повышает риск")}
                   </span>
                   <span className="flex items-center gap-1.5">
                     <span
                       className="inline-block h-1.5 w-4 rounded-full"
                       style={{ background: SEVERITY.normal.cssVar }}
                     />
-                    снижает риск
+                    {t("снижает риск")}
                   </span>
                 </div>
               </div>
@@ -322,7 +324,7 @@ export default function BuildingPanel({
               <div className="mt-6">
                 <div className="flex items-center gap-2">
                   <FileText className="h-3.5 w-3.5 text-faint" aria-hidden />
-                  <SectionLabel>Оперативная карточка (ПТП)</SectionLabel>
+                  <SectionLabel>{t("Оперативная карточка (ПТП)")}</SectionLabel>
                 </div>
                 <div className="mt-3 rounded-lg border border-border bg-surface-2/50 p-3.5">
                   {data.card.object_name && (
@@ -335,20 +337,21 @@ export default function BuildingPanel({
                       <Navigation className="mt-0.5 h-3 w-3 shrink-0 text-faint" aria-hidden />
                       <span>
                         {data.card.nearest_station}
-                        {data.card.distance_km != null && ` · ${data.card.distance_km} км`}
-                        {data.card.arrival_min != null && ` · прибытие ${data.card.arrival_min} мин`}
+                        {data.card.distance_km != null && ` · ${data.card.distance_km} ${t("км")}`}
+                        {data.card.arrival_min != null &&
+                          ` · ${t("прибытие")} ${data.card.arrival_min} ${t("мин")}`}
                       </span>
                     </p>
                   )}
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {data.card.rank && (
                       <span className="rounded-md border border-high/40 bg-high-bg px-2 py-0.5 text-2xs font-medium text-high">
-                        Ранг {data.card.rank}
+                        {t("Ранг")} {data.card.rank}
                       </span>
                     )}
                     {data.card.water_sources != null && (
                       <span className="rounded-md border border-border bg-surface-2 px-2 py-0.5 text-2xs text-muted">
-                        Водоисточников: {data.card.water_sources}
+                        {t("Водоисточников:")} {data.card.water_sources}
                       </span>
                     )}
                   </div>
@@ -358,7 +361,7 @@ export default function BuildingPanel({
 
             {/* Model version */}
             <p className="mt-6 text-2xs text-faint">
-              Модель · {data.model_version ?? "—"}
+              {t("Модель")} · {data.model_version ?? "—"}
             </p>
           </div>
         )}

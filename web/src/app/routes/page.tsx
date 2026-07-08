@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch, useAuth } from "@/lib/auth";
+import { intlLocale, useLocale, useT } from "@/lib/i18n";
 import { scoreSeverity, SEVERITY } from "@/lib/risk";
 import {
   Card,
@@ -100,6 +101,8 @@ const STOP_STATUS_LABEL = {
 /* ───────────────────────────── Page ────────────────────────────── */
 
 export default function RoutesPage() {
+  const t = useT();
+  const { locale } = useLocale();
   const { user } = useAuth();
   const isInspector = user?.role === "inspector";
 
@@ -201,7 +204,7 @@ export default function RoutesPage() {
   const progressSeverity = hasViolation ? SEVERITY.critical : SEVERITY.normal;
 
   const formattedDate = route
-    ? new Date(route.date).toLocaleDateString("ru", {
+    ? new Date(route.date).toLocaleDateString(intlLocale(locale), {
         weekday: "long",
         day: "numeric",
         month: "long",
@@ -226,11 +229,11 @@ export default function RoutesPage() {
     <AppShell>
       <div className="mx-auto max-w-[1400px] p-4 sm:p-7 lg:p-8">
         <PageHeader
-          title={isInspector ? "Мой маршрут" : "План инспекций"}
-          subtitle="Маршрут на день · приоритет по риску, сроку проверки и географии"
+          title={isInspector ? t("Мой маршрут") : t("План инспекций")}
+          subtitle={t("Маршрут на день · приоритет по риску, сроку проверки и географии")}
           actions={
             !isInspector && inspectors.length > 0 ? (
-              <Field label="Инспектор">
+              <Field label={t("Инспектор")}>
                 <Select
                   value={selected ?? ""}
                   onChange={(e) => setSelected(Number(e.target.value))}
@@ -238,7 +241,7 @@ export default function RoutesPage() {
                 >
                   {inspectors.map((i) => (
                     <option key={i.id} value={i.id}>
-                      {i.name} · {i.district} р-н
+                      {i.name} · {i.district} {t("р-н")}
                     </option>
                   ))}
                 </Select>
@@ -250,8 +253,9 @@ export default function RoutesPage() {
         {/* Offline notice — shown route is from the local cache */}
         {offline && (
           <Banner tone="warning" icon={CloudOff} className="mt-4">
-            Офлайн-режим · показан сохранённый маршрут. Отметки сохранятся на
-            устройстве и отправятся при связи.
+            {t(
+              "Офлайн-режим · показан сохранённый маршрут. Отметки сохранятся на устройстве и отправятся при связи.",
+            )}
           </Banner>
         )}
 
@@ -271,8 +275,10 @@ export default function RoutesPage() {
           <EmptyState
             className="mt-8"
             icon={Route}
-            title="Маршрут не назначен"
-            description="На сегодня маршрут для выбранного инспектора не сформирован. Попробуйте выбрать другого инспектора или обратитесь к диспетчеру."
+            title={t("Маршрут не назначен")}
+            description={t(
+              "На сегодня маршрут для выбранного инспектора не сформирован. Попробуйте выбрать другого инспектора или обратитесь к диспетчеру.",
+            )}
           />
         )}
 
@@ -289,7 +295,7 @@ export default function RoutesPage() {
                   </span>
                   <span className="flex items-center gap-1.5 text-sm text-muted">
                     <MapPin className="h-4 w-4 text-faint" aria-hidden />
-                    {route.district} р-н
+                    {route.district} {t("р-н")}
                   </span>
                   {!isInspector && (
                     <span className="flex items-center gap-1.5 text-sm text-muted">
@@ -303,7 +309,7 @@ export default function RoutesPage() {
                     <span style={{ color: progressSeverity.cssVar }}>{route.done}</span>
                     <span className="text-faint"> / {route.total}</span>
                   </div>
-                  <div className="mt-0.5 text-2xs text-faint">проверено</div>
+                  <div className="mt-0.5 text-2xs text-faint">{t("проверено")}</div>
                 </div>
               </div>
               <ProgressBar
@@ -317,11 +323,11 @@ export default function RoutesPage() {
                 <div className="mt-2 flex items-center gap-2 text-2xs">
                   {pending > 0 ? (
                     <span className="inline-flex items-center gap-1 font-medium text-elevated">
-                      <CloudOff className="h-3.5 w-3.5" aria-hidden /> Не отправлено · {pending}
+                      <CloudOff className="h-3.5 w-3.5" aria-hidden /> {t("Не отправлено")} · {pending}
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 font-medium text-normal">
-                      <Check className="h-3.5 w-3.5" aria-hidden /> Синхронизировано
+                      <Check className="h-3.5 w-3.5" aria-hidden /> {t("Синхронизировано")}
                     </span>
                   )}
                 </div>
@@ -333,8 +339,8 @@ export default function RoutesPage() {
               <EmptyState
                 className="mt-4"
                 icon={ClipboardCheck}
-                title="Нет объектов в маршруте"
-                description="Список объектов для проверки пуст."
+                title={t("Нет объектов в маршруте")}
+                description={t("Список объектов для проверки пуст.")}
               />
             ) : (
               <>
@@ -344,9 +350,9 @@ export default function RoutesPage() {
                   active={filter}
                   onChange={(id) => setFilter(id as Filter)}
                   tabs={[
-                    { id: "all", label: "Все", count: route.total },
-                    { id: "pending", label: "Осталось", count: pendingCount },
-                    { id: "done", label: "Готово", count: doneCount },
+                    { id: "all", label: t("Все"), count: route.total },
+                    { id: "pending", label: t("Осталось"), count: pendingCount },
+                    { id: "done", label: t("Готово"), count: doneCount },
                   ]}
                 />
 
@@ -355,15 +361,15 @@ export default function RoutesPage() {
                   <EmptyState
                     className="mt-4"
                     icon={filter === "done" ? ClipboardCheck : Check}
-                    title={filter === "done" ? "Пока ничего не проверено" : "Всё проверено"}
+                    title={filter === "done" ? t("Пока ничего не проверено") : t("Всё проверено")}
                     description={
                       filter === "done"
-                        ? "Отмеченные объекты появятся здесь."
-                        : "Все объекты маршрута отмечены. Отличная работа!"
+                        ? t("Отмеченные объекты появятся здесь.")
+                        : t("Все объекты маршрута отмечены. Отличная работа!")
                     }
                   />
                 ) : (
-                  <ol className="space-y-2.5" aria-label="Список объектов маршрута">
+                  <ol className="space-y-2.5" aria-label={t("Список объектов маршрута")}>
                     {visibleStops.map((s) => (
                       <StopCard
                         key={s.building_id}
@@ -426,13 +432,14 @@ function StopCard({
   canMark: boolean;
   onOpen: () => void;
 }) {
+  const t = useT();
   const scoreSev = scoreSeverity(stop.score);
   const hot = scoreSev.key === "critical";
   const isDone = stop.status !== "pending";
   const stopSeverity = STOP_STATUS_SEVERITY[stop.status];
   const actionable = canMark && !isDone;
 
-  const meta = [stop.type_label, stop.last_inspected && `посл. ${stop.last_inspected}`]
+  const meta = [stop.type_label, stop.last_inspected && `${t("посл.")} ${stop.last_inspected}`]
     .filter(Boolean)
     .join(" · ");
 
@@ -472,7 +479,7 @@ function StopCard({
         <ScoreBadge score={stop.score} severity={scoreSev} />
         <StatusChip
           severity={stopSeverity}
-          label={STOP_STATUS_LABEL[stop.status]}
+          label={t(STOP_STATUS_LABEL[stop.status])}
           icon={false}
           className="px-1.5 py-0 text-2xs"
         />
@@ -500,7 +507,7 @@ function StopCard({
           onClick={onOpen}
           style={accent}
           className={cn(base, tone, "min-h-[68px] hover:border-border-strong hover:bg-surface-2 active:bg-surface-3")}
-          aria-label={`Открыть объект: ${stop.address}`}
+          aria-label={`${t("Открыть объект:")} ${stop.address}`}
         >
           {inner}
         </button>
@@ -530,6 +537,7 @@ function ObjectSheet({
   onSaved: () => void;
   onQueued: (status: "done" | "violation") => void;
 }) {
+  const t = useT();
   const [marks, setMarks] = useState<Record<string, MarkValue>>({});
   const [violationNotes, setViolationNotes] = useState<Record<string, string>>({});
   const [note, setNote] = useState("");
@@ -571,7 +579,7 @@ function ObjectSheet({
     try {
       for (const file of Array.from(files)) {
         if (file.size > MAX_PHOTO_BYTES) {
-          setError("Фото больше 2 МБ — уменьшите размер перед добавлением.");
+          setError(t("Фото больше 2 МБ — уменьшите размер перед добавлением."));
           continue;
         }
         // Offline: stash the photo locally; it uploads on reconnect.
@@ -594,7 +602,7 @@ function ObjectSheet({
         }
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Ошибка загрузки фото");
+      setError(e instanceof Error ? e.message : t("Ошибка загрузки фото"));
     } finally {
       setUploading(false);
     }
@@ -612,11 +620,11 @@ function ObjectSheet({
           return noteText ? { code: c.code as string, note: noteText } : { code: c.code as string };
         });
       if (!violations.length) {
-        setError("У отмеченных нарушений нет кода нормы — уточните чек-лист.");
+        setError(t("У отмеченных нарушений нет кода нормы — уточните чек-лист."));
         return;
       }
       if (!photoCount) {
-        setError("Приложите хотя бы одно фото-доказательство нарушения.");
+        setError(t("Приложите хотя бы одно фото-доказательство нарушения."));
         return;
       }
     }
@@ -634,7 +642,7 @@ function ObjectSheet({
     if (!isOnline() || offlinePhotos.length > 0) {
       const ok = enqueueVisit(payload, offlinePhotos, photos);
       if (!ok) {
-        setError("Не удалось сохранить офлайн — переполнено хранилище устройства.");
+        setError(t("Не удалось сохранить офлайн — переполнено хранилище устройства."));
         return;
       }
       onQueued(status);
@@ -653,7 +661,7 @@ function ObjectSheet({
       });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
-        throw new Error(d.detail || "Не удалось сохранить визит");
+        throw new Error(d.detail || t("Не удалось сохранить визит"));
       }
       onSaved();
     } catch {
@@ -661,7 +669,7 @@ function ObjectSheet({
       // Already-uploaded photo ids ride along so evidence is preserved on flush.
       const ok = enqueueVisit(payload, offlinePhotos, photos);
       if (!ok) {
-        setError("Не удалось сохранить — переполнено хранилище устройства.");
+        setError(t("Не удалось сохранить — переполнено хранилище устройства."));
         return;
       }
       onQueued(status);
@@ -680,7 +688,7 @@ function ObjectSheet({
       className="fixed inset-0 z-50 flex flex-col bg-bg fw-fade-in"
       role="dialog"
       aria-modal="true"
-      aria-label={`Осмотр объекта: ${stop.address}`}
+      aria-label={`${t("Осмотр объекта:")} ${stop.address}`}
     >
       {/* Header */}
       <header className="shrink-0 border-b border-border bg-surface">
@@ -689,14 +697,14 @@ function ObjectSheet({
             type="button"
             onClick={onClose}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg"
-            aria-label="Назад к маршруту"
+            aria-label={t("Назад к маршруту")}
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="min-w-0 flex-1">
             <p className="truncate text-[15px] font-semibold text-fg">{stop.address}</p>
             <p className="truncate text-xs text-faint">
-              {[stop.type_label, stop.year_built && `${stop.year_built} г.`]
+              {[stop.type_label, stop.year_built && `${stop.year_built} ${t("г.")}`]
                 .filter(Boolean)
                 .join(" · ")}
             </p>
@@ -712,13 +720,13 @@ function ObjectSheet({
           {checklist.length > 0 && (
             <section>
               <div className="mb-2 flex items-center justify-between">
-                <SectionLabel>Чек-лист осмотра</SectionLabel>
+                <SectionLabel>{t("Чек-лист осмотра")}</SectionLabel>
                 <span className="text-2xs tabular text-faint">
-                  {markedCount} / {checklist.length} отмечено
+                  {markedCount} / {checklist.length} {t("отмечено")}
                 </span>
               </div>
               <p className="mb-2.5 text-2xs leading-relaxed text-faint">
-                Отметьте каждый пункт: соответствует, нарушение или не применимо.
+                {t("Отметьте каждый пункт: соответствует, нарушение или не применимо.")}
               </p>
               <div className="space-y-2">
                 {checklist.map((c) => {
@@ -751,7 +759,7 @@ function ObjectSheet({
                           onChange={(e) =>
                             setViolationNotes((n) => ({ ...n, [c.key]: e.target.value }))
                           }
-                          placeholder="Что именно нарушено — детали для предписания"
+                          placeholder={t("Что именно нарушено — детали для предписания")}
                           className="mt-2.5 h-10"
                         />
                       )}
@@ -764,11 +772,11 @@ function ObjectSheet({
 
           {/* Note */}
           <section>
-            <Field label="Примечание">
+            <Field label={t("Примечание")}>
               <Textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="Описание результатов осмотра или нарушения"
+                placeholder={t("Описание результатов осмотра или нарушения")}
                 rows={3}
               />
             </Field>
@@ -777,14 +785,14 @@ function ObjectSheet({
           {/* Photo evidence */}
           <section>
             <SectionLabel className="mb-2">
-              Фото-доказательства {photoCount > 0 && `· ${photoCount}`}
+              {t("Фото-доказательства")} {photoCount > 0 && `· ${photoCount}`}
             </SectionLabel>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-2.5">
               {/* Offline photos — real thumbnails */}
               {offlinePhotos.map((url, i) => (
                 <PhotoTile key={`off-${i}`} pending onRemove={() => setOfflinePhotos((p) => p.filter((_, j) => j !== i))}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={url} alt={`Фото ${i + 1}`} className="h-full w-full object-cover" />
+                  <img src={url} alt={`${t("Фото")} ${i + 1}`} className="h-full w-full object-cover" />
                 </PhotoTile>
               ))}
               {/* Server-uploaded photos — confirmed tile */}
@@ -792,7 +800,7 @@ function ObjectSheet({
                 <PhotoTile key={`up-${id}`} onRemove={() => setPhotos((p) => p.filter((_, j) => j !== i))}>
                   <div className="flex h-full w-full flex-col items-center justify-center gap-1 bg-normal-bg text-normal">
                     <Check className="h-5 w-5" />
-                    <span className="text-2xs">загружено</span>
+                    <span className="text-2xs">{t("загружено")}</span>
                   </div>
                 </PhotoTile>
               ))}
@@ -808,7 +816,7 @@ function ObjectSheet({
                 ) : (
                   <Camera className="h-5 w-5" aria-hidden />
                 )}
-                <span className="text-2xs">{uploading ? "Загрузка" : "Добавить"}</span>
+                <span className="text-2xs">{uploading ? t("Загрузка") : t("Добавить")}</span>
                 <input
                   type="file"
                   accept="image/*"
@@ -825,7 +833,7 @@ function ObjectSheet({
             </div>
             {offlinePhotos.length > 0 && (
               <p className="mt-2 text-2xs text-elevated">
-                Часть фото будет загружена при появлении связи.
+                {t("Часть фото будет загружена при появлении связи.")}
               </p>
             )}
           </section>
@@ -856,7 +864,9 @@ function ObjectSheet({
             ) : (
               <ClipboardCheck className="h-5 w-5" />
             )}
-            {allMarked ? "Зафиксировать результат" : `Отмечено ${markedCount} из ${checklist.length}`}
+            {allMarked
+              ? t("Зафиксировать результат")
+              : `${t("Отмечено")} ${markedCount} ${t("из")} ${checklist.length}`}
           </Button>
         </div>
       </footer>
@@ -875,6 +885,7 @@ function ChecklistMarkControl({
   /** Clicking the already-active option unsets it (passes `null`). */
   onChange: (value: MarkValue | null) => void;
 }) {
+  const t = useT();
   const options: { value: MarkValue; label: string; icon: typeof Check; active: string }[] = [
     { value: "pass", label: "Соответствует", icon: Check, active: "border-normal/40 bg-normal-bg text-normal" },
     { value: "violation", label: "Нарушение", icon: X, active: "border-critical/40 bg-critical-bg text-critical" },
@@ -882,7 +893,7 @@ function ChecklistMarkControl({
   ];
 
   return (
-    <div className="flex shrink-0 gap-1.5" role="group" aria-label="Отметка по пункту">
+    <div className="flex shrink-0 gap-1.5" role="group" aria-label={t("Отметка по пункту")}>
       {options.map(({ value: v, label, icon: Icon, active }) => {
         const isActive = value === v;
         return (
@@ -891,8 +902,8 @@ function ChecklistMarkControl({
             type="button"
             onClick={() => onChange(isActive ? null : v)}
             aria-pressed={isActive}
-            aria-label={label}
-            title={label}
+            aria-label={t(label)}
+            title={t(label)}
             className={cn(
               "flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition-colors duration-[var(--dur-fast)]",
               isActive
@@ -918,19 +929,20 @@ function PhotoTile({
   pending?: boolean;
   onRemove: () => void;
 }) {
+  const t = useT();
   return (
     <div className="relative aspect-square overflow-hidden rounded-lg border border-border">
       {children}
       {pending && (
         <span className="absolute bottom-1 left-1 rounded bg-bg/80 px-1 text-2xs text-elevated backdrop-blur">
-          ожидает
+          {t("ожидает")}
         </span>
       )}
       <button
         type="button"
         onClick={onRemove}
         className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-bg/80 text-fg backdrop-blur hover:bg-critical hover:text-white"
-        aria-label="Удалить фото"
+        aria-label={t("Удалить фото")}
       >
         <X className="h-3.5 w-3.5" />
       </button>

@@ -353,6 +353,7 @@ export function MiniPlan({ plan, mode }: { plan: RealFloorPlan; mode: "scan" | "
 
 /** Static, plan-shaped skeleton shown while the 3D chunk loads. */
 export function Hero3DSkeleton({ plan }: { plan: RealFloorPlan }) {
+  const t = useT();
   return (
     <div className="relative h-full w-full overflow-hidden">
       <div
@@ -369,7 +370,7 @@ export function Hero3DSkeleton({ plan }: { plan: RealFloorPlan }) {
       </div>
       <div className="absolute bottom-3 left-3 inline-flex items-center gap-2 rounded-[10px] border border-border bg-surface/80 px-2.5 py-1.5 text-[11.5px] text-muted backdrop-blur">
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" aria-hidden />
-        Загрузка 3D-двойника…
+        {t("Загрузка 3D-двойника…")}
       </div>
     </div>
   );
