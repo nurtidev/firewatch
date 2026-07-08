@@ -74,7 +74,7 @@ export function LandingHeader({
       )}
     >
       <div className="mx-auto flex h-[66px] max-w-[1180px] items-center justify-between px-5 sm:px-6">
-        <Link href="/" aria-label="FireWatch — на главную">
+        <Link href="/" aria-label={t("FireWatch — на главную")}>
           <Brand />
         </Link>
         <nav className="hidden items-center gap-7 text-sm font-medium text-muted md:flex lg:gap-8">

@@ -6,7 +6,7 @@
    signal. Persists via LocaleProvider (localStorage fw-locale, <html lang>). */
 
 import { Languages } from "lucide-react";
-import { useLocale, type Locale } from "@/lib/i18n";
+import { useLocale, useT, type Locale } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 
 const OPTIONS: { id: Locale; label: string }[] = [
@@ -17,11 +17,12 @@ const OPTIONS: { id: Locale; label: string }[] = [
 
 export function LanguageSwitcher({ className }: { className?: string }) {
   const { locale, setLocale } = useLocale();
+  const t = useT();
 
   return (
     <div
       role="radiogroup"
-      aria-label="Язык интерфейса"
+      aria-label={t("Язык интерфейса")}
       className={cn(
         "inline-flex items-center gap-0.5 rounded-md border border-border bg-surface p-0.5",
         className,
