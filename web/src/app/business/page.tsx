@@ -38,6 +38,8 @@ import {
   MiniPlan,
   Hero3DSkeleton,
   MAILTO,
+  CONTACTS,
+  ContactRow,
   type NavLink,
 } from "@/components/landing/chrome";
 import { PIPELINE } from "@/components/landing/content";
@@ -146,7 +148,7 @@ export default function BusinessLanding() {
     <div className="min-h-screen bg-bg text-fg">
       <LandingHeader
         navLinks={navLinks}
-        cta={{ label: t("Обсудить оцифровку"), href: MAILTO.business }}
+        cta={{ label: t("Обсудить оцифровку"), href: CONTACTS.wa.business }}
       />
 
       {/* ── Hero ── */}
@@ -171,13 +173,14 @@ export default function BusinessLanding() {
               )}
             </p>
             <div className="mt-8 flex flex-wrap gap-3.5">
-              <a href={MAILTO.business}>
+              <a href={CONTACTS.wa.business} target="_blank" rel="noopener">
                 <PrimaryButton className="px-6 py-3.5 text-[15px]">
                   {t("Обсудить оцифровку объекта")} <ArrowRight className="h-4 w-4" />
                 </PrimaryButton>
               </a>
               <GhostButton href="#offer">{t("Что входит")}</GhostButton>
             </div>
+            <ContactRow telegram mailto={MAILTO.business} className="mt-4" />
           </div>
 
           {/* Interactive 3D twin of the object */}
@@ -235,7 +238,7 @@ export default function BusinessLanding() {
                 ))}
               </ul>
               <div className="mt-8">
-                <a href={MAILTO.business}>
+                <a href={CONTACTS.wa.business} target="_blank" rel="noopener">
                   <PrimaryButton className="px-6 py-3.5 text-[15px]">
                     {t("Обсудить оцифровку объекта")} <ArrowRight className="h-4 w-4" />
                   </PrimaryButton>
@@ -461,7 +464,7 @@ export default function BusinessLanding() {
         </p>
 
         <div className="mt-8 flex justify-center">
-          <a href={MAILTO.business}>
+          <a href={CONTACTS.wa.business} target="_blank" rel="noopener">
             <PrimaryButton className="px-6 py-3.5 text-[15px]">
               {t("Обсудить оцифровку объекта")} <ArrowRight className="h-4 w-4" />
             </PrimaryButton>
@@ -621,7 +624,7 @@ export default function BusinessLanding() {
               )}
             </p>
             <div className="relative mt-8 flex flex-wrap justify-center gap-3.5">
-              <a href={MAILTO.business}>
+              <a href={CONTACTS.wa.business} target="_blank" rel="noopener">
                 <PrimaryButton className="px-6 py-3.5 text-[15px]">
                   {t("Обсудить оцифровку объекта")}
                 </PrimaryButton>
@@ -630,7 +633,10 @@ export default function BusinessLanding() {
                 {t("Для ДЧС и акиматов")}
               </GhostButton>
             </div>
-            <p className="relative mt-5 text-[13px] text-faint">
+            <div className="relative mt-5 flex justify-center">
+              <ContactRow telegram mailto={MAILTO.business} />
+            </div>
+            <p className="relative mt-4 text-[13px] text-faint">
               {t("ИИ-извлечение и 2D/3D-планы · предиктивная риск-оценка объекта")}
             </p>
           </div>

@@ -24,6 +24,8 @@ import {
   SectionHead,
   Hero3DSkeleton,
   MAILTO,
+  CONTACTS,
+  ContactRow,
   type NavLink,
 } from "@/components/landing/chrome";
 import { MODULES } from "@/components/landing/content";
@@ -185,6 +187,7 @@ export default function GovLanding() {
               </a>
               <GhostButton href={MAILTO.presentation}>{t("Презентация платформы")}</GhostButton>
             </div>
+            <ContactRow whatsapp={CONTACTS.wa.pilot} telegram className="mt-4" />
           </div>
 
           {/* Stylised city risk map */}
@@ -441,7 +444,10 @@ export default function GovLanding() {
                 {t("Презентация платформы")}
               </GhostButton>
             </div>
-            <p className="relative mt-5 text-[13px] text-faint">
+            <div className="relative mt-5 flex justify-center">
+              <ContactRow whatsapp={CONTACTS.wa.pilot} telegram />
+            </div>
+            <p className="relative mt-4 text-[13px] text-faint">
               {t("Без обязательств · на реальных данных района, с обучением сотрудников")}
             </p>
           </div>

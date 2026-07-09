@@ -450,6 +450,13 @@ export const dict: { en: Record<string, string>; kk: Record<string, string> } = 
       "of fires in Kazakhstan end in loss of life — that's the owner's liability",
     "ИИ-извлечение и 2D/3D-планы · предиктивная риск-оценка объекта":
       "AI extraction and 2D/3D plans · predictive facility risk score",
+
+    // ── components/landing/chrome.tsx — ContactRow (secondary channels) ────
+    "или:": "or:",
+    "почта": "email",
+    "Написать в WhatsApp": "Message on WhatsApp",
+    "Написать в Telegram": "Message on Telegram",
+    "Написать на почту": "Send an email",
   },
   kk: {
     // ── "/" nav + header ──────────────────────────────────────────────────
@@ -884,5 +891,12 @@ export const dict: { en: Record<string, string>; kk: Record<string, string> } = 
       "ҚР-дағы өрт адам қазасымен аяқталады — бұл иесінің жауапкершілігі",
     "ИИ-извлечение и 2D/3D-планы · предиктивная риск-оценка объекта":
       "ЖИ көмегімен алу және 2D/3D жоспарлар · нысанның болжамды тәуекел бағасы",
+
+    // ── components/landing/chrome.tsx — ContactRow (secondary channels) ────
+    "или:": "немесе:",
+    "почта": "пошта",
+    "Написать в WhatsApp": "WhatsApp-қа жазу",
+    "Написать в Telegram": "Telegram-ға жазу",
+    "Написать на почту": "Поштаға жазу",
   },
 };

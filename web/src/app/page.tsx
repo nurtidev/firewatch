@@ -24,6 +24,8 @@ import {
   MiniPlan,
   Hero3DSkeleton,
   MAILTO,
+  CONTACTS,
+  ContactRow,
   type NavLink,
 } from "@/components/landing/chrome";
 import { PIPELINE, MODULES } from "@/components/landing/content";
@@ -129,7 +131,7 @@ export default function Landing() {
 
   return (
     <div className="min-h-screen bg-bg text-fg">
-      <LandingHeader navLinks={navLinks} cta={{ label: t("Запросить демо"), href: MAILTO.demo }} />
+      <LandingHeader navLinks={navLinks} cta={{ label: t("Запросить демо"), href: CONTACTS.wa.demo }} />
 
       {/* ── Hero ── */}
       <section className="relative overflow-hidden px-5 pb-14 pt-14 sm:px-6 sm:pb-20 sm:pt-20">
@@ -154,13 +156,14 @@ export default function Landing() {
               )}
             </p>
             <div className="mt-8 flex flex-wrap gap-3.5">
-              <a href={MAILTO.demo}>
+              <a href={CONTACTS.wa.demo} target="_blank" rel="noopener">
                 <PrimaryButton className="px-6 py-3.5 text-[15px]">
                   {t("Запросить демо")} <ArrowRight className="h-4 w-4" />
                 </PrimaryButton>
               </a>
               <GhostButton href="#twin">{t("Как это работает")}</GhostButton>
             </div>
+            <ContactRow telegram mailto={MAILTO.demo} className="mt-4" />
           </div>
 
           {/* Live interactive 3D floor */}
@@ -430,14 +433,17 @@ export default function Landing() {
               )}
             </p>
             <div className="relative mt-8 flex flex-wrap justify-center gap-3.5">
-              <a href={MAILTO.demo}>
+              <a href={CONTACTS.wa.demo} target="_blank" rel="noopener">
                 <PrimaryButton className="px-6 py-3.5 text-[15px]">{t("Запросить демо")}</PrimaryButton>
               </a>
               <GhostButton href="/gov" className="bg-surface">
                 {t("Платформа для ДЧС")}
               </GhostButton>
             </div>
-            <p className="relative mt-5 text-[13px] text-faint">
+            <div className="relative mt-5 flex justify-center">
+              <ContactRow telegram mailto={MAILTO.demo} />
+            </div>
+            <p className="relative mt-4 text-[13px] text-faint">
               {t("Без обязательств · демо 30 минут на данных вашего региона")}
             </p>
           </div>

@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Flame, Menu, X } from "lucide-react";
+import { Flame, Menu, X, MessageCircle, Send, Mail } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { DEFAULT_ROUTE } from "@/lib/nav";
 import { cn } from "@/lib/cn";
@@ -17,7 +17,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import type { RealFloorPlan } from "@/data/floorplans/hayvill";
 
-/* ── Contact intents (single source for mailto CTAs) ───────────────────────── */
+/* ── Contact intents (single source for mailto/WhatsApp/Telegram CTAs) ──────── */
 
 const CONTACT = "nurtilek.assankhan@gmail.com";
 const mail = (subject: string) =>
@@ -30,12 +30,31 @@ export const MAILTO = {
   business: mail("Оцифровка объекта — FireWatch"),
 };
 
+/* WhatsApp deep links support a prefilled message; t.me direct links do not. */
+const WHATSAPP_NUMBER = "77775618308";
+const wa = (text: string) =>
+  `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`;
+
+export const CONTACTS = {
+  telegram: "https://t.me/nurtilek_assankhan",
+  wa: {
+    demo: wa("Здравствуйте! Хочу запросить демо FireWatch."),
+    business: wa("Здравствуйте! Хочу обсудить оцифровку объекта — FireWatch."),
+    pilot: wa("Здравствуйте! Интересует пилот FireWatch для ведомства."),
+  },
+};
+
 export type NavLink = { href: string; label: string };
 export type Cta = { label: string; href: string };
 
 /* Cross-page routes use <Link> (client nav); in-page anchors use <a>. */
 function isRoute(href: string) {
   return href.startsWith("/");
+}
+
+/* wa.me / t.me CTAs open in a new tab, like any external chat link. */
+function isExternalChat(href: string) {
+  return href.startsWith("https://wa.me/") || href.startsWith("https://t.me/");
 }
 
 /* ── Header (shared across the three landing surfaces) ──────────────────────── */
@@ -101,7 +120,11 @@ export function LandingHeader({
           >
             {appLabel}
           </Link>
-          <a href={cta.href} className="hidden sm:inline-flex">
+          <a
+            href={cta.href}
+            className="hidden sm:inline-flex"
+            {...(isExternalChat(cta.href) ? { target: "_blank", rel: "noopener" } : {})}
+          >
             <PrimaryButton>{cta.label}</PrimaryButton>
           </a>
           <button
@@ -146,7 +169,12 @@ export function LandingHeader({
             >
               {appLabel}
             </Link>
-            <a href={cta.href} className="mt-1" onClick={() => setMenu(false)}>
+            <a
+              href={cta.href}
+              className="mt-1"
+              onClick={() => setMenu(false)}
+              {...(isExternalChat(cta.href) ? { target: "_blank", rel: "noopener" } : {})}
+            >
               <PrimaryButton className="w-full justify-center">{cta.label}</PrimaryButton>
             </a>
             <div className="mt-3 px-1">
@@ -258,6 +286,70 @@ export function GhostButton({
     <a href={href} className={cls}>
       {children}
     </a>
+  );
+}
+
+/**
+ * Quiet inline row of secondary contact channels, meant to sit under a primary
+ * CTA — e.g. "или: [Telegram] · [почта]". Always icon + label (color is never
+ * the only signal), each link opens in a new tab with a proper aria-label.
+ */
+export function ContactRow({
+  whatsapp,
+  telegram,
+  mailto,
+  className,
+}: {
+  /** Show a WhatsApp link pointing at this wa.me href. */
+  whatsapp?: string;
+  /** Show a Telegram link — pass `true` for the default handle, or omit to hide it. */
+  telegram?: boolean;
+  /** Show a "почта" link pointing at this mailto: href. */
+  mailto?: string;
+  className?: string;
+}) {
+  const t = useT();
+  const linkClass =
+    "inline-flex items-center gap-1.5 text-muted transition-colors hover:text-fg";
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13.5px]",
+        className,
+      )}
+    >
+      <span className="text-faint">{t("или:")}</span>
+      {whatsapp && (
+        <a
+          href={whatsapp}
+          target="_blank"
+          rel="noopener"
+          aria-label={t("Написать в WhatsApp")}
+          className={linkClass}
+        >
+          <MessageCircle className="h-3.5 w-3.5" aria-hidden />
+          WhatsApp
+        </a>
+      )}
+      {telegram && (
+        <a
+          href={CONTACTS.telegram}
+          target="_blank"
+          rel="noopener"
+          aria-label={t("Написать в Telegram")}
+          className={linkClass}
+        >
+          <Send className="h-3.5 w-3.5" aria-hidden />
+          Telegram
+        </a>
+      )}
+      {mailto && (
+        <a href={mailto} aria-label={t("Написать на почту")} className={linkClass}>
+          <Mail className="h-3.5 w-3.5" aria-hidden />
+          {t("почта")}
+        </a>
+      )}
+    </div>
   );
 }
 
