@@ -7,6 +7,7 @@ import { useAuth, type Role } from "@/lib/auth";
 import { DEFAULT_ROUTE } from "@/lib/nav";
 import { Button, Input, Field } from "@/components/ui";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { FireWatchMark } from "@/components/FireWatchMark";
 import { useT } from "@/lib/i18n";
 
 type DemoUser = { username: string; label: string; hint: string };
@@ -100,7 +101,8 @@ export default function LoginPage() {
 
       <div className="relative w-full max-w-sm">
         <div className="mb-7 text-center">
-          <div className="text-3xl font-bold tracking-tight">
+          <div className="flex items-center justify-center gap-2.5 text-3xl font-bold tracking-tight">
+            <FireWatchMark size={32} />
             FireWatch<span className="text-accent">.</span>
           </div>
           <p className="mt-2 text-2xs font-medium uppercase tracking-[0.18em] text-faint">

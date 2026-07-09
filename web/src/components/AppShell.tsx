@@ -30,6 +30,7 @@ import { useT } from "@/lib/i18n";
 import { usePresence } from "@/components/ui";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { FireWatchMark } from "@/components/FireWatchMark";
 
 const ICONS: Record<string, LucideIcon> = {
   "/portal": Building2,
@@ -107,7 +108,8 @@ export default function AppShell({
       {/* Brand */}
       <div className="flex items-center justify-between px-5 pb-5 pt-5">
         <Link href="/dashboard" className="block" onClick={() => setDrawer(false)}>
-          <div className="text-lg font-bold tracking-tight">
+          <div className="flex items-center gap-2 text-lg font-bold tracking-tight">
+            <FireWatchMark size={23} />
             FireWatch<span className="text-accent">.</span>
           </div>
           <div className="mt-0.5 text-2xs font-medium uppercase tracking-[0.18em] text-faint">
