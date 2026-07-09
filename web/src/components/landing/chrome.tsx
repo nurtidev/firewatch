@@ -8,13 +8,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Flame, Menu, X, MessageCircle, Send, Mail } from "lucide-react";
+import { Menu, X, MessageCircle, Send, Mail } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { DEFAULT_ROUTE } from "@/lib/nav";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { FireWatchMark } from "@/components/FireWatchMark";
 import type { RealFloorPlan } from "@/data/floorplans/hayvill";
 
 /* ── Contact intents (single source for mailto/WhatsApp/Telegram CTAs) ──────── */
@@ -217,22 +218,8 @@ export function LandingFooter({ tagline }: { tagline: string }) {
 
 export function Brand({ small }: { small?: boolean }) {
   return (
-    <div className="flex items-center gap-2.5 font-extrabold tracking-tight">
-      <span
-        className={cn(
-          "grid place-items-center rounded-lg bg-gradient-to-br from-accent to-accent-hover text-white",
-          small ? "h-[26px] w-[26px]" : "h-[30px] w-[30px]",
-        )}
-        style={{
-          boxShadow: "0 6px 16px -4px color-mix(in oklab, var(--color-accent) 55%, transparent)",
-        }}
-      >
-        <Flame
-          className={small ? "h-3.5 w-3.5" : "h-[17px] w-[17px]"}
-          fill="currentColor"
-          strokeWidth={0}
-        />
-      </span>
+    <div className="flex items-center gap-2 font-extrabold tracking-tight text-fg">
+      <FireWatchMark size={small ? 22 : 27} />
       <span className={small ? "text-base" : "text-lg"}>
         FireWatch<span className="text-accent">.</span>
       </span>
