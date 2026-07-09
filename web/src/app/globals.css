@@ -74,6 +74,13 @@
   --ease: cubic-bezier(.2, 0, 0, 1);
   --dur-fast: 140ms;
   --dur:      220ms;
+
+  /* Retune Tailwind's transition defaults to house values, so bare
+     `transition-colors` (no duration utility) matches the app's --dur-fast tier
+     and --ease curve instead of Tailwind's 150ms cubic-bezier(.4,0,.2,1) — keeps
+     hover transitions and theme flips in sync. */
+  --default-transition-duration: 140ms; /* == --dur-fast */
+  --default-transition-timing-function: cubic-bezier(.2, 0, 0, 1); /* == --ease */
 }
 
 /* =========================================================================
@@ -90,7 +97,7 @@
   --border:        #27272d;
   --border-strong: #34343c;
   --muted:         #8b8b94;
-  --faint:         #7a7a83; /* ≥4.5:1 vs --bg (WCAG AA); stays quieter than --muted */
+  --faint:         #84848b; /* ≥4.5:1 vs --bg 5.33 / --surface 5.03 / --surface-2 4.67 (WCAG AA); best-effort vs --surface-3 4.21; quieter than --muted (5.13 on --surface-2) */
   --fg:            #ededf0;
 
   /* Brand — FireWatch orange */
@@ -136,7 +143,7 @@
   --border:        #e3e5ea;
   --border-strong: #cfd2da;
   --muted:         #55565f;
-  --faint:         #6e6f78; /* ≥4.5:1 vs --bg (WCAG AA); stays quieter than --muted */
+  --faint:         #666770; /* ≥4.5:1 vs --bg 5.15 / --surface 5.62 / --surface-2 4.92 / --surface-3 4.53 (WCAG AA); quieter than --muted (6.38 on --surface-2) */
   --fg:            #17181c;
 
   --accent:        #ff5a1f;
@@ -219,9 +226,9 @@ select option { background: var(--color-surface); color: var(--color-fg); }
 @layer base {
   html.fw-theme-ready,
   html.fw-theme-ready * {
-    transition: background-color var(--dur) var(--ease),
-                border-color var(--dur) var(--ease),
-                color var(--dur) var(--ease);
+    transition: background-color var(--dur-fast) var(--ease),
+                border-color var(--dur-fast) var(--ease),
+                color var(--dur-fast) var(--ease);
   }
 }
 

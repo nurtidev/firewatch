@@ -106,7 +106,7 @@ export default function AppShell({
     <div className="flex h-full flex-col">
       {/* Brand */}
       <div className="flex items-center justify-between px-5 pb-5 pt-5">
-        <Link href="/dashboard" className="block">
+        <Link href="/dashboard" className="block" onClick={() => setDrawer(false)}>
           <div className="text-lg font-bold tracking-tight">
             FireWatch<span className="text-accent">.</span>
           </div>
@@ -133,6 +133,7 @@ export default function AppShell({
             <Link
               key={item.href}
               href={item.href}
+              onClick={() => setDrawer(false)}
               title={item.hint ? t(item.hint) : undefined}
               aria-current={active ? "page" : undefined}
               className={cn(

@@ -648,7 +648,7 @@ function ObjectSheet({
         setError(t("Не удалось сохранить офлайн — переполнено хранилище устройства."));
         return;
       }
-      onQueued(status);
+      requestClose(() => onQueued(status));
       return;
     }
 
@@ -666,7 +666,7 @@ function ObjectSheet({
         const d = await r.json().catch(() => ({}));
         throw new Error(d.detail || t("Не удалось сохранить визит"));
       }
-      onSaved();
+      requestClose(onSaved);
     } catch {
       // POST failed (likely network) — queue it instead of losing the visit.
       // Already-uploaded photo ids ride along so evidence is preserved on flush.
@@ -675,7 +675,7 @@ function ObjectSheet({
         setError(t("Не удалось сохранить — переполнено хранилище устройства."));
         return;
       }
-      onQueued(status);
+      requestClose(() => onQueued(status));
     } finally {
       setSaving(false);
     }
@@ -705,7 +705,7 @@ function ObjectSheet({
         <div className="flex items-center gap-2 px-2 py-2">
           <button
             type="button"
-            onClick={requestClose}
+            onClick={() => requestClose()}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted transition-[color,background-color,scale] duration-[var(--dur-fast)] hover:bg-surface-2 hover:text-fg active:scale-[0.97]"
             aria-label={t("Назад к маршруту")}
           >

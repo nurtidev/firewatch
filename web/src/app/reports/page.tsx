@@ -498,7 +498,7 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
           apiErrorText(d.detail, t("Не удалось отправить донесение")) ?? t("Не удалось отправить донесение"),
         );
       }
-      onCreated();
+      requestClose(onCreated);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("Не удалось отправить донесение"));
     } finally {
@@ -526,7 +526,7 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
         <div className="flex items-center gap-2 px-2 py-2">
           <button
             type="button"
-            onClick={requestClose}
+            onClick={() => requestClose()}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted transition-[color,background-color,scale] duration-[var(--dur-fast)] hover:bg-surface-2 hover:text-fg active:scale-[0.97]"
             aria-label={t("Закрыть")}
           >

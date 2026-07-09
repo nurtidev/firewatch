@@ -42,10 +42,14 @@ export function usePresence(open: boolean, exitMs = 140) {
         setVisible(true);
         return;
       }
-      const r = requestAnimationFrame(() =>
-        requestAnimationFrame(() => setVisible(true)),
-      );
-      return () => cancelAnimationFrame(r);
+      let inner = 0;
+      const outer = requestAnimationFrame(() => {
+        inner = requestAnimationFrame(() => setVisible(true));
+      });
+      return () => {
+        cancelAnimationFrame(outer);
+        cancelAnimationFrame(inner);
+      };
     }
     setVisible(false);
     const t = setTimeout(() => setMounted(false), prefersReducedMotion() ? 0 : exitMs);
@@ -56,33 +60,50 @@ export function usePresence(open: boolean, exitMs = 140) {
 
 /**
  * Self-closing presence for modal-like components that own their `onClose`.
- * `visible` starts hidden then flips true (enter); `requestClose()` plays the
- * exit, then calls `onClose` after `exitMs` (so the parent unmounts only once
- * the exit has run). Respects prefers-reduced-motion (instant, no delay).
+ * `visible` starts hidden then flips true (enter); `requestClose(after?)` plays
+ * the exit, then runs `after ?? onClose` after `exitMs` (so any follow-up — a
+ * success callback that unmounts the parent — happens only once the exit has
+ * run). Respects prefers-reduced-motion (instant, no delay).
  */
 export function useDismiss(onClose: () => void, exitMs = 140) {
   const [visible, setVisible] = React.useState(false);
   const closing = React.useRef(false);
+  const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   React.useEffect(() => {
     if (prefersReducedMotion()) {
       setVisible(true);
       return;
     }
-    const r = requestAnimationFrame(() =>
-      requestAnimationFrame(() => setVisible(true)),
-    );
-    return () => cancelAnimationFrame(r);
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setVisible(true));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
   }, []);
-  const requestClose = React.useCallback(() => {
-    if (closing.current) return;
-    closing.current = true;
-    if (prefersReducedMotion()) {
-      onClose();
-      return;
-    }
-    setVisible(false);
-    setTimeout(onClose, exitMs);
-  }, [onClose, exitMs]);
+  // Clear a pending exit timer if the component unmounts mid-close.
+  React.useEffect(
+    () => () => {
+      if (timer.current != null) clearTimeout(timer.current);
+    },
+    [],
+  );
+  const requestClose = React.useCallback(
+    (after?: () => void) => {
+      if (closing.current) return;
+      closing.current = true;
+      const done = after ?? onClose;
+      if (prefersReducedMotion()) {
+        done();
+        return;
+      }
+      setVisible(false);
+      timer.current = setTimeout(done, exitMs);
+    },
+    [onClose, exitMs],
+  );
   return { visible, requestClose };
 }
 
