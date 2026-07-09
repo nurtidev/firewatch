@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Flame, Menu, X } from "lucide-react";
+import { Flame, Menu, X, MessageCircle, Send, Mail } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { DEFAULT_ROUTE } from "@/lib/nav";
 import { cn } from "@/lib/cn";
@@ -17,7 +17,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import type { RealFloorPlan } from "@/data/floorplans/hayvill";
 
-/* ── Contact intents (single source for mailto CTAs) ───────────────────────── */
+/* ── Contact intents (single source for mailto/WhatsApp/Telegram CTAs) ──────── */
 
 const CONTACT = "nurtilek.assankhan@gmail.com";
 const mail = (subject: string) =>
@@ -30,12 +30,31 @@ export const MAILTO = {
   business: mail("Оцифровка объекта — FireWatch"),
 };
 
+/* WhatsApp deep links support a prefilled message; t.me direct links do not. */
+const WHATSAPP_NUMBER = "77775618308";
+const wa = (text: string) =>
+  `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`;
+
+export const CONTACTS = {
+  telegram: "https://t.me/nurtilek_assankhan",
+  wa: {
+    demo: wa("Здравствуйте! Хочу запросить демо FireWatch."),
+    business: wa("Здравствуйте! Хочу обсудить оцифровку объекта — FireWatch."),
+    pilot: wa("Здравствуйте! Интересует пилот FireWatch для ведомства."),
+  },
+};
+
 export type NavLink = { href: string; label: string };
 export type Cta = { label: string; href: string };
 
 /* Cross-page routes use <Link> (client nav); in-page anchors use <a>. */
 function isRoute(href: string) {
   return href.startsWith("/");
+}
+
+/* wa.me / t.me CTAs open in a new tab, like any external chat link. */
+function isExternalChat(href: string) {
+  return href.startsWith("https://wa.me/") || href.startsWith("https://t.me/");
 }
 
 /* ── Header (shared across the three landing surfaces) ──────────────────────── */
@@ -94,19 +113,23 @@ export function LandingHeader({
           <span className="hidden sm:inline-flex">
             <LanguageSwitcher />
           </span>
-          <ThemeToggle className="h-10 w-10 rounded-[12px] border border-border-strong" />
+          <ThemeToggle className="h-10 w-10 rounded-lg border border-border-strong" />
           <Link
             href={appHref}
-            className="hidden rounded-[12px] border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-fg shadow-card transition-colors hover:border-faint sm:inline-flex"
+            className="hidden rounded-lg border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-fg shadow-card transition-colors hover:border-faint sm:inline-flex"
           >
             {appLabel}
           </Link>
-          <a href={cta.href} className="hidden sm:inline-flex">
+          <a
+            href={cta.href}
+            className="hidden sm:inline-flex"
+            {...(isExternalChat(cta.href) ? { target: "_blank", rel: "noopener" } : {})}
+          >
             <PrimaryButton>{cta.label}</PrimaryButton>
           </a>
           <button
             onClick={() => setMenu((v) => !v)}
-            className="grid h-10 w-10 place-items-center rounded-[12px] border border-border-strong text-muted md:hidden"
+            className="grid h-10 w-10 place-items-center rounded-lg border border-border-strong text-muted md:hidden"
             aria-label={t("Меню")}
             aria-expanded={menu}
             aria-controls="mobile-nav"
@@ -146,7 +169,12 @@ export function LandingHeader({
             >
               {appLabel}
             </Link>
-            <a href={cta.href} className="mt-1" onClick={() => setMenu(false)}>
+            <a
+              href={cta.href}
+              className="mt-1"
+              onClick={() => setMenu(false)}
+              {...(isExternalChat(cta.href) ? { target: "_blank", rel: "noopener" } : {})}
+            >
               <PrimaryButton className="w-full justify-center">{cta.label}</PrimaryButton>
             </a>
             <div className="mt-3 px-1">
@@ -192,7 +220,7 @@ export function Brand({ small }: { small?: boolean }) {
     <div className="flex items-center gap-2.5 font-extrabold tracking-tight">
       <span
         className={cn(
-          "grid place-items-center rounded-[9px] bg-gradient-to-br from-accent to-accent-hover text-white",
+          "grid place-items-center rounded-lg bg-gradient-to-br from-accent to-accent-hover text-white",
           small ? "h-[26px] w-[26px]" : "h-[30px] w-[30px]",
         )}
         style={{
@@ -222,7 +250,7 @@ export function PrimaryButton({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-2 rounded-[12px] bg-accent px-[18px] py-2.5 text-sm font-semibold text-accent-fg transition-colors hover:bg-accent-hover",
+        "inline-flex items-center gap-2 rounded-lg bg-accent px-[18px] py-2.5 text-sm font-semibold text-accent-fg transition-colors hover:bg-accent-hover",
         className,
       )}
       style={{
@@ -244,7 +272,7 @@ export function GhostButton({
   href?: string;
 }) {
   const cls = cn(
-    "inline-flex items-center gap-2 rounded-[12px] border border-border-strong bg-surface px-6 py-3.5 text-[15px] font-semibold text-fg shadow-card transition-colors hover:border-faint",
+    "inline-flex items-center gap-2 rounded-lg border border-border-strong bg-surface px-6 py-3.5 text-[15px] font-semibold text-fg shadow-card transition-colors hover:border-faint",
     className,
   );
   if (href && isRoute(href)) {
@@ -258,6 +286,70 @@ export function GhostButton({
     <a href={href} className={cls}>
       {children}
     </a>
+  );
+}
+
+/**
+ * Quiet inline row of secondary contact channels, meant to sit under a primary
+ * CTA — e.g. "или: [Telegram] · [почта]". Always icon + label (color is never
+ * the only signal), each link opens in a new tab with a proper aria-label.
+ */
+export function ContactRow({
+  whatsapp,
+  telegram,
+  mailto,
+  className,
+}: {
+  /** Show a WhatsApp link pointing at this wa.me href. */
+  whatsapp?: string;
+  /** Show a Telegram link — pass `true` for the default handle, or omit to hide it. */
+  telegram?: boolean;
+  /** Show a "почта" link pointing at this mailto: href. */
+  mailto?: string;
+  className?: string;
+}) {
+  const t = useT();
+  const linkClass =
+    "inline-flex items-center gap-1.5 text-muted transition-colors hover:text-fg";
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13.5px]",
+        className,
+      )}
+    >
+      <span className="text-faint">{t("или:")}</span>
+      {whatsapp && (
+        <a
+          href={whatsapp}
+          target="_blank"
+          rel="noopener"
+          aria-label={t("Написать в WhatsApp")}
+          className={linkClass}
+        >
+          <MessageCircle className="h-3.5 w-3.5" aria-hidden />
+          WhatsApp
+        </a>
+      )}
+      {telegram && (
+        <a
+          href={CONTACTS.telegram}
+          target="_blank"
+          rel="noopener"
+          aria-label={t("Написать в Telegram")}
+          className={linkClass}
+        >
+          <Send className="h-3.5 w-3.5" aria-hidden />
+          Telegram
+        </a>
+      )}
+      {mailto && (
+        <a href={mailto} aria-label={t("Написать на почту")} className={linkClass}>
+          <Mail className="h-3.5 w-3.5" aria-hidden />
+          {t("почта")}
+        </a>
+      )}
+    </div>
   );
 }
 
@@ -284,17 +376,25 @@ export function SectionHead({
   sub,
   center,
 }: {
-  eyebrow: string;
+  /** Optional category label. Use sparingly — at most one per few sections. */
+  eyebrow?: string;
   title: string;
   sub: string;
   center?: boolean;
 }) {
   return (
     <div className={cn("max-w-[680px]", center && "mx-auto text-center")}>
-      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
-        {eyebrow}
-      </span>
-      <h2 className="mt-3.5 text-[clamp(1.6rem,3.6vw,2.5rem)] font-extrabold leading-tight tracking-tight">
+      {eyebrow && (
+        <span className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
+          {eyebrow}
+        </span>
+      )}
+      <h2
+        className={cn(
+          "text-[clamp(1.6rem,3.6vw,2.5rem)] font-extrabold leading-tight tracking-tight",
+          eyebrow && "mt-3.5",
+        )}
+      >
         {title}
       </h2>
       <p className="mt-4 text-[17px] leading-relaxed text-muted">{sub}</p>
@@ -369,7 +469,7 @@ export function Hero3DSkeleton({ plan }: { plan: RealFloorPlan }) {
       <div className="absolute inset-0 grid place-items-center p-10 opacity-70">
         <MiniPlan plan={plan} mode="vector" />
       </div>
-      <div className="absolute bottom-3 left-3 inline-flex items-center gap-2 rounded-[10px] border border-border bg-surface/80 px-2.5 py-1.5 text-[11.5px] text-muted backdrop-blur">
+      <div className="absolute bottom-3 left-3 inline-flex items-center gap-2 rounded-lg border border-border bg-surface/80 px-2.5 py-1.5 text-[11.5px] text-muted backdrop-blur">
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" aria-hidden />
         {t("Загрузка 3D-двойника…")}
       </div>

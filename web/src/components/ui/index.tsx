@@ -15,6 +15,98 @@ import { cn } from "@/lib/cn";
 import { SEVERITY, type Severity, type SeverityMeta } from "@/lib/risk";
 import { useT } from "@/lib/i18n";
 
+/* ============================== Motion helpers ============================== */
+
+function prefersReducedMotion() {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+/**
+ * Mount/unmount presence for parent-driven overlays (a boolean `open`).
+ * Keeps the element mounted through its exit transition, then unmounts.
+ * `visible` drives the enter/exit styles; flip it via a two-frame delay so the
+ * initial (hidden) state paints before the browser transitions to shown.
+ * Under prefers-reduced-motion it resolves synchronously (no motion, no delay).
+ */
+export function usePresence(open: boolean, exitMs = 140) {
+  const [mounted, setMounted] = React.useState(open);
+  const [visible, setVisible] = React.useState(open);
+  React.useEffect(() => {
+    if (open) {
+      setMounted(true);
+      if (prefersReducedMotion()) {
+        setVisible(true);
+        return;
+      }
+      let inner = 0;
+      const outer = requestAnimationFrame(() => {
+        inner = requestAnimationFrame(() => setVisible(true));
+      });
+      return () => {
+        cancelAnimationFrame(outer);
+        cancelAnimationFrame(inner);
+      };
+    }
+    setVisible(false);
+    const t = setTimeout(() => setMounted(false), prefersReducedMotion() ? 0 : exitMs);
+    return () => clearTimeout(t);
+  }, [open, exitMs]);
+  return { mounted, visible };
+}
+
+/**
+ * Self-closing presence for modal-like components that own their `onClose`.
+ * `visible` starts hidden then flips true (enter); `requestClose(after?)` plays
+ * the exit, then runs `after ?? onClose` after `exitMs` (so any follow-up — a
+ * success callback that unmounts the parent — happens only once the exit has
+ * run). Respects prefers-reduced-motion (instant, no delay).
+ */
+export function useDismiss(onClose: () => void, exitMs = 140) {
+  const [visible, setVisible] = React.useState(false);
+  const closing = React.useRef(false);
+  const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  React.useEffect(() => {
+    if (prefersReducedMotion()) {
+      setVisible(true);
+      return;
+    }
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setVisible(true));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, []);
+  // Clear a pending exit timer if the component unmounts mid-close.
+  React.useEffect(
+    () => () => {
+      if (timer.current != null) clearTimeout(timer.current);
+    },
+    [],
+  );
+  const requestClose = React.useCallback(
+    (after?: () => void) => {
+      if (closing.current) return;
+      closing.current = true;
+      const done = after ?? onClose;
+      if (prefersReducedMotion()) {
+        done();
+        return;
+      }
+      setVisible(false);
+      timer.current = setTimeout(done, exitMs);
+    },
+    [onClose, exitMs],
+  );
+  return { visible, requestClose };
+}
+
 /* ============================== Surfaces ============================== */
 
 export function Card({
@@ -284,13 +376,15 @@ type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "success";
 type ButtonSize = "sm" | "md" | "lg" | "xl";
 
 const BTN_BASE =
-  "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors duration-[var(--dur-fast)] disabled:pointer-events-none disabled:opacity-50 whitespace-nowrap";
+  "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-[color,background-color,border-color,scale] duration-[var(--dur-fast)] active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 whitespace-nowrap";
 const BTN_VARIANT: Record<ButtonVariant, string> = {
   primary: "bg-accent text-accent-fg hover:bg-accent-hover",
   secondary:
     "border border-border-strong bg-surface-2 text-fg hover:bg-surface-3",
   ghost: "text-muted hover:bg-surface-2 hover:text-fg",
-  danger: "bg-critical text-white hover:opacity-90",
+  // Near-black on --critical red = 5.8:1 (white was 3.4:1, failing AA in both
+  // themes). accent-fg is near-black in dark and light, so this holds everywhere.
+  danger: "bg-critical text-accent-fg hover:opacity-90",
   success: "bg-normal text-accent-fg hover:opacity-90",
 };
 // sm/md = dense desktop. lg/xl = field touch targets (≥44px) — one-handed use on
@@ -410,9 +504,9 @@ export function ProgressBar({
       aria-valuemax={max}
     >
       <div
-        className="h-full rounded-full transition-[width] duration-[var(--dur)]"
+        className="h-full w-full origin-left rounded-full transition-transform duration-[var(--dur)]"
         style={{
-          width: `${pct}%`,
+          transform: `scaleX(${pct / 100})`,
           background: severity ? severity.cssVar : "var(--color-accent)",
         }}
       />

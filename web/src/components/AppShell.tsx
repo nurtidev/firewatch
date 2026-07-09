@@ -27,6 +27,7 @@ import { useAuth } from "@/lib/auth";
 import { NAV, navForRole, DEFAULT_ROUTE, ROLE_LABEL } from "@/lib/nav";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
+import { usePresence } from "@/components/ui";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
@@ -59,6 +60,8 @@ export default function AppShell({
   const pathname = usePathname();
   const t = useT();
   const [drawer, setDrawer] = useState(false);
+  // Keep the drawer mounted through its slide-out so close animates too.
+  const drawerPresence = usePresence(drawer, 150);
 
   useEffect(() => {
     if (!ready) return;
@@ -103,7 +106,7 @@ export default function AppShell({
     <div className="flex h-full flex-col">
       {/* Brand */}
       <div className="flex items-center justify-between px-5 pb-5 pt-5">
-        <Link href="/dashboard" className="block">
+        <Link href="/dashboard" className="block" onClick={() => setDrawer(false)}>
           <div className="text-lg font-bold tracking-tight">
             FireWatch<span className="text-accent">.</span>
           </div>
@@ -113,7 +116,7 @@ export default function AppShell({
         </Link>
         <button
           onClick={() => setDrawer(false)}
-          className="rounded-md p-1.5 text-muted hover:bg-surface-2 hover:text-fg lg:hidden"
+          className="rounded-md p-1.5 text-muted transition-[color,background-color,scale] duration-[var(--dur-fast)] hover:bg-surface-2 hover:text-fg active:scale-[0.97] lg:hidden"
           aria-label={t("Закрыть меню")}
         >
           <X className="h-5 w-5" />
@@ -130,6 +133,7 @@ export default function AppShell({
             <Link
               key={item.href}
               href={item.href}
+              onClick={() => setDrawer(false)}
               title={item.hint ? t(item.hint) : undefined}
               aria-current={active ? "page" : undefined}
               className={cn(
@@ -176,7 +180,7 @@ export default function AppShell({
               logout();
               router.replace("/login");
             }}
-            className="rounded-md p-1.5 text-faint transition-colors hover:bg-surface-2 hover:text-critical"
+            className="rounded-md p-1.5 text-faint transition-[color,background-color,scale] duration-[var(--dur-fast)] hover:bg-surface-2 hover:text-critical active:scale-[0.97]"
             aria-label={t("Выйти")}
             title={t("Выйти")}
           >
@@ -194,15 +198,26 @@ export default function AppShell({
         {Sidebar}
       </aside>
 
-      {/* Mobile drawer */}
-      {drawer && (
+      {/* Mobile drawer — slides in from the left, backdrop fades. Enter ~220ms,
+          exit faster (~150ms). */}
+      {drawerPresence.mounted && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             onClick={() => setDrawer(false)}
             aria-hidden
+            style={{
+              opacity: drawerPresence.visible ? 1 : 0,
+              transition: `opacity ${drawerPresence.visible ? 220 : 150}ms var(--ease)`,
+            }}
           />
-          <aside className="absolute inset-y-0 left-0 w-64 border-r border-border bg-surface shadow-pop fw-fade-in">
+          <aside
+            className="absolute inset-y-0 left-0 w-64 border-r border-border bg-surface shadow-pop"
+            style={{
+              transform: drawerPresence.visible ? "translateX(0)" : "translateX(-100%)",
+              transition: `transform ${drawerPresence.visible ? 220 : 150}ms var(--ease)`,
+            }}
+          >
             {Sidebar}
           </aside>
         </div>
@@ -213,7 +228,7 @@ export default function AppShell({
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-surface px-4 lg:hidden">
           <button
             onClick={() => setDrawer(true)}
-            className="rounded-md p-1.5 text-muted hover:bg-surface-2 hover:text-fg"
+            className="rounded-md p-1.5 text-muted transition-[color,background-color,scale] duration-[var(--dur-fast)] hover:bg-surface-2 hover:text-fg active:scale-[0.97]"
             aria-label={t("Открыть меню")}
           >
             <Menu className="h-5 w-5" />
