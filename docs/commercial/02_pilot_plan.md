@@ -41,4 +41,4 @@
 этап.
 
 ---
-**Контакт:** Нуртілек Асанхан · nurtilek.develop@gmail.com · +7 777 561 83 08 (WhatsApp/Telegram: @nurtilek_assankhan)
+**Контакт:** Нуртілек Асанхан · nurtilek.assankhan@gmail.com · +7 777 561 83 08 (WhatsApp/Telegram: @nurtilek_assankhan)

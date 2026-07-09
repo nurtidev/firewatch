@@ -76,4 +76,4 @@
 ---
 
 **Приложения:** 1) План пилота. 2) Шаблон LOI. 3) Доступ к демонстрации.
-**Контакт:** nurtilek.develop@gmail.com · [телефон]
+**Контакт:** nurtilek.assankhan@gmail.com · +7 777 561 83 08 (WhatsApp/Telegram: @nurtilek_assankhan)
