@@ -94,10 +94,10 @@ export function LandingHeader({
           <span className="hidden sm:inline-flex">
             <LanguageSwitcher />
           </span>
-          <ThemeToggle className="h-10 w-10 rounded-[12px] border border-border-strong" />
+          <ThemeToggle className="h-10 w-10 rounded-lg border border-border-strong" />
           <Link
             href={appHref}
-            className="hidden rounded-[12px] border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-fg shadow-card transition-colors hover:border-faint sm:inline-flex"
+            className="hidden rounded-lg border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-fg shadow-card transition-colors hover:border-faint sm:inline-flex"
           >
             {appLabel}
           </Link>
@@ -106,7 +106,7 @@ export function LandingHeader({
           </a>
           <button
             onClick={() => setMenu((v) => !v)}
-            className="grid h-10 w-10 place-items-center rounded-[12px] border border-border-strong text-muted md:hidden"
+            className="grid h-10 w-10 place-items-center rounded-lg border border-border-strong text-muted md:hidden"
             aria-label={t("Меню")}
             aria-expanded={menu}
             aria-controls="mobile-nav"
@@ -192,7 +192,7 @@ export function Brand({ small }: { small?: boolean }) {
     <div className="flex items-center gap-2.5 font-extrabold tracking-tight">
       <span
         className={cn(
-          "grid place-items-center rounded-[9px] bg-gradient-to-br from-accent to-accent-hover text-white",
+          "grid place-items-center rounded-lg bg-gradient-to-br from-accent to-accent-hover text-white",
           small ? "h-[26px] w-[26px]" : "h-[30px] w-[30px]",
         )}
         style={{
@@ -222,7 +222,7 @@ export function PrimaryButton({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-2 rounded-[12px] bg-accent px-[18px] py-2.5 text-sm font-semibold text-accent-fg transition-colors hover:bg-accent-hover",
+        "inline-flex items-center gap-2 rounded-lg bg-accent px-[18px] py-2.5 text-sm font-semibold text-accent-fg transition-colors hover:bg-accent-hover",
         className,
       )}
       style={{
@@ -244,7 +244,7 @@ export function GhostButton({
   href?: string;
 }) {
   const cls = cn(
-    "inline-flex items-center gap-2 rounded-[12px] border border-border-strong bg-surface px-6 py-3.5 text-[15px] font-semibold text-fg shadow-card transition-colors hover:border-faint",
+    "inline-flex items-center gap-2 rounded-lg border border-border-strong bg-surface px-6 py-3.5 text-[15px] font-semibold text-fg shadow-card transition-colors hover:border-faint",
     className,
   );
   if (href && isRoute(href)) {
@@ -284,17 +284,25 @@ export function SectionHead({
   sub,
   center,
 }: {
-  eyebrow: string;
+  /** Optional category label. Use sparingly — at most one per few sections. */
+  eyebrow?: string;
   title: string;
   sub: string;
   center?: boolean;
 }) {
   return (
     <div className={cn("max-w-[680px]", center && "mx-auto text-center")}>
-      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
-        {eyebrow}
-      </span>
-      <h2 className="mt-3.5 text-[clamp(1.6rem,3.6vw,2.5rem)] font-extrabold leading-tight tracking-tight">
+      {eyebrow && (
+        <span className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
+          {eyebrow}
+        </span>
+      )}
+      <h2
+        className={cn(
+          "text-[clamp(1.6rem,3.6vw,2.5rem)] font-extrabold leading-tight tracking-tight",
+          eyebrow && "mt-3.5",
+        )}
+      >
         {title}
       </h2>
       <p className="mt-4 text-[17px] leading-relaxed text-muted">{sub}</p>
@@ -369,7 +377,7 @@ export function Hero3DSkeleton({ plan }: { plan: RealFloorPlan }) {
       <div className="absolute inset-0 grid place-items-center p-10 opacity-70">
         <MiniPlan plan={plan} mode="vector" />
       </div>
-      <div className="absolute bottom-3 left-3 inline-flex items-center gap-2 rounded-[10px] border border-border bg-surface/80 px-2.5 py-1.5 text-[11.5px] text-muted backdrop-blur">
+      <div className="absolute bottom-3 left-3 inline-flex items-center gap-2 rounded-lg border border-border bg-surface/80 px-2.5 py-1.5 text-[11.5px] text-muted backdrop-blur">
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" aria-hidden />
         {t("Загрузка 3D-двойника…")}
       </div>

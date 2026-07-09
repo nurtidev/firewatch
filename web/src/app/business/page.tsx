@@ -42,7 +42,7 @@ import {
 } from "@/components/landing/chrome";
 import { PIPELINE } from "@/components/landing/content";
 import { cn } from "@/lib/cn";
-import { Reveal, CountUp } from "@/components/landing/reveal";
+import { Reveal } from "@/components/landing/reveal";
 import { useT } from "@/lib/i18n";
 
 const LandingHero3D = dynamic(() => import("@/components/LandingHero3D"), {
@@ -78,29 +78,25 @@ const RISK_FACTS: {
   n: string;
   label: string;
   source: string;
-  count?: { value: number; decimals?: number; prefix?: string; suffix?: string };
 }[] = [
   {
     n: "~55%",
-    label: "пожаров начинаются с электрооборудования — проводка, щитки, перегруженные сети. Это вопрос эксплуатации, а не везения",
+    label: "пожаров начинаются с электрооборудования — проводка, щитки, перегруженные сети",
     source: "МЧС РК · 2025",
-    count: { value: 55, prefix: "~", suffix: "%" },
   },
   {
     n: "+41%",
     label: "рост пожаров в многоэтажных домах за год — нагрузка на УК и ЖК растёт",
     source: "МЧС РК · янв–май 2025",
-    count: { value: 41, prefix: "+", suffix: "%" },
   },
   {
     n: "219",
-    label: "автомобилей сгорело в Астане за год — паркинг ТРЦ и ЖК — зона прямой ответственности владельца",
+    label: "автомобилей сгорело в Астане за год — зона ответственности владельца",
     source: "ДЧС Астаны · 2025",
-    count: { value: 219 },
   },
   {
     n: "1 из 36",
-    label: "пожаров в РК заканчивается гибелью людей — для владельца это ответственность, а не только материальный ущерб",
+    label: "пожаров в РК заканчивается гибелью людей — это ответственность владельца",
     source: "МЧС РК · 2021",
   },
 ];
@@ -156,7 +152,7 @@ export default function BusinessLanding() {
       {/* ── Hero ── */}
       <section className="relative overflow-hidden px-5 pb-14 pt-14 sm:px-6 sm:pb-20 sm:pt-20">
         <div
-          className="pointer-events-none absolute -right-32 -top-40 h-[520px] w-[520px] rounded-full opacity-70 blur-[90px]"
+          className="pointer-events-none absolute -right-32 -top-40 h-[520px] w-[520px] rounded-full opacity-35 blur-[90px]"
           style={{
             background:
               "radial-gradient(circle, color-mix(in oklab, var(--color-accent) 20%, transparent), transparent 70%)",
@@ -165,27 +161,13 @@ export default function BusinessLanding() {
         />
         <div className="relative mx-auto grid max-w-[1180px] grid-cols-1 items-center gap-12 lg:grid-cols-[1.02fr_.98fr] lg:gap-16 [&>div]:min-w-0">
           <div>
-            <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-2 py-1.5 pr-3.5 text-[12.5px] font-semibold text-muted shadow-card">
-              <span className="rounded-full bg-accent px-2.5 py-0.5 text-[11px] text-accent-fg">
-                {t("Для бизнеса")}
-              </span>
-              {t("Цифровой паспорт объекта")}
-            </span>
-            <h1 className="mt-5 text-[clamp(2.15rem,5vw,3.6rem)] font-extrabold leading-[1.05] tracking-tight">
+            <h1 className="text-[clamp(2.15rem,5vw,3.6rem)] font-extrabold leading-[1.05] tracking-tight">
               {t("Цифровой паспорт объекта")}{" "}
-              <span
-                className="bg-clip-text text-transparent"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(120deg,var(--color-fg) 45%,var(--color-accent) 120%)",
-                }}
-              >
-                {t("— с ИИ и риск-картой")}
-              </span>
+              <span className="text-accent">{t("— с ИИ и риск-картой")}</span>
             </h1>
             <p className="mt-5 max-w-[540px] text-[clamp(1rem,2vw,1.2rem)] leading-relaxed text-muted">
               {t(
-                "Не папка бумаг, а объект в портале: аудит ПБ, план эвакуации, 2D/3D-планы и предиктивная риск-оценка. Конкуренты в РК делают это вручную — мы быстрее, нагляднее и с аналитикой, которой нет ни у кого.",
+                "Не папка бумаг, а объект в портале: аудит ПБ, план эвакуации, 2D/3D-планы и риск-оценка, которой нет ни у кого.",
               )}
             </p>
             <div className="mt-8 flex flex-wrap gap-3.5">
@@ -196,18 +178,13 @@ export default function BusinessLanding() {
               </a>
               <GhostButton href="#offer">{t("Что входит")}</GhostButton>
             </div>
-            <div className="mt-9 flex flex-wrap gap-x-9 gap-y-5">
-              <HeroStat n={t("от 150 000 ₸")} l={t("за объект")} />
-              <HeroStat n="2D / 3D" l={t("планы объекта")} />
-              <HeroStat n={t("минуты")} l={t("вместо дней ручной работы")} />
-            </div>
           </div>
 
           {/* Interactive 3D twin of the object */}
           <div>
-            <div className="relative h-[400px] overflow-hidden rounded-[20px] border border-border bg-surface shadow-pop sm:h-[460px] lg:h-[500px]">
+            <div className="relative h-[400px] overflow-hidden rounded-xl border border-border bg-surface shadow-pop sm:h-[460px] lg:h-[500px]">
               <LandingHero3D className="h-full w-full" />
-              <span className="pointer-events-none absolute right-3 top-3 rounded-[10px] border border-accent/30 bg-accent-weak px-2.5 py-1 text-[11px] font-semibold text-accent">
+              <span className="pointer-events-none absolute right-3 top-3 rounded-lg border border-accent/30 bg-accent-weak px-2.5 py-1 text-[11px] font-semibold text-accent">
                 {t("3D-двойник объекта")}
               </span>
             </div>
@@ -220,15 +197,26 @@ export default function BusinessLanding() {
         </div>
       </section>
 
+      {/* ── Signal metrics (relocated from hero) ── */}
+      <Section id="metrics">
+        <div className="rounded-xl border border-border bg-surface p-7 shadow-card sm:p-9">
+          <div className="text-[12.5px] font-medium text-muted">
+            {t("Для бизнеса · цифровой паспорт объекта")}
+          </div>
+          <div className="mt-6 flex flex-wrap gap-x-12 gap-y-6">
+            <HeroStat n={t("от 150 000 ₸")} l={t("за объект")} />
+            <HeroStat n="2D / 3D" l={t("планы объекта")} />
+            <HeroStat n={t("минуты")} l={t("вместо дней ручной работы")} />
+          </div>
+        </div>
+      </Section>
+
       {/* ── What's included ── */}
       <Section id="offer">
         <Reveal>
-          <div className="grid grid-cols-1 items-center gap-10 rounded-[24px] border border-border bg-surface p-7 shadow-card lg:grid-cols-[1.1fr_.9fr] lg:p-11 [&>div]:min-w-0">
+          <div className="grid grid-cols-1 items-center gap-10 rounded-xl border border-border bg-surface p-7 shadow-card lg:grid-cols-[1.1fr_.9fr] lg:p-11 [&>div]:min-w-0">
             <div>
-              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
-                {t("Что входит")}
-              </span>
-              <h2 className="mt-3.5 text-[clamp(1.55rem,3.4vw,2.3rem)] font-extrabold leading-tight tracking-tight">
+              <h2 className="text-[clamp(1.55rem,3.4vw,2.3rem)] font-extrabold leading-tight tracking-tight">
                 {t("Всё об объекте — в одном портале")}
               </h2>
               <p className="mt-4 max-w-[520px] text-[16px] leading-relaxed text-muted">
@@ -256,7 +244,7 @@ export default function BusinessLanding() {
             </div>
 
             {/* real apartment plan as the visual */}
-            <div className="rounded-[18px] border border-border bg-surface-2 p-4">
+            <div className="rounded-xl border border-border bg-surface-2 p-4">
               <div className="mb-3 flex items-center gap-2 text-[12px] font-medium text-muted">
                 <Building2 className="h-4 w-4 text-accent" aria-hidden />
                 {t("Цифровой паспорт · план помещения")}
@@ -284,7 +272,6 @@ export default function BusinessLanding() {
           <Reveal>
             <SectionHead
               center
-              eyebrow={t("Как это работает")}
               title={t("Из документов — в цифровой 3D-двойник")}
               sub={t(
                 "Планы и экспликации объекта превращаются в калиброванную геометрию — и сразу становятся интерактивными.",
@@ -303,8 +290,8 @@ export default function BusinessLanding() {
                     <ArrowRight className="h-3.5 w-3.5" />
                   </span>
                 )}
-                <div className="flex h-full flex-col rounded-[16px] border border-border bg-surface p-4 shadow-card">
-                  <div className="relative aspect-[3/2] overflow-hidden rounded-[11px] border border-border bg-surface-2">
+                <div className="flex h-full flex-col rounded-xl border border-border bg-surface p-4 shadow-card">
+                  <div className="relative aspect-[3/2] overflow-hidden rounded-lg border border-border bg-surface-2">
                     {i === 2 ? (
                       <div className="absolute inset-0 grid place-items-center p-3">
                         <FloorPlan2D plan={PIPELINE_PLAN} compact className="w-full" />
@@ -326,7 +313,7 @@ export default function BusinessLanding() {
                     )}
                   </div>
                   <div className="mt-4 flex items-center gap-2.5">
-                    <span className="grid h-9 w-9 place-items-center rounded-[10px] border border-border bg-surface-2 text-fg">
+                    <span className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface-2 text-fg">
                       <p.icon className="h-[18px] w-[18px]" strokeWidth={1.9} />
                     </span>
                     <span className="text-[12px] font-bold tracking-[0.12em] text-accent">
@@ -373,11 +360,11 @@ export default function BusinessLanding() {
                 <figure
                   key={s.src}
                   className={cn(
-                    "overflow-hidden rounded-[14px] border border-border bg-surface p-2 shadow-pop transition-transform",
+                    "overflow-hidden rounded-lg border border-border bg-surface p-2 shadow-pop transition-transform",
                     i === 0 ? "sm:-rotate-[1.2deg]" : "sm:rotate-[1.2deg]",
                   )}
                 >
-                  <div className="overflow-hidden rounded-[9px] bg-white">
+                  <div className="overflow-hidden rounded-lg bg-white">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={s.src}
@@ -427,8 +414,8 @@ export default function BusinessLanding() {
 
               {/* 3D-двойник + переход в систему */}
               <aside className="flex flex-col gap-4">
-                <div className="rounded-[16px] border border-border bg-surface p-6 shadow-card">
-                  <span className="grid h-[42px] w-[42px] place-items-center rounded-xl border border-border bg-surface-2 text-accent">
+                <div className="rounded-xl border border-border bg-surface p-6 shadow-card">
+                  <span className="grid h-[42px] w-[42px] place-items-center rounded-lg border border-border bg-surface-2 text-accent">
                     <Boxes className="h-5 w-5" strokeWidth={1.9} aria-hidden />
                   </span>
                   <h3 className="mt-4 text-[16px] font-bold tracking-tight">
@@ -453,7 +440,7 @@ export default function BusinessLanding() {
                   {ALANDA_FACTS.map((f) => (
                     <div
                       key={f.label}
-                      className="rounded-[14px] border border-border bg-surface p-4 shadow-card"
+                      className="rounded-lg border border-border bg-surface p-4 shadow-card"
                     >
                       <div className="text-[clamp(1.15rem,2vw,1.5rem)] font-extrabold leading-none tracking-tight tabular">
                         {t(f.n)}
@@ -476,7 +463,7 @@ export default function BusinessLanding() {
         <div className="mt-8 flex justify-center">
           <a href={MAILTO.business}>
             <PrimaryButton className="px-6 py-3.5 text-[15px]">
-              {t("Обсудить оцифровку вашего объекта")} <ArrowRight className="h-4 w-4" />
+              {t("Обсудить оцифровку объекта")} <ArrowRight className="h-4 w-4" />
             </PrimaryButton>
           </a>
         </div>
@@ -487,7 +474,6 @@ export default function BusinessLanding() {
         <Reveal>
           <SectionHead
             center
-            eyebrow={t("Для кого")}
             title={t("Кому подходит цифровой паспорт")}
             sub={t(
               "Любому объекту, где есть обязанность по пожарной безопасности и ценно видеть риск заранее.",
@@ -497,8 +483,8 @@ export default function BusinessLanding() {
         <div className="mt-12 grid gap-[18px] sm:grid-cols-2 lg:grid-cols-4">
           {AUDIENCE.map((a, i) => (
             <Reveal key={a.title} delay={i * 70}>
-              <div className="rounded-[16px] border border-border bg-surface p-6 shadow-card">
-                <span className="grid h-[42px] w-[42px] place-items-center rounded-xl border border-border bg-surface-2 text-fg">
+              <div className="rounded-xl border border-border bg-surface p-6 shadow-card">
+                <span className="grid h-[42px] w-[42px] place-items-center rounded-lg border border-border bg-surface-2 text-fg">
                   <a.icon className="h-5 w-5" strokeWidth={1.9} />
                 </span>
                 <h3 className="mt-4 text-[16px] font-bold tracking-tight">{t(a.title)}</h3>
@@ -515,29 +501,19 @@ export default function BusinessLanding() {
           <Reveal>
             <SectionHead
               center
-              eyebrow={t("Риск в цифрах")}
               title={t("Почему это касается вашего объекта")}
               sub={t("Официальная статистика МЧС РК и ДЧС Астаны — без страшилок, просто цифры.")}
             />
           </Reveal>
-          <div className="mt-12 grid gap-[18px] sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-12 grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
             {RISK_FACTS.map((f, i) => (
               <Reveal key={f.n} delay={i * 70}>
-                <div className="flex flex-col rounded-[16px] border border-border bg-surface p-6 shadow-card">
-                  <div className="text-[clamp(1.7rem,2.6vw,2.15rem)] font-extrabold leading-none tracking-tight tabular">
-                    {f.count ? (
-                      <CountUp
-                        value={f.count.value}
-                        decimals={f.count.decimals}
-                        prefix={f.count.prefix}
-                        suffix={f.count.suffix}
-                      />
-                    ) : (
-                      t(f.n)
-                    )}
+                <div className="flex flex-col">
+                  <div className="text-[clamp(2rem,3.2vw,2.7rem)] font-extrabold leading-none tracking-tight tabular">
+                    {t(f.n)}
                   </div>
-                  <p className="mt-3 flex-1 text-[13.5px] leading-relaxed text-muted">{t(f.label)}</p>
-                  <p className="mt-4 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-faint">
+                  <p className="mt-3.5 text-[13.5px] leading-relaxed text-muted">{t(f.label)}</p>
+                  <p className="mt-3 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-faint">
                     {t(f.source)}
                   </p>
                 </div>
@@ -558,7 +534,6 @@ export default function BusinessLanding() {
           <Reveal>
             <SectionHead
               center
-              eyebrow={t("Стоимость")}
               title={t("Прозрачные пакеты, а не «звоните — обсудим»")}
               sub={t(
                 "Продаём не отдельный документ, а комплексный паспорт, где премию оправдывают скорость, 2D/3D и риск-карта.",
@@ -570,7 +545,7 @@ export default function BusinessLanding() {
               <Reveal key={p.name} delay={i * 70}>
                 <div
                   className={cn(
-                    "flex flex-col rounded-[18px] border bg-surface p-7 shadow-card",
+                    "flex flex-col rounded-xl border bg-surface p-7 shadow-card",
                     p.featured ? "border-accent/50 shadow-pop" : "border-border",
                   )}
                 >
@@ -604,10 +579,10 @@ export default function BusinessLanding() {
         <Reveal>
           <Link
             href="/gov"
-            className="group flex flex-wrap items-center justify-between gap-5 rounded-[20px] border border-border bg-surface p-7 shadow-card transition-colors hover:border-border-strong sm:p-8"
+            className="group flex flex-wrap items-center justify-between gap-5 rounded-xl border border-border bg-surface p-7 shadow-card transition-colors hover:border-border-strong sm:p-8"
           >
             <div className="flex items-center gap-4">
-              <span className="grid h-[46px] w-[46px] shrink-0 place-items-center rounded-xl border border-border bg-surface-2 text-fg">
+              <span className="grid h-[46px] w-[46px] shrink-0 place-items-center rounded-lg border border-border bg-surface-2 text-fg">
                 <Landmark className="h-5 w-5" strokeWidth={1.9} />
               </span>
               <div>
@@ -628,9 +603,9 @@ export default function BusinessLanding() {
       {/* ── Final CTA ── */}
       <section className="px-5 pb-24 sm:px-6">
         <Reveal>
-          <div className="relative mx-auto max-w-[1180px] overflow-hidden rounded-[28px] border border-border bg-surface px-6 py-16 text-center shadow-card sm:px-12">
+          <div className="relative mx-auto max-w-[1180px] overflow-hidden rounded-xl border border-border bg-surface px-6 py-16 text-center shadow-card sm:px-12">
             <div
-              className="pointer-events-none absolute -top-28 left-1/2 h-[320px] w-[620px] -translate-x-1/2 opacity-80 blur-[70px]"
+              className="pointer-events-none absolute -top-28 left-1/2 h-[320px] w-[620px] -translate-x-1/2 opacity-40 blur-[70px]"
               style={{
                 background:
                   "radial-gradient(ellipse, color-mix(in oklab, var(--color-accent) 22%, transparent), transparent 70%)",
@@ -656,7 +631,7 @@ export default function BusinessLanding() {
               </GhostButton>
             </div>
             <p className="relative mt-5 text-[13px] text-faint">
-              {t("ИИ-извлечение · 2D/3D-планы · предиктивная риск-оценка объекта")}
+              {t("ИИ-извлечение и 2D/3D-планы · предиктивная риск-оценка объекта")}
             </p>
           </div>
         </Reveal>
