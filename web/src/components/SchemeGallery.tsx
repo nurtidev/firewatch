@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Map } from "lucide-react";
-import { Card, SectionLabel, Badge } from "@/components/ui";
+import { Card, SectionLabel, Badge, useDismiss } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
 import type { ObjectSchemes, SchemePage } from "@/data/schemes";
@@ -66,7 +66,7 @@ export default function SchemeGallery({ schemes }: { schemes: ObjectSchemes }) {
                       src={p.src}
                       alt={t(p.title)}
                       loading="lazy"
-                      className="h-full w-full object-contain transition-transform duration-[var(--dur-base)] group-hover:scale-[1.03]"
+                      className="h-full w-full object-contain transition-transform duration-[var(--dur)] group-hover:scale-[1.03]"
                     />
                   </div>
                   <div className="truncate px-2.5 py-1.5 text-2xs text-muted">
@@ -110,6 +110,9 @@ function Lightbox({
 }) {
   const t = useT();
   const [zoom, setZoom] = useState(false);
+  // Fade + subtle scale on enter (~200ms) / faster exit (~140ms). requestClose
+  // plays the exit before the parent unmounts the lightbox.
+  const { visible, requestClose } = useDismiss(onClose, 140);
 
   // Зум сбрасывается при смене листа.
   useEffect(() => setZoom(false), [page.src]);
@@ -117,7 +120,7 @@ function Lightbox({
   // Клавиатура: Esc — закрыть, стрелки — листать.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") requestClose();
       else if (e.key === "ArrowLeft") onPrev();
       else if (e.key === "ArrowRight") onNext();
     };
@@ -129,14 +132,21 @@ function Lightbox({
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose, onPrev, onNext]);
+  }, [requestClose, onPrev, onNext]);
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-black/85 backdrop-blur-sm fw-fade-in"
+      className="fixed inset-0 z-50 flex flex-col bg-black/85 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label={t(page.title)}
+      style={{
+        opacity: visible ? 1 : 0,
+        transform: visible ? "scale(1)" : "scale(0.98)",
+        transition: `opacity ${visible ? 200 : 140}ms var(--ease), transform ${
+          visible ? 200 : 140
+        }ms var(--ease)`,
+      }}
     >
       {/* Верхняя панель */}
       <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
@@ -150,7 +160,7 @@ function Lightbox({
           <IconBtn label={zoom ? t("Уменьшить") : t("Увеличить")} onClick={() => setZoom((z) => !z)}>
             {zoom ? <ZoomOut className="h-5 w-5" /> : <ZoomIn className="h-5 w-5" />}
           </IconBtn>
-          <IconBtn label={t("Закрыть")} onClick={onClose}>
+          <IconBtn label={t("Закрыть")} onClick={requestClose}>
             <X className="h-5 w-5" />
           </IconBtn>
         </div>
@@ -164,7 +174,7 @@ function Lightbox({
         )}
         onClick={(e) => {
           // Клик по фону (не по изображению) закрывает.
-          if (e.target === e.currentTarget) onClose();
+          if (e.target === e.currentTarget) requestClose();
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -211,7 +221,7 @@ function IconBtn({
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="rounded-md p-2 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+      className="rounded-md p-2 text-white/80 transition-[color,background-color,scale] duration-[var(--dur-fast)] hover:bg-white/10 hover:text-white active:scale-[0.97]"
     >
       {children}
     </button>
@@ -234,7 +244,7 @@ function NavBtn({
       onClick={onClick}
       aria-label={label}
       className={cn(
-        "absolute top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-2 text-white/90 transition-colors hover:bg-black/70",
+        "absolute top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-2 text-white/90 transition-[color,background-color,scale] duration-[var(--dur-fast)] hover:bg-black/70 active:scale-[0.97]",
         side === "left" ? "left-3" : "right-3",
       )}
     >

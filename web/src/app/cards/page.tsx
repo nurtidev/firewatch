@@ -690,7 +690,7 @@ function CardsPageInner() {
                     {canManageCards && (
                       <button
                         onClick={() => deleteCard(c.id, c.address || c.filename)}
-                        className="mr-3 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-faint opacity-0 transition-[opacity,color] duration-[var(--dur-fast)] hover:bg-critical-bg hover:text-critical focus-visible:opacity-100 group-hover:opacity-100"
+                        className="mr-3 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-faint opacity-0 transition-[opacity,color] duration-[var(--dur-fast)] hover:bg-critical-bg hover:text-critical focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
                         aria-label={`${t("Удалить карточку")}: ${c.address || c.filename}`}
                         title={t("Удалить карточку")}
                       >

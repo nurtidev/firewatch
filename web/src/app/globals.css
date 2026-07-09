@@ -90,7 +90,7 @@
   --border:        #27272d;
   --border-strong: #34343c;
   --muted:         #8b8b94;
-  --faint:         #5c5c64;
+  --faint:         #7a7a83; /* ≥4.5:1 vs --bg (WCAG AA); stays quieter than --muted */
   --fg:            #ededf0;
 
   /* Brand — FireWatch orange */
@@ -136,13 +136,16 @@
   --border:        #e3e5ea;
   --border-strong: #cfd2da;
   --muted:         #55565f;
-  --faint:         #83858e;
+  --faint:         #6e6f78; /* ≥4.5:1 vs --bg (WCAG AA); stays quieter than --muted */
   --fg:            #17181c;
 
   --accent:        #ff5a1f;
   --accent-hover:  #f04d16;
   --accent-weak:   #fff0e9;
-  --accent-fg:     #ffffff;
+  /* Near-black on brand orange = 6.35:1 (white was 3.1:1, failing AA). Mirrors
+     dark theme's near-black accent-fg; also lifts `success` (on --normal green)
+     and `danger` (text-accent-fg on --critical red) over 4.5:1 in light mode. */
+  --accent-fg:     #0a0a0b;
 
   /* Severity hue unchanged; surfaces flip to light tints */
   --critical-bg: #fdece9;
@@ -207,12 +210,19 @@ input, select, textarea, button { font: inherit; }
 select option { background: var(--color-surface); color: var(--color-fg); }
 ::placeholder { color: var(--color-faint); }
 
-/* Theme transition — flip palette without a jarring snap */
-html.fw-theme-ready,
-html.fw-theme-ready * {
-  transition: background-color var(--dur) var(--ease),
-              border-color var(--dur) var(--ease),
-              color var(--dur) var(--ease);
+/* Theme transition — flip palette without a jarring snap.
+   Scoped to @layer base so Tailwind's `utilities` layer (which comes later,
+   thus wins) can still own transition-property/duration on interactive
+   elements — otherwise this compound selector silently forced 220ms on every
+   `transition-*` utility and killed the --dur-fast tier app-wide. reveal.tsx's
+   inline-style workaround still wins over this regardless. */
+@layer base {
+  html.fw-theme-ready,
+  html.fw-theme-ready * {
+    transition: background-color var(--dur) var(--ease),
+                border-color var(--dur) var(--ease),
+                color var(--dur) var(--ease);
+  }
 }
 
 /* =========================================================================

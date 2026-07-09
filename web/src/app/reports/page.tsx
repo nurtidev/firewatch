@@ -32,6 +32,7 @@ import {
   Banner,
   Tabs,
   SectionLabel,
+  useDismiss,
 } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import {
@@ -400,6 +401,8 @@ function ReportActions({ report, onChanged }: { report: Report; onChanged: () =>
 
 function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const t = useT();
+  // Fade + scale-in on open (~200ms), faster scale-out on close (~140ms).
+  const { visible, requestClose } = useDismiss(onClose, 140);
   const [category, setCategory] = useState<ReportCategory | null>(null);
   const [description, setDescription] = useState("");
   const [lat, setLat] = useState(String(DEFAULT_LAT));
@@ -507,17 +510,24 @@ function CreateReportSheet({ onClose, onCreated }: { onClose: () => void; onCrea
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-bg fw-fade-in"
+      className="fixed inset-0 z-50 flex flex-col bg-bg"
       role="dialog"
       aria-modal="true"
       aria-label={t("Новое донесение")}
+      style={{
+        opacity: visible ? 1 : 0,
+        transform: visible ? "scale(1)" : "scale(0.97)",
+        transition: `opacity ${visible ? 200 : 140}ms var(--ease), transform ${
+          visible ? 200 : 140
+        }ms var(--ease)`,
+      }}
     >
       <header className="shrink-0 border-b border-border bg-surface">
         <div className="flex items-center gap-2 px-2 py-2">
           <button
             type="button"
-            onClick={onClose}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg"
+            onClick={requestClose}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted transition-[color,background-color,scale] duration-[var(--dur-fast)] hover:bg-surface-2 hover:text-fg active:scale-[0.97]"
             aria-label={t("Закрыть")}
           >
             <ArrowLeft className="h-5 w-5" />

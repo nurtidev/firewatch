@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Globe } from "lucide-react";
 import { useLocale, useT, type Locale } from "@/lib/i18n";
+import { usePresence } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
 // Native language names are intentionally NOT translated (no i18n keys).
@@ -32,6 +33,8 @@ export function LanguageSwitcher({
   const { locale, setLocale } = useLocale();
   const t = useT();
   const [open, setOpen] = useState(false);
+  // Menu scales in from its anchored corner (~150ms) and out (~120ms).
+  const { mounted, visible } = usePresence(open, 120);
   const rootRef = useRef<HTMLDivElement>(null);
   const current = OPTIONS.find((o) => o.id === locale) ?? OPTIONS[1];
 
@@ -73,7 +76,7 @@ export function LanguageSwitcher({
         />
       </button>
 
-      {open && (
+      {mounted && (
         <div
           role="menu"
           aria-label={t("Язык интерфейса")}
@@ -82,6 +85,14 @@ export function LanguageSwitcher({
             align === "right" ? "right-0" : "left-0",
             openUp ? "bottom-full mb-1.5" : "top-full mt-1.5",
           )}
+          style={{
+            transformOrigin: `${openUp ? "bottom" : "top"} ${align === "right" ? "right" : "left"}`,
+            opacity: visible ? 1 : 0,
+            transform: visible ? "scale(1)" : "scale(0.95)",
+            transition: `opacity ${visible ? 150 : 120}ms var(--ease), transform ${
+              visible ? 150 : 120
+            }ms var(--ease)`,
+          }}
         >
           {OPTIONS.map((o) => {
             const selected = o.id === locale;

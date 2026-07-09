@@ -37,6 +37,7 @@ import {
   StatusChip,
   Banner,
   Tabs,
+  useDismiss,
 } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import {
@@ -538,6 +539,8 @@ function ObjectSheet({
   onQueued: (status: "done" | "violation") => void;
 }) {
   const t = useT();
+  // Fade + scale-in on open (~200ms), faster scale-out on close (~140ms).
+  const { visible, requestClose } = useDismiss(onClose, 140);
   const [marks, setMarks] = useState<Record<string, MarkValue>>({});
   const [violationNotes, setViolationNotes] = useState<Record<string, string>>({});
   const [note, setNote] = useState("");
@@ -685,18 +688,25 @@ function ObjectSheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-bg fw-fade-in"
+      className="fixed inset-0 z-50 flex flex-col bg-bg"
       role="dialog"
       aria-modal="true"
       aria-label={`${t("Осмотр объекта:")} ${stop.address}`}
+      style={{
+        opacity: visible ? 1 : 0,
+        transform: visible ? "scale(1)" : "scale(0.97)",
+        transition: `opacity ${visible ? 200 : 140}ms var(--ease), transform ${
+          visible ? 200 : 140
+        }ms var(--ease)`,
+      }}
     >
       {/* Header */}
       <header className="shrink-0 border-b border-border bg-surface">
         <div className="flex items-center gap-2 px-2 py-2">
           <button
             type="button"
-            onClick={onClose}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg"
+            onClick={requestClose}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted transition-[color,background-color,scale] duration-[var(--dur-fast)] hover:bg-surface-2 hover:text-fg active:scale-[0.97]"
             aria-label={t("Назад к маршруту")}
           >
             <ArrowLeft className="h-5 w-5" />
