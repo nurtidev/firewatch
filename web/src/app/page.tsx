@@ -19,12 +19,13 @@ import {
   LandingFooter,
   PrimaryButton,
   GhostButton,
-  HeroStat,
   Section,
   SectionHead,
   MiniPlan,
   Hero3DSkeleton,
   MAILTO,
+  CONTACTS,
+  ContactRow,
   type NavLink,
 } from "@/components/landing/chrome";
 import { PIPELINE, MODULES } from "@/components/landing/content";
@@ -130,12 +131,12 @@ export default function Landing() {
 
   return (
     <div className="min-h-screen bg-bg text-fg">
-      <LandingHeader navLinks={navLinks} cta={{ label: t("Запросить демо"), href: MAILTO.demo }} />
+      <LandingHeader navLinks={navLinks} cta={{ label: t("Запросить демо"), href: CONTACTS.wa.demo }} />
 
       {/* ── Hero ── */}
       <section className="relative overflow-hidden px-5 pb-14 pt-14 sm:px-6 sm:pb-20 sm:pt-20">
         <div
-          className="pointer-events-none absolute -right-32 -top-40 h-[520px] w-[520px] rounded-full opacity-70 blur-[90px]"
+          className="pointer-events-none absolute -right-32 -top-40 h-[520px] w-[520px] rounded-full opacity-35 blur-[90px]"
           style={{
             background:
               "radial-gradient(circle, color-mix(in oklab, var(--color-accent) 20%, transparent), transparent 70%)",
@@ -144,50 +145,32 @@ export default function Landing() {
         />
         <div className="relative mx-auto grid max-w-[1180px] grid-cols-1 items-center gap-12 lg:grid-cols-[1.02fr_.98fr] lg:gap-16 [&>div]:min-w-0">
           <div>
-            <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-2 py-1.5 pr-3.5 text-[12.5px] font-semibold text-muted shadow-card">
-              <span className="rounded-full bg-accent px-2.5 py-0.5 text-[11px] text-accent-fg">
-                {t("Пилот")}
-              </span>
-              {t("Астана · предиктивная пожарная безопасность")}
-            </span>
-            <h1 className="mt-5 text-[clamp(2.15rem,5vw,3.6rem)] font-extrabold leading-[1.05] tracking-tight">
+            <h1 className="text-[clamp(2.15rem,5vw,3.6rem)] font-extrabold leading-[1.05] tracking-tight">
               {t("Цифровой двойник объекта")}{" "}
-              <span
-                className="bg-clip-text text-transparent"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(120deg,var(--color-fg) 45%,var(--color-accent) 120%)",
-                }}
-              >
-                {t("и прогноз риска")}
-              </span>{" "}
+              <span className="text-accent">{t("и прогноз риска")}</span>{" "}
               {t("— до того, как загорится")}
             </h1>
-            <p className="mt-5 max-w-[540px] text-[clamp(1rem,2vw,1.2rem)] leading-relaxed text-muted">
+            <p className="mt-5 max-w-[520px] text-[clamp(1rem,2vw,1.2rem)] leading-relaxed text-muted">
               {t(
-                "FireWatch превращает бумажный план тушения в интерактивный 3D-двойник, оценивает риск каждого здания и объясняет почему — чтобы ДЧС действовал на опережение, а не постфактум.",
+                "FireWatch превращает бумажный план тушения в интерактивный 3D-двойник и оценивает риск каждого здания — чтобы ДЧС действовал на опережение.",
               )}
             </p>
             <div className="mt-8 flex flex-wrap gap-3.5">
-              <a href={MAILTO.demo}>
+              <a href={CONTACTS.wa.demo} target="_blank" rel="noopener">
                 <PrimaryButton className="px-6 py-3.5 text-[15px]">
                   {t("Запросить демо")} <ArrowRight className="h-4 w-4" />
                 </PrimaryButton>
               </a>
               <GhostButton href="#twin">{t("Как это работает")}</GhostButton>
             </div>
-            <div className="mt-9 flex flex-wrap gap-x-9 gap-y-5">
-              <HeroStat n="0–100" l={t("оценка риска здания")} />
-              <HeroStat n={t("<10 мин")} l={t("норматив прибытия")} />
-              <HeroStat n="SHAP" l={t("объяснимая модель")} />
-            </div>
+            <ContactRow telegram mailto={MAILTO.demo} className="mt-4" />
           </div>
 
           {/* Live interactive 3D floor */}
           <div>
-            <div className="relative h-[400px] overflow-hidden rounded-[20px] border border-border bg-surface shadow-pop sm:h-[460px] lg:h-[500px]">
+            <div className="relative h-[400px] overflow-hidden rounded-xl border border-border bg-surface shadow-pop sm:h-[460px] lg:h-[500px]">
               <LandingHero3D className="h-full w-full" />
-              <span className="pointer-events-none absolute right-3 top-3 rounded-[10px] border border-accent/30 bg-accent-weak px-2.5 py-1 text-[11px] font-semibold text-accent">
+              <span className="pointer-events-none absolute right-3 top-3 rounded-lg border border-accent/30 bg-accent-weak px-2.5 py-1 text-[11px] font-semibold text-accent">
                 {t("Реальная геометрия · 3D")}
               </span>
             </div>
@@ -202,8 +185,11 @@ export default function Landing() {
 
       {/* ── Trust / numbers strip ── */}
       <Section id="numbers">
-        <div className="rounded-[20px] border border-border bg-surface p-7 shadow-card sm:p-9">
-          <div className="grid gap-8 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="rounded-xl border border-border bg-surface p-7 shadow-card sm:p-9">
+          <div className="text-[12.5px] font-medium text-muted">
+            {t("Пилот в Астане · предиктивная пожарная безопасность")}
+          </div>
+          <div className="mt-6 grid gap-8 sm:grid-cols-3 lg:grid-cols-5">
             {STATS.map((s, i) => (
               <Reveal key={s.l} delay={i * 70}>
                 <div className="text-[clamp(1.9rem,4vw,2.6rem)] font-extrabold leading-none tracking-tight">
@@ -212,6 +198,23 @@ export default function Landing() {
                 <div className="mt-2.5 text-[13px] leading-snug text-muted">{t(s.l)}</div>
               </Reveal>
             ))}
+            {/* Qualitative signal metrics relocated out of the hero. */}
+            <Reveal delay={STATS.length * 70}>
+              <div className="text-[clamp(1.9rem,4vw,2.6rem)] font-extrabold leading-none tracking-tight tabular">
+                0–100
+              </div>
+              <div className="mt-2.5 text-[13px] leading-snug text-muted">
+                {t("оценка риска здания")}
+              </div>
+            </Reveal>
+            <Reveal delay={(STATS.length + 1) * 70}>
+              <div className="text-[clamp(1.9rem,4vw,2.6rem)] font-extrabold leading-none tracking-tight tabular">
+                {t("<10 мин")}
+              </div>
+              <div className="mt-2.5 text-[13px] leading-snug text-muted">
+                {t("норматив прибытия")}
+              </div>
+            </Reveal>
           </div>
           <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2.5 border-t border-border pt-6">
             {TRUST.map((item) => (
@@ -234,7 +237,6 @@ export default function Landing() {
         <Reveal>
           <SectionHead
             center
-            eyebrow={t("Два контура")}
             title={t("Кому нужен FireWatch")}
             sub={t(
               "Государству — платформа для города и региона. Бизнесу — цифровой паспорт объекта. Выберите свой контур.",
@@ -246,10 +248,10 @@ export default function Landing() {
             <Reveal key={f.href} delay={i * 70}>
               <Link
                 href={f.href}
-                className="group flex flex-col rounded-[20px] border border-border bg-surface p-7 shadow-card transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-pop sm:p-9"
+                className="group flex flex-col rounded-xl border border-border bg-surface p-7 shadow-card transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-pop sm:p-9"
               >
                 <div className="flex items-center gap-3">
-                  <span className="grid h-[46px] w-[46px] place-items-center rounded-xl border border-border bg-surface-2 text-fg transition-colors group-hover:border-border-strong">
+                  <span className="grid h-[46px] w-[46px] place-items-center rounded-lg border border-border bg-surface-2 text-fg transition-colors group-hover:border-border-strong">
                     <f.icon className="h-5 w-5" strokeWidth={1.9} />
                   </span>
                   <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-accent">
@@ -303,8 +305,8 @@ export default function Landing() {
                     <ArrowRight className="h-3.5 w-3.5" />
                   </span>
                 )}
-                <div className="flex h-full flex-col rounded-[16px] border border-border bg-surface p-4 shadow-card">
-                  <div className="relative aspect-[3/2] overflow-hidden rounded-[11px] border border-border bg-surface-2">
+                <div className="flex h-full flex-col rounded-xl border border-border bg-surface p-4 shadow-card">
+                  <div className="relative aspect-[3/2] overflow-hidden rounded-lg border border-border bg-surface-2">
                     {i === 2 ? (
                       <div className="absolute inset-0 grid place-items-center p-3">
                         <FloorPlan2D plan={PIPELINE_PLAN} compact className="w-full" />
@@ -326,7 +328,7 @@ export default function Landing() {
                     )}
                   </div>
                   <div className="mt-4 flex items-center gap-2.5">
-                    <span className="grid h-9 w-9 place-items-center rounded-[10px] border border-border bg-surface-2 text-fg">
+                    <span className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface-2 text-fg">
                       <p.icon className="h-[18px] w-[18px]" strokeWidth={1.9} />
                     </span>
                     <span className="text-[12px] font-bold tracking-[0.12em] text-accent">
@@ -353,7 +355,6 @@ export default function Landing() {
         <Reveal>
           <SectionHead
             center
-            eyebrow={t("Платформа")}
             title={t("Шесть модулей — один контур безопасности")}
             sub={t("Каждый закрывает свою боль ведомства и работает с общими данными.")}
           />
@@ -361,9 +362,9 @@ export default function Landing() {
         <div className="mt-12 grid gap-[18px] sm:grid-cols-2 lg:grid-cols-3">
           {MODULES.map((m, i) => (
             <Reveal key={m.k} delay={i * 70}>
-              <div className="group rounded-[16px] border border-border bg-surface p-6 shadow-card transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-pop">
+              <div className="group rounded-xl border border-border bg-surface p-6 shadow-card transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-pop">
                 <div className="flex items-center gap-3">
-                  <span className="grid h-[42px] w-[42px] place-items-center rounded-xl border border-border bg-surface-2 text-fg transition-colors group-hover:border-border-strong">
+                  <span className="grid h-[42px] w-[42px] place-items-center rounded-lg border border-border bg-surface-2 text-fg transition-colors group-hover:border-border-strong">
                     <m.icon className="h-5 w-5" strokeWidth={1.9} />
                   </span>
                   <span className="text-[11px] font-bold tracking-[0.1em] text-faint">{m.k}</span>
@@ -382,26 +383,28 @@ export default function Landing() {
         <Section id="how">
           <Reveal>
             <SectionHead
-              center
-              eyebrow={t("Как работает")}
               title={t("От данных — к действию за три шага")}
               sub={t(
                 "FireWatch собирает данные, прогнозирует риск и превращает прогноз в конкретные задачи для инспекторов.",
               )}
             />
           </Reveal>
-          <div className="mt-[52px] grid gap-6 sm:grid-cols-3">
+          <div className="mt-12 max-w-[760px]">
             {STEPS.map((s, i) => (
               <Reveal key={s.title} delay={i * 70}>
-                <div className="relative pt-5">
-                  {i < STEPS.length - 1 && (
-                    <span className="absolute left-10 top-[26px] hidden h-0.5 w-full bg-gradient-to-r from-border-strong to-transparent sm:block" />
-                  )}
-                  <span className="text-[13px] font-extrabold tracking-wider text-accent">
-                    {String(i + 1).padStart(2, "0")}
-                  </span>
-                  <h3 className="mt-3.5 text-[19px] font-bold tracking-tight">{t(s.title)}</h3>
-                  <p className="mt-2.5 text-[14.5px] leading-relaxed text-muted">{t(s.text)}</p>
+                <div className="flex gap-5 pb-9 last:pb-0">
+                  <div className="flex flex-col items-center">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-border bg-surface text-[13px] font-extrabold text-accent tabular">
+                      {String(i + 1).padStart(2, "0")}
+                    </span>
+                    {i < STEPS.length - 1 && <span className="mt-2 w-px flex-1 bg-border" />}
+                  </div>
+                  <div className="pb-1">
+                    <h3 className="text-[19px] font-bold tracking-tight">{t(s.title)}</h3>
+                    <p className="mt-2 max-w-[600px] text-[14.5px] leading-relaxed text-muted">
+                      {t(s.text)}
+                    </p>
+                  </div>
                 </div>
               </Reveal>
             ))}
@@ -412,9 +415,9 @@ export default function Landing() {
       {/* ── Final CTA ── */}
       <section className="px-5 pb-24 sm:px-6">
         <Reveal>
-          <div className="relative mx-auto max-w-[1180px] overflow-hidden rounded-[28px] border border-border bg-surface px-6 py-16 text-center shadow-card sm:px-12">
+          <div className="relative mx-auto max-w-[1180px] overflow-hidden rounded-xl border border-border bg-surface px-6 py-16 text-center shadow-card sm:px-12">
             <div
-              className="pointer-events-none absolute -top-28 left-1/2 h-[320px] w-[620px] -translate-x-1/2 opacity-80 blur-[70px]"
+              className="pointer-events-none absolute -top-28 left-1/2 h-[320px] w-[620px] -translate-x-1/2 opacity-40 blur-[70px]"
               style={{
                 background:
                   "radial-gradient(ellipse, color-mix(in oklab, var(--color-accent) 22%, transparent), transparent 70%)",
@@ -430,15 +433,18 @@ export default function Landing() {
               )}
             </p>
             <div className="relative mt-8 flex flex-wrap justify-center gap-3.5">
-              <a href={MAILTO.demo}>
+              <a href={CONTACTS.wa.demo} target="_blank" rel="noopener">
                 <PrimaryButton className="px-6 py-3.5 text-[15px]">{t("Запросить демо")}</PrimaryButton>
               </a>
               <GhostButton href="/gov" className="bg-surface">
                 {t("Платформа для ДЧС")}
               </GhostButton>
             </div>
-            <p className="relative mt-5 text-[13px] text-faint">
-              {t("Без обязательств · 30 минут · на данных вашего региона")}
+            <div className="relative mt-5 flex justify-center">
+              <ContactRow telegram mailto={MAILTO.demo} />
+            </div>
+            <p className="relative mt-4 text-[13px] text-faint">
+              {t("Без обязательств · демо 30 минут на данных вашего региона")}
             </p>
           </div>
         </Reveal>

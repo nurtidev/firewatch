@@ -3,17 +3,63 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ShieldCheck, Loader2 } from "lucide-react";
-import { useAuth } from "@/lib/auth";
+import { useAuth, type Role } from "@/lib/auth";
 import { DEFAULT_ROUTE } from "@/lib/nav";
 import { Button, Input, Field } from "@/components/ui";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { FireWatchMark } from "@/components/FireWatchMark";
 import { useT } from "@/lib/i18n";
 
-const DEMO = [
-  { username: "minister", label: "Замминистра", hint: "руководство ведомства" },
-  { username: "supervisor", label: "Руководитель", hint: "управление надзора" },
-  { username: "inspector", label: "Инспектор", hint: "надзор на объектах" },
+type DemoUser = { username: string; label: string; hint: string };
+
+/* Один демо-пользователь на каждую роль (сиды api/scripts/seed_users.py,
+   пароль всегда `${username}123`). Record<Role, …> — компилятор не даст
+   забыть кнопку при добавлении 8-й роли. Лейблы — компактные демо-персоны
+   («Замминистра», «Руководитель»), намеренно НЕ ROLE_LABEL из nav.ts. */
+const DEMO_BY_ROLE: Record<Role, DemoUser> = {
+  inspector: { username: "inspector", label: "Инспектор", hint: "надзор на объектах" },
+  supervisor: { username: "supervisor", label: "Руководитель", hint: "управление надзора" },
+  leadership: { username: "minister", label: "Замминистра", hint: "руководство ведомства" },
+  dispatcher: { username: "dispatcher", label: "Диспетчер", hint: "ЦОУ · 112" },
+  responder: { username: "responder", label: "Начальник караула", hint: "боевые расчёты ПЧ" },
+  owner: { username: "owner", label: "Владелец объекта", hint: "портал ОСИ" },
+  admin: { username: "admin", label: "Администратор", hint: "все модули" },
+};
+
+const DEMO_GROUPS: { title: string; colsClass: string; roles: Role[] }[] = [
+  {
+    title: "Надзорная вертикаль",
+    colsClass: "grid-cols-3",
+    roles: ["inspector", "supervisor", "leadership"],
+  },
+  {
+    title: "Реагирование и внешние",
+    colsClass: "grid-cols-2",
+    roles: ["dispatcher", "responder", "owner", "admin"],
+  },
 ];
+
+function DemoButton({
+  d,
+  busy,
+  onSelect,
+}: {
+  d: DemoUser;
+  busy: boolean;
+  onSelect: (username: string) => void;
+}) {
+  const t = useT();
+  return (
+    <button
+      onClick={() => onSelect(d.username)}
+      disabled={busy}
+      className="rounded-lg border border-border bg-surface px-2 py-2.5 text-center transition-colors hover:border-border-strong hover:bg-surface-2 disabled:opacity-50"
+    >
+      <div className="text-xs font-medium text-fg">{t(d.label)}</div>
+      <div className="mt-0.5 text-2xs leading-tight text-faint">{t(d.hint)}</div>
+    </button>
+  );
+}
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -37,6 +83,8 @@ export default function LoginPage() {
     }
   }
 
+  const demoLogin = (u: string) => submit(u, `${u}123`);
+
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden p-6">
       {/* Language switch (chrome; login body strings are Wave 1) */}
@@ -53,7 +101,8 @@ export default function LoginPage() {
 
       <div className="relative w-full max-w-sm">
         <div className="mb-7 text-center">
-          <div className="text-3xl font-bold tracking-tight">
+          <div className="flex items-center justify-center gap-2.5 text-3xl font-bold tracking-tight">
+            <FireWatchMark size={32} />
             FireWatch<span className="text-accent">.</span>
           </div>
           <p className="mt-2 text-2xs font-medium uppercase tracking-[0.18em] text-faint">
@@ -109,25 +158,28 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <div className="mt-6">
-          <p className="mb-2.5 text-center text-2xs uppercase tracking-[0.16em] text-faint">
+        <div className="mt-6 space-y-4">
+          <p className="text-center text-2xs uppercase tracking-[0.16em] text-faint">
             {t("Быстрый вход для демонстрации")}
           </p>
-          <div className="grid grid-cols-3 gap-2">
-            {DEMO.map((d) => (
-              <button
-                key={d.username}
-                onClick={() => submit(d.username, `${d.username}123`)}
-                disabled={busy}
-                className="rounded-lg border border-border bg-surface px-2 py-2.5 text-center transition-colors hover:border-border-strong hover:bg-surface-2 disabled:opacity-50"
-              >
-                <div className="text-xs font-medium text-fg">{t(d.label)}</div>
-                <div className="mt-0.5 text-2xs leading-tight text-faint">
-                  {t(d.hint)}
-                </div>
-              </button>
-            ))}
-          </div>
+
+          {DEMO_GROUPS.map((group) => (
+            <div key={group.title}>
+              <p className="mb-1.5 text-left text-2xs tracking-wide text-faint">
+                {t(group.title)}
+              </p>
+              <div className={`grid ${group.colsClass} gap-2`}>
+                {group.roles.map((role) => (
+                  <DemoButton
+                    key={role}
+                    d={DEMO_BY_ROLE[role]}
+                    busy={busy}
+                    onSelect={demoLogin}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
 
         <p className="mt-6 flex items-center justify-center gap-1.5 text-2xs text-faint">
