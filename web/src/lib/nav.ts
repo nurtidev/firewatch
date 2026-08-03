@@ -43,6 +43,10 @@ export const NAV: NavItem[] = [
   { href: "/model", label: "Модель ИИ", roles: ["leadership", "supervisor", "admin"],
     hint: "Качество риск-модели: метрики и объяснимость (какие факторы влияют на оценку)" },
   { href: "/audit", label: "Журнал аудита", roles: ["leadership", "admin"] },
+  // Приём/отключение сотрудников и сброс паролей — привилегированная операция,
+  // строго admin (см. require_roles("admin") в api/app/routers/auth.py).
+  { href: "/users", label: "Пользователи", roles: ["admin"],
+    hint: "Учётные записи сотрудников: приём, отключение доступа, смена пароля" },
 ];
 
 export const DEFAULT_ROUTE: Record<Role, string> = {

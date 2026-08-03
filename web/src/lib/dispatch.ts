@@ -60,6 +60,9 @@ export type Callout = {
 export type BuildingSearchResult = {
   id: number;
   address: string;
+  /** Народные названия объекта («ЖК «Хайвилл-Астана»») — по ним тоже ищется,
+   *  поэтому в выдаче их видно: диспетчер понимает, почему нашлась эта строка. */
+  alias: string | null;
   district: string | null;
   building_type: string | null;
   floors: number | null;
@@ -73,7 +76,13 @@ export type PackBuilding = {
   address: string;
   district: string | null;
   building_type: string | null;
+  /** Этажность, по которой РТП выбирает автолестницу: из карточки ПТП, если она
+   *  есть (`floors_source = "card"`), иначе из реестра OSM. `floors_registry`
+   *  оставлен рядом, чтобы расхождение документа и реестра было видно, а не
+   *  подменялось молча. */
   floors: number | null;
+  floors_source: "card" | "registry";
+  floors_registry: number | null;
   year_built: number | null;
   risk_score: number | null;
   card_id: number | null;
@@ -111,7 +120,31 @@ export type PackReport = {
   photos: string[];
 };
 
-export type ForcesHint = { preset_key: string; label: string };
+/**
+ * Силы и средства в пакете вызова. Два источника, и путать их нельзя:
+ *   `card`   — расчёт по ПТП объекта (человек, реальный документ) — цифры;
+ *   `preset` — черновая прикидка по типу здания (эвристика) — только пресет.
+ * Пресет приходит всегда: им параметризуется ссылка на калькулятор /forces.
+ */
+export type ForcesHint = {
+  source: "card" | "preset";
+  preset_key: string;
+  label: string;
+  card_id: number | null;
+  rank: string | null;
+  barrels_ext: number | null;
+  barrels_def: number | null;
+  squads: number | null;
+  personnel: number | null;
+  trucks: number | null;
+  q_req_l_s: number | null;
+  q_req_ext_l_s: number | null;
+  q_req_def_l_s: number | null;
+  q_act_l_s: number | null;
+  s_fire_m2: number | null;
+  s_ext_m2: number | null;
+  scenario: string | null;
+};
 
 export type CalloutPackData = {
   callout: Callout;

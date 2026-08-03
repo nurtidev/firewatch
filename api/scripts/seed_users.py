@@ -13,6 +13,11 @@ Demo credentials (pilot only — change before any real deployment):
 
 District scoping: inspector/supervisor see only their district; leadership/admin
 see the whole city (district = NULL).
+
+Этот скрипт — только начальный набор для пилота/демо. Приём и отключение
+сотрудников делаются администратором через продукт (экран «Пользователи»,
+POST /auth/users, /auth/users/{username}/disable|enable) — правка списка ниже
+для этого больше не нужна и оставляет действие вне журнала аудита.
 """
 
 from sqlalchemy import text
@@ -80,6 +85,9 @@ def main() -> None:
                         name = EXCLUDED.name,
                         role = EXCLUDED.role,
                         district = EXCLUDED.district
+                    -- is_active намеренно не трогаем: сиды идемпотентно
+                    -- прогоняются при каждом деплое, и сброс признака вернул бы
+                    -- доступ учётной записи, отключённой администратором.
                     """
                 ),
                 {"u": username, "p": hash_password(password), "n": name, "r": role,

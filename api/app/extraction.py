@@ -17,6 +17,27 @@ from app.config import settings
 # field so they are never stored in clear (ПДн minimisation).
 _PHONE_RE = re.compile(r"\+?\d[\d\s\-()]{5,}\d")
 
+# Local part of an email address (kept masked, domain kept for triage).
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
+# Structured `contacts` entries ({role, name, phone}) whose `role` matches one of
+# these substrings (case-insensitive) are a shared organisational/service line —
+# dispatch desk, reception, a generic "phone(s) of the object" — not a specific
+# person's own number. The fire crew needs these open on arrival, so they are the
+# only lines left unmasked. Everything else is fail-closed: any role not matched
+# here is treated as a named individual's contact (director, chief engineer,
+# manager, medical staff, …) and gets masked, even if the pattern list is
+# incomplete for a future object.
+_ORG_CONTACT_ROLE_KEYWORDS = (
+    "диспетчер",  # диспетчерская блока/объекта — dispatch desk
+    "приемн",
+    "приёмн",  # приёмная — front desk
+    "ресепшн",  # ресепшн — hotel reception
+    "телефон объект",
+    "телефоны объект",  # «телефон(ы) объекта» — shared object line(s)
+    "противопожарная служба",  # НГПС — departmental service line, not a person
+)
+
 
 # Anthropic caps a single request at 32 MB; base64 inflates raw bytes ~1.37x, so
 # the PDF must stay under ~24 MB. Real ДЧС scans run 19–26 MB and would blow the
@@ -77,6 +98,55 @@ def _mask_contacts(value: str) -> str:
         return f"***-**-{digits[-2:]}"
 
     return _PHONE_RE.sub(repl, value)
+
+
+def _mask_email(value: str) -> str:
+    """Mask the local part of an email address, keeping the domain so a
+    dispatcher can still tell who owns it («ivan.petrov@alanda-hotel.kz» →
+    «***@alanda-hotel.kz»)."""
+
+    def repl(m: re.Match) -> str:
+        return "***@" + m.group().split("@", 1)[1]
+
+    return _EMAIL_RE.sub(repl, value)
+
+
+def is_personal_contact_role(role: str | None) -> bool:
+    """True if a structured contact's `role` names an individual (their phone
+    is ПДн and must be masked); False if it is a shared organisational/service
+    line (dispatch desk, reception, object phone) that stays open for the
+    crew. Fail-closed: unrecognised roles are treated as personal."""
+    r = (role or "").lower()
+    return not any(kw in r for kw in _ORG_CONTACT_ROLE_KEYWORDS)
+
+
+def _mask_contact_entry(entry: dict) -> dict:
+    """Mask ПДн in one structured contact ({role, name, phone}). Personal
+    roles get their phone/email redacted and `name` cleared; organisational
+    lines are returned unchanged. Never trusts that `name` already arrived
+    empty — clears it defensively even if a future seed forgets to."""
+    if not is_personal_contact_role(entry.get("role")):
+        return entry
+    masked = dict(entry)
+    masked["name"] = None
+    phone = masked.get("phone")
+    if isinstance(phone, str) and phone:
+        masked["phone"] = _mask_email(_mask_contacts(phone))
+    return masked
+
+
+def mask_contacts_field(value):
+    """Mask ПДн in a card's `contacts` field, whichever of the two shapes it
+    comes in: the plain-text field the live Claude extraction pipeline
+    produces (`str`), or the structured `[{role, name, phone}, …]` list used
+    by the digitised flagship cards (Хайвилл, Аланда, …). Anything else
+    (missing/None/already-wrong-type) passes through untouched."""
+    if isinstance(value, str):
+        return _mask_contacts(value)
+    if isinstance(value, list):
+        return [_mask_contact_entry(c) if isinstance(c, dict) else c for c in value]
+    return value
+
 
 EXTRACT_TOOL = {
     "name": "extract_card",
@@ -174,8 +244,10 @@ def extract_card(data: bytes, media_type: str) -> dict:
             result = block.input
             # Belt-and-suspenders: even though the prompt asks Claude to mask
             # phones, redact the stored value ourselves so ПДн never lands in the
-            # DB in clear if the model returns a full number anyway.
-            if settings.mask_pii and isinstance(result.get("contacts"), str):
-                result["contacts"] = _mask_contacts(result["contacts"])
+            # DB in clear if the model returns a full number anyway. Handles both
+            # the plain-string shape this tool schema declares and the structured
+            # list shape used elsewhere, in case that ever changes.
+            if settings.mask_pii and "contacts" in result:
+                result["contacts"] = mask_contacts_field(result["contacts"])
             return result
     raise RuntimeError("Claude не вернул структурированный результат")

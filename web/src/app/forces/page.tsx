@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Calculator,
   Flame,
@@ -12,18 +13,22 @@ import {
   Droplets,
   BarChart3,
   ChevronDown,
+  ScanLine,
   type LucideIcon,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/auth";
 import { SEVERITY } from "@/lib/risk";
 import { useT, useLocale, intlLocale } from "@/lib/i18n";
+import type { CalloutPackData, ForcesHint } from "@/lib/dispatch";
 import {
   Card,
   PageHeader,
   MetricCard,
   SectionLabel,
+  Banner,
   Button,
+  LinkButton,
   Input,
   Select,
   Field,
@@ -54,13 +59,20 @@ type Result = {
     squads: number;
     rank: string;
     water_liters_10min: number;
+    gdzs_links?: number;
+    warnings?: string[];
   };
 };
+
+/** Пресет по умолчанию — им же подписан первый пункт выпадающего списка.
+ *  Раньше список показывал «жилое», а в полях лежала интенсивность
+ *  общественного (0,10) — форма противоречила сама себе. */
+const DEFAULT_PRESET = "residential";
 
 /* ── Defaults (identical keys to original) ── */
 const defaults = {
   vl: 1.0,
-  jtr: 0.1,
+  jtr: 0.06,
   form: "rectangular",
   directions: 2,
   width_m: 5,
@@ -74,6 +86,9 @@ const defaults = {
   travel_speed_kmh: 40,
   hose_lay_m: 100,
   supply_per_truck: 40,
+  // Этаж пожара — уже был в API (ГДЗС, время развёртывания, напор), но форма
+  // его не показывала: расчёт для 24-этажки считался как для первого этажа.
+  floor: 1,
 };
 
 /* ── Local sub-components ── */
@@ -147,13 +162,47 @@ function Row({
 /* ── Page ── */
 
 export default function ForcesPage() {
+  // useSearchParams требует Suspense-границы — та же обёртка, что в /cards.
+  return (
+    <Suspense fallback={null}>
+      <ForcesCalculator />
+    </Suspense>
+  );
+}
+
+function ForcesCalculator() {
   const t = useT();
   const { locale } = useLocale();
+  const params = useSearchParams();
   const [presets, setPresets] = useState<Preset[]>([]);
   const [barrels, setBarrels] = useState<Barrel[]>([]);
+  const [presetKey, setPresetKey] = useState(params.get("preset") ?? DEFAULT_PRESET);
   const [p, setP] = useState({ ...defaults });
   const [res, setRes] = useState<Result | null>(null);
   const [loading, setLoading] = useState(false);
+  const [prefilled, setPrefilled] = useState(false);
+
+  // Контекст из боевого пакета: по какому объекту считаем и откуда взялись
+  // предзаполненные параметры (расчёт по ПТП или черновая прикидка по типу).
+  const fromPack = params.get("object");
+  const packSource = params.get("source");
+  const packCardId = params.get("card");
+  const packCalloutId = params.get("callout");
+  const [ptp, setPtp] = useState<ForcesHint | null>(null);
+
+  // Цифры расчёта по ПТП того же вызова — рядом с результатом калькулятора.
+  // Калькулятор считает по общей методике и обобщённой геометрии, поэтому его
+  // результат и документ по объекту расходятся; РТП должен видеть оба и знать,
+  // что при расхождении верен документ, а не гадать между двумя экранами.
+  useEffect(() => {
+    if (!packCalloutId || packSource !== "card") return;
+    apiFetch(`/dispatch/${packCalloutId}/pack`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: CalloutPackData | null) => {
+        if (d?.forces_hint?.source === "card") setPtp(d.forces_hint);
+      })
+      .catch(() => {});
+  }, [packCalloutId, packSource]);
 
   useEffect(() => {
     apiFetch(`/forces/presets`)
@@ -164,6 +213,28 @@ export default function ForcesPage() {
       })
       .catch(() => {});
   }, []);
+
+  // Параметры объекта из ссылки пакета: тип (Vл/Jтр), этаж пожара и расстояние
+  // до части — то, что система уже знает и что РТП иначе вбивал бы заново.
+  useEffect(() => {
+    if (presets.length === 0) return;
+    const preset = presets.find((x) => x.key === presetKey) ?? presets[0];
+    const floorRaw = Number(params.get("floor"));
+    const distRaw = Number(params.get("distance_km"));
+    setP((s) => ({
+      ...s,
+      vl: preset.vl,
+      jtr: preset.jtr,
+      floor: Number.isFinite(floorRaw) && floorRaw !== 0
+        ? Math.min(50, Math.max(-3, Math.round(floorRaw)))
+        : s.floor,
+      distance_km: Number.isFinite(distRaw) && distRaw > 0 ? distRaw : s.distance_km,
+    }));
+    setPresetKey(preset.key);
+    setPrefilled(true);
+    // Пресеты приходят один раз; дальше значения правит сам пользователь.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presets]);
 
   async function calc() {
     setLoading(true);
@@ -179,11 +250,12 @@ export default function ForcesPage() {
     }
   }
 
-  // Auto-calc on mount (matches original behaviour)
+  // Автосчёт: на старте и повторно, когда подставлены параметры из пакета
+  // (флаг переключается вместе с setP, поэтому считается уже по новым значениям).
   useEffect(() => {
     calc();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [prefilled]);
 
   const set = (k: string, v: number | string) => setP((s) => ({ ...s, [k]: v }));
 
@@ -201,13 +273,11 @@ export default function ForcesPage() {
     );
   }
 
-  /* Rank → severity mapping */
+  /* Rank → severity mapping. Сравнение шло со строкой «№ 3» с пробелом, а API
+     отдаёт «№3» — ранг №3 и №4 подсвечивались как повышенный. */
+  const rankNum = res ? Number(res.result.rank.replace(/\D+/g, "")) : 0;
   const rankSev =
-    res?.result.rank === "№ 3" || res?.result.rank === "№ 4" || res?.result.rank === "№ 5"
-      ? SEVERITY.critical
-      : res?.result.rank === "№ 2"
-        ? SEVERITY.high
-        : SEVERITY.elevated;
+    rankNum >= 3 ? SEVERITY.critical : rankNum === 2 ? SEVERITY.high : SEVERITY.elevated;
 
   return (
     <AppShell>
@@ -219,6 +289,76 @@ export default function ForcesPage() {
           )}
         />
 
+        {/* Пришли из боевого пакета — видно, по какому объекту считаем и что
+            именно подставлено; расчёт по ПТП объекта всегда главнее калькулятора. */}
+        {fromPack && (
+          <Banner
+            tone={packSource === "card" ? "info" : "warning"}
+            title={`${t("Расчёт для объекта:")} ${fromPack}`}
+            className="mt-4"
+          >
+            <div className="space-y-1.5">
+              <p>
+                {t(
+                  "Из пакета вызова подставлены тип объекта, этаж (верхний по объекту) и расстояние до части. Уточните их под фактическую обстановку.",
+                )}
+              </p>
+              {packSource === "card" ? (
+                <div>
+                  <p>{t("По объекту есть расчёт по ПТП — при расхождении верен он.")}</p>
+                  {ptp && (
+                    <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-fg">
+                      {ptp.rank && (
+                        <span>
+                          {t("Ранг пожара")}{" "}
+                          <span className="font-semibold tabular">{ptp.rank}</span>
+                        </span>
+                      )}
+                      {ptp.barrels_ext != null && ptp.barrels_def != null && (
+                        <span>
+                          {t("Стволы (туш.+защ.)")}{" "}
+                          <span className="font-semibold tabular">
+                            {ptp.barrels_ext}+{ptp.barrels_def}
+                          </span>
+                        </span>
+                      )}
+                      {ptp.squads != null && (
+                        <span>
+                          {t("Отделений")}{" "}
+                          <span className="font-semibold tabular">{ptp.squads}</span>
+                        </span>
+                      )}
+                      {ptp.q_req_l_s != null && (
+                        <span>
+                          {t("Qобщ.тр, л/с")}{" "}
+                          <span className="font-semibold tabular">{ptp.q_req_l_s.toFixed(2)}</span>
+                        </span>
+                      )}
+                    </p>
+                  )}
+                  {packCardId && (
+                    <LinkButton
+                      href={`/cards?id=${packCardId}`}
+                      variant="ghost"
+                      size="sm"
+                      className="mt-1"
+                    >
+                      <ScanLine className="h-3.5 w-3.5" />
+                      {t("Расчёт в карточке ПТП")}
+                    </LinkButton>
+                  )}
+                </div>
+              ) : (
+                <p>
+                  {t(
+                    "Расчёта по ПТП для объекта нет — пресет подобран по типу здания, это черновая прикидка.",
+                  )}
+                </p>
+              )}
+            </div>
+          </Banner>
+        )}
+
         <div className="mt-6 grid gap-5 lg:grid-cols-[360px_1fr]">
           {/* ── LEFT: Form ── */}
           <Card className="h-fit p-5 space-y-5">
@@ -226,8 +366,10 @@ export default function ForcesPage() {
             <FormSection label={t("Объект")}>
               <Field label={t("Тип объекта")}>
                 <Select
+                  value={presetKey}
                   onChange={(e) => {
                     const pr = presets.find((x) => x.key === e.target.value);
+                    setPresetKey(e.target.value);
                     if (pr) setP((s) => ({ ...s, vl: pr.vl, jtr: pr.jtr }));
                   }}
                 >
@@ -264,7 +406,11 @@ export default function ForcesPage() {
                     ))}
                   </Select>
                 </Field>
+                {num("floor", "Этаж пожара")}
               </div>
+              <p className="text-xs text-faint">
+                {t("Этаж влияет на время развёртывания, звенья ГДЗС и напор. Отрицательный — подвал.")}
+              </p>
             </FormSection>
 
             <div className="border-t border-border" />
@@ -311,6 +457,14 @@ export default function ForcesPage() {
               />
             ) : (
               <div className="fw-fade-in space-y-4">
+                {/* Тактические предупреждения методики (высота, подвал, ГДЗС,
+                    напор) — считались и раньше, но на экран не выводились. */}
+                {(res.result.warnings ?? []).map((w) => (
+                  <Banner key={w} tone="warning">
+                    {w}
+                  </Banner>
+                ))}
+
                 {/* Headline metrics */}
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <MetricCard

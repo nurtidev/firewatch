@@ -3,7 +3,7 @@ import uuid
 from datetime import date
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -16,6 +16,7 @@ from app.access import (
     linked_inspector,
     resolve_inspector,
 )
+from app.audit import audit, client_ip
 from app.config import settings
 from app.db import get_db
 from app.routers.auth import current_user, require_roles
@@ -307,7 +308,8 @@ async def upload_visit_photo(
 @router.get("/routes/visit/photo/{photo_id}")
 def get_visit_photo(
     photo_id: str,
-    _user: dict = Depends(PHOTO_VIEW_ROLES),
+    request: Request,
+    user: dict = Depends(PHOTO_VIEW_ROLES),
 ) -> FileResponse:
     """Serve an inspection-visit evidence photo to internal roles only. External
     owners are excluded — they must not see inspection proof. The name pattern
@@ -317,12 +319,25 @@ def get_visit_photo(
     path = Path(settings.uploads_dir) / photo_id
     if not path.exists():
         raise HTTPException(404, "Файл не найден")
+    # Evidence photo for a protocol — auditable like other ПДн/evidence reads
+    # (read.card, read.card_file, read.building), which are logged on purpose.
+    audit(
+        action="read.visit_photo",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="GET",
+        path=f"/routes/visit/photo/{photo_id}",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"photo_id": photo_id},
+    )
     return FileResponse(path, media_type=_EXT_MEDIA[path.suffix])
 
 
 @router.post("/routes/visit")
 def record_visit(
     body: VisitRequest,
+    request: Request,
     db: Session = Depends(get_db),
     user: dict = Depends(FIELD_ROLES),
 ) -> dict:
@@ -398,6 +413,26 @@ def record_visit(
         },
     )
     db.commit()
+
+    # Акт проверки имеет юридическую силу — журнал аудита должен отвечать «что
+    # именно» сделал инспектор (объект, статус, нарушения), а не только факт
+    # успешного POST (audit_log.detail; ранее не заполнялось для этого пути).
+    audit(
+        action="visit.recorded",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="POST",
+        path="/routes/visit",
+        status_code=200,
+        ip=client_ip(request),
+        detail={
+            "building_id": body.building_id,
+            "inspector_id": inspector["id"],
+            "status": body.status,
+            "inspection_type": body.inspection_type,
+            "violation_codes": [v.code for v in body.violations] if body.violations else None,
+        },
+    )
     return {"ok": True, "status": body.status}
 
 

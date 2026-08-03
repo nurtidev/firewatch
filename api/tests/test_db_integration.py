@@ -5,6 +5,7 @@ Runs only when FW_RUN_DB_TESTS=1 and DATABASE_URL points at a PostGIS database
 """
 
 import os
+from datetime import date, timedelta
 
 import pytest
 from sqlalchemy import text
@@ -32,9 +33,25 @@ def client():
     seed_users.main()
 
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM risk_scores"))
+        # Порядок важен: всё, что ссылается на buildings, чистится до неё,
+        # иначе DELETE падает по FK. Список сверен с information_schema —
+        # при добавлении новой таблицы со ссылкой на buildings дополнить.
+        for table in (
+            "risk_scores",
+            "field_reports",
+            "callouts",
+            "inspection_visits",
+            "incidents",
+            "owner_buildings",
+            "operational_cards",
+        ):
+            conn.execute(text(f"DELETE FROM {table}"))
         conn.execute(text("DELETE FROM buildings"))
-        conn.execute(text("DELETE FROM audit_log"))
+        # audit_log is append-only (WORM, migration 0005_audit_worm) — a DB
+        # trigger rejects DELETE once the table holds any row, which it now
+        # reliably does (denied GET/POST requests are audited too — see
+        # api/app/main.py). Tests below assert deltas/latest rows, never an
+        # absolute count from empty, so a pre-existing audit trail is fine.
         for district, n, score in [("Сарыаркинский", 3, 80), ("Есильский", 2, 80)]:
             for _ in range(n):
                 bid = conn.execute(
@@ -159,3 +176,182 @@ def test_login_is_audited(client):
             text("SELECT count(*) FROM audit_log WHERE action = 'login.failed'")
         ).scalar()
     assert ok >= 1 and bad >= 1
+
+
+# --- audit trail: access denials, detail payload, no duplicates, pagination --
+#
+# Covers the "аттестация комиссии" gaps: denied GETs previously left no trace,
+# POST /routes/visit was logged as a bare fact (no building/status), evidence
+# photo views weren't audited at all, and "rich" self-audited actions were
+# written twice (generic middleware row + the handler's own).
+
+
+def _ensure_inspector_link(engine, username: str) -> int:
+    """Roster row (`inspectors`) linked to the account via `user_id` FK.
+
+    The one-time backfill in migration 0013 only links pairs that already
+    matched by name+district *at migration time* — not guaranteed on a fresh
+    test database — so link explicitly here, same as test_scoping.py's fixture.
+    """
+    with engine.begin() as conn:
+        user = conn.execute(
+            text("SELECT id, district FROM users WHERE username = :u"), {"u": username}
+        ).mappings().first()
+        row = conn.execute(
+            text("SELECT id FROM inspectors WHERE user_id = :u"), {"u": user["id"]}
+        ).scalar()
+        if row is not None:
+            return row
+        return conn.execute(
+            text(
+                "INSERT INTO inspectors (name, district, user_id) "
+                "VALUES ('Аудит · тестовый инспектор', :d, :u) RETURNING id"
+            ),
+            {"d": user["district"], "u": user["id"]},
+        ).scalar()
+
+
+def _audit_count(engine, **where) -> int:
+    clauses = " AND ".join(f"{k} = :{k}" for k in where)
+    with engine.connect() as conn:
+        return conn.execute(
+            text(f"SELECT count(*) FROM audit_log WHERE {clauses}"), where
+        ).scalar()
+
+
+def conn_scalar(engine, sql: str):
+    with engine.connect() as conn:
+        return conn.execute(text(sql)).scalar()
+
+
+def test_denied_get_request_is_audited(client):
+    """Пять подтверждённых отказов подряд по GET — раньше ноль строк в журнале
+    (мидлварь аудировала только мутирующие методы). inspector не входит в
+    FULL_ACCESS_ROLES — /audit ему всегда 403."""
+    from app.db import engine
+
+    h = _login(client, "inspector", "inspector123")
+    before = _audit_count(engine, path="/audit", status_code=403)
+    for _ in range(5):
+        r = client.get("/audit", headers=h)
+        assert r.status_code == 403, r.text
+    after = _audit_count(engine, path="/audit", status_code=403)
+    assert after - before == 5
+
+
+def test_visit_is_recorded_once_with_building_detail(client):
+    """«Что конкретно сделал инспектор» — building_id/status в detail, и ровно
+    одна строка на действие (не generic-мидлварь + свой audit() отдельно)."""
+    from app.db import engine
+
+    h = _login(client, "inspector", "inspector123")
+    _ensure_inspector_link(engine, "inspector")
+    building_id = conn_scalar(
+        engine, "SELECT id FROM buildings WHERE district = 'Сарыаркинский' LIMIT 1"
+    )
+
+    before = _audit_count(engine, path="/routes/visit")
+    r = client.post(
+        "/routes/visit",
+        headers=h,
+        json={"building_id": building_id, "status": "done"},
+    )
+    assert r.status_code == 200, r.text
+    after = _audit_count(engine, path="/routes/visit")
+    # Ровно одна новая строка — не пара (generic + свой audit()).
+    assert after - before == 1
+
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT action, detail FROM audit_log "
+                "WHERE path = '/routes/visit' ORDER BY ts DESC LIMIT 1"
+            )
+        ).mappings().first()
+    assert row["action"] == "visit.recorded"
+    assert row["detail"]["building_id"] == building_id
+    assert row["detail"]["status"] == "done"
+
+
+def test_visit_photo_view_is_audited(client):
+    from app.db import engine
+
+    h = _login(client, "inspector", "inspector123")
+    up = client.post(
+        "/routes/visit/photo",
+        headers=h,
+        files={"file": ("x.png", b"\x89PNG\r\n", "image/png")},
+    )
+    assert up.status_code == 200, up.text
+    photo_id = up.json()["id"]
+
+    before = _audit_count(engine, action="read.visit_photo")
+    r = client.get(f"/routes/visit/photo/{photo_id}", headers=h)
+    assert r.status_code == 200, r.text
+    after = _audit_count(engine, action="read.visit_photo")
+    assert after - before == 1
+
+    with engine.connect() as conn:
+        detail = conn.execute(
+            text(
+                "SELECT detail FROM audit_log WHERE action = 'read.visit_photo' "
+                "ORDER BY ts DESC LIMIT 1"
+            )
+        ).scalar()
+    assert detail["photo_id"] == photo_id
+
+
+def test_rich_mutating_action_is_not_duplicated_generically(client):
+    """user.created (auth.py, self-audited) не должен получать вторую,
+    generic-строку от мидлвари — тот же путь/метод, тот же запрос."""
+    from app.db import engine
+
+    username = "zz_test_dup_check"
+    h = _login(client, "admin", "admin123")
+    before = _audit_count(engine, path="/auth/users")
+    try:
+        r = client.post(
+            "/auth/users",
+            headers=h,
+            json={
+                "username": username,
+                "password": "password123",
+                "name": "Дубль-тест",
+                "role": "leadership",
+            },
+        )
+        assert r.status_code == 200, r.text
+        after = _audit_count(engine, path="/auth/users")
+        assert after - before == 1
+    finally:
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM users WHERE username = :u"), {"u": username})
+
+
+def test_audit_pagination_offset_moves_the_window(client):
+    h = _login(client, "admin", "admin123")
+    page1 = client.get("/audit?limit=3&offset=0", headers=h).json()
+    page2 = client.get("/audit?limit=3&offset=3", headers=h).json()
+    assert page1["events"], "ожидались события на первой странице"
+    ids1 = {e["id"] for e in page1["events"]}
+    ids2 = {e["id"] for e in page2["events"]}
+    assert ids1.isdisjoint(ids2)
+    assert page1["matched"] == page2["matched"]
+
+
+def test_audit_date_filter_excludes_future_range(client):
+    h = _login(client, "admin", "admin123")
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    r = client.get(f"/audit?date_from={tomorrow}", headers=h)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["matched"] == 0
+    assert d["events"] == []
+
+
+def test_audit_date_filter_includes_today(client):
+    h = _login(client, "admin", "admin123")
+    today = date.today().isoformat()
+    r = client.get(f"/audit?date_from={today}", headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["matched"] > 0

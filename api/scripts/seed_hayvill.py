@@ -20,7 +20,9 @@ from pathlib import Path
 
 from sqlalchemy import text
 
+from app.config import settings
 from app.db import engine
+from app.extraction import mask_contacts_field
 
 DATA = Path(__file__).resolve().parent / "seed_data" / "hayvill.json"
 # Preferred building to represent the complex (high-rise on Сарайшык, Сарыаркинский
@@ -51,6 +53,11 @@ def _target_building(conn) -> dict:
 
 def main() -> None:
     card = json.loads(DATA.read_text(encoding="utf-8"))
+    # Belt-and-suspenders (see api/app/extraction.py): the seed JSON is hand-edited,
+    # so re-mask ПДн in structured contacts here rather than trust the file — a
+    # future edit that reopens a personal phone still gets caught on import.
+    if settings.mask_pii and "contacts" in card:
+        card["contacts"] = mask_contacts_field(card["contacts"])
     water = [w for w in card.get("water_sources", []) if w.get("distance_m")]
 
     with engine.begin() as conn:

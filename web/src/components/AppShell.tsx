@@ -14,6 +14,7 @@ import {
   Sparkles,
   Brain,
   ShieldCheck,
+  Users,
   Siren,
   Radio,
   Flame,
@@ -47,6 +48,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/chat": Sparkles,
   "/model": Brain,
   "/audit": ShieldCheck,
+  "/users": Users,
 };
 
 export default function AppShell({

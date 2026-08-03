@@ -18,8 +18,9 @@ import { dict as landing } from "./landing";
 import { dict as analytics } from "./analytics";
 import { dict as objects } from "./objects";
 import { dict as ops } from "./ops";
+import { dict as admin } from "./admin";
 
-const DOMAINS = [common, landing, analytics, objects, ops];
+const DOMAINS = [common, landing, analytics, objects, ops, admin];
 
 export type Dict = { en: Record<string, string>; kk: Record<string, string> };
 

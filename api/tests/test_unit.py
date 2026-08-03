@@ -155,10 +155,10 @@ def test_forces_water_source_insufficient_flagged():
 
 
 def test_visit_violation_requires_codes():
-    # Validation rejects before any DB access (db unused on this path).
+    # Validation rejects before any DB/request access (both unused on this path).
     body = VisitRequest(inspector_id=1, building_id=1, status="violation")
     with pytest.raises(HTTPException) as e:
-        record_visit(body, db=None)  # type: ignore[arg-type]
+        record_visit(body, request=None, db=None)  # type: ignore[arg-type]
     assert e.value.status_code == 422
 
 
@@ -170,7 +170,7 @@ def test_visit_violation_requires_photo():
         violations=[Violation(code="ЭВ-01", note="выход заблокирован")],
     )
     with pytest.raises(HTTPException) as e:
-        record_visit(body, db=None)  # type: ignore[arg-type]
+        record_visit(body, request=None, db=None)  # type: ignore[arg-type]
     assert e.value.status_code == 422
     assert "фото" in e.value.detail.lower()
 
@@ -180,6 +180,7 @@ def test_visit_violation_requires_photo():
     ["../../etc/passwd", "visit_xyz.png", "evil.png", "visit_" + "a" * 32 + ".gif"],
 )
 def test_visit_photo_rejects_unsafe_names(bad_id):
+    # Name-pattern check rejects before request/user are touched.
     with pytest.raises(HTTPException) as e:
-        get_visit_photo(bad_id)
+        get_visit_photo(bad_id, request=None)  # type: ignore[arg-type]
     assert e.value.status_code == 404
