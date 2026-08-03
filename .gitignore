@@ -45,3 +45,11 @@ docs/docs_tg/*.pdf
 docs/docs_tg/*.doc
 docs/docs_tg/*.docx
 docs/docs_tg/*.vsd
+
+# Те же исходники лежат копиями в docs/ — их тоже не публикуем.
+# Исключение: собственная презентация FireWatch (ПДн не содержит).
+docs/*.doc
+docs/*.docx
+docs/*.vsd
+docs/*.pdf
+!docs/FireWatch — Презентация для ДЧС РК.pdf
