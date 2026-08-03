@@ -33,18 +33,28 @@ api http://localhost:8001, ml http://localhost:8002, db :5432 (PostGIS).
 
 ## 2. База: миграции и сиды (для свежей/пустой БД)
 
-Порядок важен (5–6 ищут здания, засеянные 1–3):
+Порядок важен: последние ищут здания, засеянные первыми, а `seed_ops` связывает
+реестр инспекторов с учётными записями (`inspectors.user_id`) — поэтому
+`seed_users` идёт до него. Если порядок нарушен, `seed_ops` досвяжет связь при
+повторном прогоне.
 
 ```bash
 docker compose exec api python -m scripts.init_db          # alembic upgrade head
 docker compose exec api python -m scripts.import_osm       # здания (Overpass, нужен интернет)
-docker compose exec api python -m scripts.import_infra     # ПЧ + гидранты
-docker compose exec api python -m scripts.seed_ops         # районы, инспекции
-docker compose exec api python -m scripts.compute_risk     # риск-скоры (дергает ml)
+docker compose exec api python -m scripts.import_infra     # ПЧ + гидранты (НЕ идемпотентен, см. ниже)
 docker compose exec api python -m scripts.seed_users       # демо-пользователи
+docker compose exec api python -m scripts.seed_ops         # районы, инспекции, связь с учётками
+docker compose exec api python -m scripts.compute_risk     # риск-скоры (дергает ml)
 docker compose exec api python -m scripts.seed_hayvill     # структурная ПТП-карточка Хайвилл
 docker compose exec api python -m scripts.seed_extra_objects  # Аланда, Евразия
 ```
+
+> `import_infra` синтезирует гидранты с `osm_id = NULL`, а защита от дублей —
+> `ON CONFLICT (osm_id)`, которая для NULL не срабатывает: каждый повторный
+> прогон добавляет ещё ~1128 гидрантов и портит метрики инфраструктуры. Перед
+> повторным запуском чистить таблицу (`DELETE FROM hydrants`) и после — заново
+> прогонять `seed_hayvill`/`seed_extra_objects`, которые создают объектные
+> гидранты.
 
 Демо-учётки: `inspector/inspector123` (район Сарыаркинский), `supervisor/supervisor123` (Есильский),
 `minister/minister123` (leadership, весь город), `admin/admin123`.

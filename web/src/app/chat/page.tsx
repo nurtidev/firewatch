@@ -11,6 +11,7 @@ import {
   Database,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import DemoBanner from "@/components/DemoBanner";
 import { apiFetch } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { Card, SectionLabel, Button, Input } from "@/components/ui";
@@ -107,6 +108,8 @@ export default function ChatPage() {
             <span className="text-xs text-muted">{t("Аналитик")}</span>
           </div>
         </div>
+
+        <DemoBanner className="mb-4" />
 
         {/* Message scroll area */}
         <Card className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">

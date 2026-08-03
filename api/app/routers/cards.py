@@ -24,6 +24,7 @@ class RemediationReview(BaseModel):
             raise ValueError("status должен быть 'accepted' или 'declined'")
         return v
 
+from app.access import has_citywide_data_access
 from app.audit import audit, client_ip
 from app.config import settings
 from app.db import get_db
@@ -37,12 +38,59 @@ from app.routers.auth import current_user, require_roles
 # delete, prescription/remediation review) stay with the officers who issue
 # administrative acts (inspector/supervisor/admin); leadership only reads
 # dashboards. Without any guard, files were downloadable unauthenticated by
-# enumerating card_id. District-scoping is not yet possible: operational_cards
-# has no building/district FK (see _card_detail); add that link to scope per-role.
+# enumerating card_id.
+#
+# Поверх ролей работает район-скоупинг (`_card_scope_sql`): inspector/supervisor
+# видят только карточки своего района. Раньше здесь стояла пометка «скоупинг
+# невозможен, нет связи со зданием» — она устарела: `operational_cards.building_id`
+# существует и заполняется сидами, а для загруженных вручную PDF без привязки
+# район фиксируется в `operational_cards.district` при загрузке
+# (миграция 0013_scoping_links).
 CARD_READ = require_roles(
     "inspector", "supervisor", "admin", "dispatcher", "responder"
 )
 CARD_WRITE = require_roles("inspector", "supervisor", "admin")
+
+
+def _card_scope_sql(user: dict, params: dict) -> str:
+    """SQL-условие видимости оперкарточки для роли (алиасы `c` и `b`).
+
+    Район карточки — район привязанного здания, а для загруженного PDF без
+    привязки — район, зафиксированный при загрузке. Общегородские роли
+    (dispatcher/responder — боевой модуль, им нужен ПТП любого объекта города по
+    пути на вызов) и leadership/admin видят всё. Scoped-роль без района не видит
+    ничего (fail closed), карточка без района — тоже: ПТП содержит ПДн и планы
+    эвакуации, поэтому «неизвестно чьё» не показывается никому, кроме
+    общегородских ролей.
+    """
+    if has_citywide_data_access(user):
+        return "TRUE"
+    district = user.get("district")
+    if district is None:
+        return "FALSE"
+    params["scope_district"] = district
+    return "COALESCE(b.district, c.district) IS NOT DISTINCT FROM :scope_district"
+
+
+def _assert_card_in_scope(card_id: int, db: Session, user: dict) -> None:
+    """404, если карточка вне района вызывающего.
+
+    Именно 404, а не 403: существование карточки соседнего района — уже
+    информация, а для клиента случай неотличим от удалённой карточки.
+    """
+    params: dict = {"id": card_id}
+    scope = _card_scope_sql(user, params)
+    found = db.execute(
+        text(
+            "SELECT 1 FROM operational_cards c "
+            "LEFT JOIN buildings b ON b.id = c.building_id "
+            f"WHERE c.id = :id AND {scope}"
+        ),
+        params,
+    ).scalar()
+    if found is None:
+        raise HTTPException(404, "Карточка не найдена")
+
 
 router = APIRouter(
     prefix="/cards",
@@ -97,8 +145,8 @@ async def upload_card(
         text(
             """
             INSERT INTO operational_cards
-                (filename, media_type, file_path, status, extracted)
-            VALUES (:fn, :mt, :fp, 'extracted', CAST(:ex AS JSONB))
+                (filename, media_type, file_path, status, extracted, district)
+            VALUES (:fn, :mt, :fp, 'extracted', CAST(:ex AS JSONB), :district)
             RETURNING id
             """
         ),
@@ -107,6 +155,9 @@ async def upload_card(
             "mt": file.content_type,
             "fp": str(path),
             "ex": _json(extracted),
+            # Загруженный PDF не привязан к зданию — район фиксируем по
+            # загрузившему, иначе карточку нельзя отнести ни к одному району.
+            "district": user.get("district"),
         },
     ).scalar()
 
@@ -128,7 +179,7 @@ async def upload_card(
             },
         )
     db.commit()
-    return _card_detail(card_id, db)
+    return _card_detail(card_id, db, user)
 
 
 @router.get("")
@@ -136,9 +187,11 @@ def list_cards(
     db: Session = Depends(get_db),
     user: dict = Depends(CARD_READ),
 ) -> list[dict]:
+    params: dict = {}
+    scope = _card_scope_sql(user, params)
     rows = db.execute(
         text(
-            """
+            f"""
             SELECT c.id, c.filename, c.created_at,
                    COALESCE(
                        c.extracted->'object'->>'name',
@@ -147,11 +200,14 @@ def list_cards(
                    ) AS address,
                    count(p.id) AS prescriptions
             FROM operational_cards c
+            LEFT JOIN buildings b ON b.id = c.building_id
             LEFT JOIN prescriptions p ON p.card_id = c.id
+            WHERE {scope}
             GROUP BY c.id
             ORDER BY c.created_at DESC
             """
-        )
+        ),
+        params,
     ).mappings()
     return [dict(r) | {"created_at": r["created_at"].isoformat()} for r in rows]
 
@@ -163,7 +219,7 @@ def get_card(
     db: Session = Depends(get_db),
     user: dict = Depends(CARD_READ),
 ) -> dict:
-    detail = _card_detail(card_id, db)
+    detail = _card_detail(card_id, db, user)
     # Operational cards hold ПДн (contacts) — reads must be auditable, not just
     # state changes (gov-contour requirement).
     audit(
@@ -205,9 +261,16 @@ def _prescription_row(p: dict) -> dict:
     }
 
 
-def _card_detail(card_id: int, db: Session) -> dict:
+def _card_detail(card_id: int, db: Session, user: dict) -> dict:
+    params: dict = {"id": card_id}
+    scope = _card_scope_sql(user, params)
     card = db.execute(
-        text("SELECT * FROM operational_cards WHERE id = :id"), {"id": card_id}
+        text(
+            "SELECT c.* FROM operational_cards c "
+            "LEFT JOIN buildings b ON b.id = c.building_id "
+            f"WHERE c.id = :id AND {scope}"
+        ),
+        params,
     ).mappings().first()
     if card is None:
         raise HTTPException(404, "Карточка не найдена")
@@ -258,9 +321,15 @@ def get_card_file(
     db: Session = Depends(get_db),
     user: dict = Depends(CARD_READ),
 ) -> FileResponse:
+    params: dict = {"id": card_id}
+    scope = _card_scope_sql(user, params)
     row = db.execute(
-        text("SELECT file_path, media_type FROM operational_cards WHERE id = :id"),
-        {"id": card_id},
+        text(
+            "SELECT c.file_path, c.media_type FROM operational_cards c "
+            "LEFT JOIN buildings b ON b.id = c.building_id "
+            f"WHERE c.id = :id AND {scope}"
+        ),
+        params,
     ).mappings().first()
     # file_path is NULL for JSON-seeded cards, and the path may be missing if the
     # stored file was never persisted (e.g. uploaded before a volume was mounted).
@@ -286,9 +355,15 @@ def delete_card(
     db: Session = Depends(get_db),
     user: dict = Depends(CARD_WRITE),
 ) -> dict:
+    params: dict = {"id": card_id}
+    scope = _card_scope_sql(user, params)
     row = db.execute(
-        text("SELECT file_path FROM operational_cards WHERE id = :id"),
-        {"id": card_id},
+        text(
+            "SELECT c.file_path FROM operational_cards c "
+            "LEFT JOIN buildings b ON b.id = c.building_id "
+            f"WHERE c.id = :id AND {scope}"
+        ),
+        params,
     ).mappings().first()
     if row is None:
         raise HTTPException(404, "Карточка не найдена")
@@ -334,6 +409,8 @@ def review_prescription(
         raise HTTPException(400, "status должен быть 'approved' или 'rejected'")
     # CARD_WRITE (inspector/supervisor/admin) — leadership, which never signs off
     # an administrative act, and the боевой roles are already excluded here.
+    # Подписать акт можно только по объекту своего района.
+    _assert_card_in_scope(card_id, db, user)
 
     updated = db.execute(
         text(
@@ -360,7 +437,7 @@ def review_prescription(
         ip=client_ip(request),
         detail={"card_id": card_id, "prescription_id": prescription_id, "status": body.status},
     )
-    return _card_detail(card_id, db)
+    return _card_detail(card_id, db, user)
 
 
 @router.post(
@@ -380,7 +457,9 @@ def review_remediation(
     Roles (inspector/supervisor/admin, via CARD_WRITE) are enforced. The full
     card→prescription→remediation chain must exist (404 otherwise) and the claim
     must still be 'pending' (409 otherwise) — a decided claim isn't re-decided.
+    Карточка при этом должна быть в районе вызывающего.
     """
+    _assert_card_in_scope(card_id, db, user)
     remediation = db.execute(
         text(
             """
@@ -423,7 +502,7 @@ def review_remediation(
         ip=client_ip(request),
         detail={"remediation_id": remediation_id, "status": body.status},
     )
-    return _card_detail(card_id, db)
+    return _card_detail(card_id, db, user)
 
 
 def _json(obj: dict) -> str:

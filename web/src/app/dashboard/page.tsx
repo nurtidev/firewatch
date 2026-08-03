@@ -28,7 +28,7 @@ import DemoBanner from "@/components/DemoBanner";
 import { apiFetch, useAuth } from "@/lib/auth";
 import { intlLocale, useLocale, useT } from "@/lib/i18n";
 import { navForRole } from "@/lib/nav";
-import { scoreSeverity, SEVERITY } from "@/lib/risk";
+import { scoreBand, scoreSeverity, SEVERITY } from "@/lib/risk";
 import {
   Card,
   PageHeader,
@@ -42,10 +42,22 @@ import {
   StatusChip,
 } from "@/components/ui";
 
+// Same four canonical bands as the map. `key` is literally the `risk=` value
+// GET /buildings accepts (see api RISK_BANDS in routers/buildings.py) — the
+// backend derives `min`/`max`/`count` from that same SQL, so a count here is
+// guaranteed to match GET /buildings?risk=<key> for the same user. Label and
+// color are read off lib/risk.ts (scoreBand/scoreSeverity) by `min`; never
+// hardcode a competing threshold or range label here.
+type RiskBand = {
+  key: "critical" | "high" | "mid" | "low";
+  min: number;
+  max: number | null;
+  count: number;
+};
+
 type Overview = {
   buildings: number;
-  high_risk: number;
-  mid_risk: number;
+  risk_bands: RiskBand[];
   avg_score: number;
   stations: number;
   broken_hydrants: number;
@@ -113,7 +125,9 @@ export default function Dashboard() {
 
   const loading = !ov && !error;
   const avgSev = ov ? scoreSeverity(ov.avg_score) : undefined;
-  const lowRisk = ov ? Math.max(0, ov.buildings - ov.high_risk - ov.mid_risk) : 0;
+  // Canonical "Высокий" band (score 40–59, exclusive of "Критический") — the
+  // exact same number GET /buildings?risk=high returns for this user.
+  const highRisk = ov?.risk_bands.find((b) => b.key === "high")?.count ?? 0;
 
   const opsTotal = progress?.reduce((a, p) => a + p.total, 0) ?? 0;
   const opsDone = progress?.reduce((a, p) => a + p.done, 0) ?? 0;
@@ -170,11 +184,11 @@ export default function Dashboard() {
               />
               <MetricCard
                 label={t("Здания высокого риска")}
-                value={ov?.high_risk?.toLocaleString(intlLocale(locale)) ?? "—"}
+                value={ov ? highRisk.toLocaleString(intlLocale(locale)) : "—"}
                 icon={Flame}
                 severity={SEVERITY.high}
                 loading={loading}
-                hint={ov && `${Math.round((100 * ov.high_risk) / Math.max(1, ov.buildings))}% ${t("от всех объектов")}`}
+                hint={ov && `${Math.round((100 * highRisk) / Math.max(1, ov.buildings))}% ${t("от всех объектов")}`}
               />
               <MetricCard
                 label={t("Неисправные гидранты")}
@@ -219,12 +233,7 @@ export default function Dashboard() {
                 {loading ? (
                   <Skeleton className="mt-4 h-3 w-full" />
                 ) : ov ? (
-                  <RiskDistribution
-                    high={ov.high_risk}
-                    mid={ov.mid_risk}
-                    low={lowRisk}
-                    total={ov.buildings}
-                  />
+                  <RiskDistribution bands={ov.risk_bands} total={ov.buildings} />
                 ) : null}
               </Card>
 
@@ -347,40 +356,35 @@ function MiniStat({
   );
 }
 
-function RiskDistribution({
-  high,
-  mid,
-  low,
-  total,
-}: {
-  high: number;
-  mid: number;
-  low: number;
-  total: number;
-}) {
+function RiskDistribution({ bands, total }: { bands: RiskBand[]; total: number }) {
   const t = useT();
   const { locale } = useLocale();
-  const segs = [
-    { sev: SEVERITY.high, label: t("Высокий"), band: "71–100", n: high },
-    { sev: SEVERITY.elevated, label: t("Средний"), band: "36–70", n: mid },
-    { sev: SEVERITY.normal, label: t("Низкий"), band: "0–35", n: low },
-  ];
   const safeTotal = Math.max(1, total);
+  // Label/color come from lib/risk.ts (scoreBand/scoreSeverity), the numeric
+  // range comes straight from the API response — nothing here is a second
+  // copy of the thresholds.
+  const segs = bands.map((b) => ({
+    key: b.key,
+    sev: scoreSeverity(b.min),
+    label: t(scoreBand(b.min)),
+    range: b.max == null ? `${b.min}+` : `${b.min}–${b.max}`,
+    n: b.count,
+  }));
   return (
     <div className="mt-4">
       <div className="flex h-3 w-full overflow-hidden rounded-full bg-surface-3">
         {segs.map((s) => (
           <div
-            key={s.label}
+            key={s.key}
             className="h-full first:rounded-l-full last:rounded-r-full"
             style={{ width: `${(100 * s.n) / safeTotal}%`, background: s.sev.cssVar }}
             title={`${s.label}: ${s.n}`}
           />
         ))}
       </div>
-      <div className="mt-4 grid grid-cols-3 gap-3">
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {segs.map((s) => (
-          <div key={s.label} className="rounded-md border border-border bg-surface-2/50 p-3">
+          <div key={s.key} className="rounded-md border border-border bg-surface-2/50 p-3">
             <div className="flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full" style={{ background: s.sev.cssVar }} />
               <span className="text-xs text-muted">{s.label}</span>
@@ -389,7 +393,7 @@ function RiskDistribution({
               {s.n.toLocaleString(intlLocale(locale))}
             </div>
             <div className="mt-1 text-2xs text-faint">
-              {Math.round((100 * s.n) / safeTotal)}% · {s.band}
+              {Math.round((100 * s.n) / safeTotal)}% · {s.range}
             </div>
           </div>
         ))}
