@@ -23,6 +23,7 @@ from app.audit import audit, client_ip
 from app.config import settings
 from app.db import get_db
 from app.routers.auth import current_user, require_roles
+from app.routers.buildings import TYPE_LABELS
 
 # Router-level auth is just "authenticated"; each endpoint layers its own role
 # guard. Owner-only endpoints use OWNER_ONLY; the photo-serve route also lets
@@ -93,6 +94,9 @@ def _remediation_obj(row: dict) -> dict | None:
         "status": row["rem_status"],
         "created_at": row["rem_created_at"].isoformat() if row["rem_created_at"] else None,
         "reviewed_by": row["rem_reviewed_by"],
+        # Human-readable reviewer name (falls back to the login if the account
+        # was since removed) — an owner shouldn't have to decode a username.
+        "reviewed_by_name": row.get("rem_reviewed_by_name") or row["rem_reviewed_by"],
         "reviewed_at": row["rem_reviewed_at"].isoformat() if row["rem_reviewed_at"] else None,
         "review_note": row["rem_review_note"],
     }
@@ -112,7 +116,7 @@ def summary(
         text(
             """
             SELECT b.id, b.address, b.district, b.building_type, b.floors,
-                   r.score AS risk_score
+                   r.score AS risk_score, r.explanation
             FROM buildings b
             LEFT JOIN risk_scores r ON r.building_id = b.id
             WHERE b.id = ANY(:bids)
@@ -163,8 +167,19 @@ def summary(
                 "address": b["address"],
                 "district": b["district"],
                 "building_type": b["building_type"],
+                "building_type_label": TYPE_LABELS.get(b["building_type"], b["building_type"]),
                 "floors": b["floors"],
                 "risk_score": b["risk_score"],
+                # Top 1-2 SHAP factors only (feature label + signed p.p. contribution),
+                # already sorted by |value| desc and translated by ml/app/features.py.
+                # NOT the full /buildings/{id} explanation — that endpoint stays closed
+                # to owner (district-scoped, fail-closed); this is a deliberately small,
+                # safe subset so an ОСИ chair can answer "why is my building rated X"
+                # without exposing the internal risk dashboard.
+                "top_factors": [
+                    {"feature": f["feature"], "value": f["value"]}
+                    for f in (b["explanation"] or [])[:2]
+                ],
             }
             for b in buildings
         ],
@@ -195,7 +210,7 @@ def list_prescriptions(
                    lr.id AS rem_id, lr.note AS rem_note, lr.photos AS rem_photos,
                    lr.status AS rem_status, lr.created_at AS rem_created_at,
                    lr.reviewed_by AS rem_reviewed_by, lr.reviewed_at AS rem_reviewed_at,
-                   lr.review_note AS rem_review_note,
+                   lr.review_note AS rem_review_note, ru.name AS rem_reviewed_by_name,
                    EXISTS (
                        SELECT 1 FROM remediations ra
                        WHERE ra.prescription_id = p.id AND ra.status = 'accepted'
@@ -209,6 +224,7 @@ def list_prescriptions(
                 ORDER BY r.created_at DESC, r.id DESC
                 LIMIT 1
             ) lr ON TRUE
+            LEFT JOIN users ru ON ru.username = lr.reviewed_by
             WHERE p.status = 'approved'
               AND c.building_id = ANY(:bids)
             """

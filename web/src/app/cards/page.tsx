@@ -1292,6 +1292,44 @@ const FORCE_FIELDS: Record<string, { label: string; unit?: string; num?: boolean
   privlekaemye_sily: { label: "Привлекаемые силы" },
   source: { label: "Источник" },
   note_2020: { label: "Примечание (ред. 2020)" },
+
+  // Аланда/Евразия используют другое соглашение имён (кириллица вперемешку с
+  // латиницей, как в исходном документе ДЧС) — те же величины, что и выше,
+  // под другими ключами JSON. Канонические алиасы для API — см.
+  // `_FC_NUM_FIELDS`/`_FC_COUNT_FIELDS` в api/app/routers/dispatch.py; здесь
+  // те же обозначения методики ДЧС переведены на подписи для человека, а не
+  // сведены к единому набору полей (тут — вся выкладка, а не выжимка).
+  Tсв_min: { label: "Своб. развитие пожара", unit: "мин", num: true },
+  Tсл_min: { label: "Время следования", unit: "мин", num: true },
+  T2_min: { label: "Время развития (Т2)", unit: "мин", num: true },
+  R1_m: { label: "Путь фронта пожара (R1)", unit: "м", num: true },
+  a_m: { label: "Ширина фронта (a)", unit: "м", num: true },
+  hт_m: { label: "Глубина тушения (h)", unit: "м", num: true },
+  Vл_m_min: { label: "Скорость распространения (Vл)", unit: "м/мин", num: true },
+  n_fronts: { label: "Число направлений", num: true },
+  Sп_m2: { label: "Площадь пожара", unit: "м²", num: true },
+  Sт_m2: { label: "Площадь тушения", unit: "м²", num: true },
+  Jтр_l_s_m2: { label: "Интенсивность", unit: "л/с·м²", num: true },
+  Qт_тр_l_s: { label: "Qтр на тушение", unit: "л/с", num: true },
+  Qз_тр_l_s: { label: "Qтр на защиту", unit: "л/с", num: true },
+  Qобщ_тр_l_s: { label: "Qтр общий", unit: "л/с", num: true },
+  Qтр_total_l_s: { label: "Qтр общий", unit: "л/с", num: true },
+  Qт_ф_l_s: { label: "Qф на тушение", unit: "л/с", num: true },
+  Qз_ф_l_s: { label: "Qф на защиту", unit: "л/с", num: true },
+  Qобщ_ф_l_s: { label: "Qф фактический", unit: "л/с", num: true },
+  Qф_total_l_s: { label: "Qф фактический", unit: "л/с", num: true },
+  Nств_тушение: { label: "Стволы на тушение" },
+  Nств_защита: { label: "Стволы на защиту" },
+  Nм_АЦ: { label: "Пожарные машины", num: true },
+  Nлс_чел: { label: "Личный состав", num: true },
+  Nотд: { label: "Отделений", num: true },
+  // ГТQQ (в документе — «ГТҚҚ», кириллическая Қ распознана как латинская Q)
+  // — газодымозащитная служба: командир и звенья ГДЗС, работающие в СИЗОД.
+  ГТQQ_units: { label: "Звенья ГДЗС", unit: "зв.", num: true },
+  water_reserve_l: { label: "Запас воды", unit: "л", num: true },
+  fire_shape: { label: "Форма пожара" },
+  hydrant_distances_note: { label: "Расстояния до гидрантов" },
+  summary: { label: "Итог расчёта" },
 };
 
 // force_calc keys whose values are long provenance text — folded by default.

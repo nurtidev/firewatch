@@ -146,12 +146,16 @@ export default function CalloutPack({
             )}
           </div>
           <div className="shrink-0 space-y-1 text-right text-xs text-faint">
-            <p className="inline-flex items-center gap-1 tabular">
+            {/* `flex` (block-level), not `inline-flex` — as inline-level boxes
+                these two <p> ran together on one line with no separator
+                ("только чтоСпециализированная пожарная часть №2") because JSX
+                doesn't emit whitespace between adjacent elements. */}
+            <p className="flex items-center justify-end gap-1 tabular">
               <Clock3 className="h-3.5 w-3.5" aria-hidden />
               {relativeTimeRu(callout.created_at, locale, t)}
             </p>
             {station && (
-              <p className="inline-flex items-center gap-1">
+              <p className="flex items-center justify-end gap-1">
                 <Truck className="h-3.5 w-3.5" aria-hidden />
                 {station.name}
               </p>
@@ -184,7 +188,11 @@ export default function CalloutPack({
                           : undefined
                       }
                     >
-                      <span>{building.floors} {t("эт.")}</span>
+                      {/* Этажность решает выбор автолестницы — крупнее и
+                          контрастнее, чем остальной служебный текст блока. */}
+                      <span className="text-base font-semibold text-fg">
+                        {building.floors} {t("эт.")}
+                      </span>
                       {/* Документ ПТП главнее реестра OSM — по этой цифре
                           выбирают автолестницу, и видно, откуда она взята. */}
                       {building.floors_source === "card" && <Badge>{t("по ПТП")}</Badge>}
@@ -401,7 +409,20 @@ function HydrantRow({
       const d = await r.json();
       onChanged({ ...hydrant, status: (d.status as HydrantStatus) ?? nextStatus });
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("Не удалось обновить статус"));
+      // fetch() throws a bare TypeError when the network itself is
+      // unreachable (offline, DNS, CORS) — that IS an Error, so `e.message`
+      // used to leak the untranslated browser string ("Failed to fetch")
+      // right in the offline scenario this fallback exists for. Our own
+      // throws above are plain Error with an already-translated message —
+      // TypeError is reserved for the network layer, so this reliably tells
+      // the two apart instead of trusting e.message blindly.
+      setError(
+        e instanceof TypeError
+          ? t("Нет связи с сервером — попробуйте ещё раз")
+          : e instanceof Error
+            ? e.message
+            : t("Не удалось обновить статус"),
+      );
     } finally {
       setBusy(false);
     }
@@ -414,7 +435,10 @@ function HydrantRow({
           <StatusChip severity={meta.severity} label={t(meta.label)} />
           {hydrant.hydrant_type && <span className="text-xs text-muted">{hydrant.hydrant_type}</span>}
         </div>
-        <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-faint tabular">
+        {/* Расстояние/диаметр/давление — цифры, по которым РТП решает, куда
+            качать воду и каким стволом; несут больше тактического веса, чем
+            служебный текст рядом, поэтому крупнее и контрастнее его. */}
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-semibold text-fg tabular">
           {hydrant.pressure_bar != null && <span>{hydrant.pressure_bar} {t("бар")}</span>}
           {hydrant.diameter_mm != null && <span>⌀ {hydrant.diameter_mm} {t("мм")}</span>}
           <span>{hydrant.distance_m} {t("м")}</span>

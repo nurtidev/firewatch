@@ -2,6 +2,14 @@
 
 Runs only when FW_RUN_DB_TESTS=1 and DATABASE_URL points at a PostGIS database
 (set in CI). Locally without a database these are skipped.
+
+ВНИМАНИЕ: фикстура ниже ОЧИЩАЕТ buildings и всё, что на неё ссылается. Это
+безопасно только на выделенной тестовой базе. Однажды такой прогон на общей
+dev-базе снёс демо-данные (4523 здания, карточки, визиты, донесения), поэтому
+имя базы проверяется явно: без «test» в названии тесты не запускаются, сколько
+бы флагов ни было выставлено. Локально: создать базу и указать её в
+DATABASE_URL, например
+  postgresql+psycopg://firewatch:firewatch@db:5432/fw_test
 """
 
 import os
@@ -10,10 +18,27 @@ from datetime import date, timedelta
 import pytest
 from sqlalchemy import text
 
-pytestmark = pytest.mark.skipif(
-    not os.getenv("FW_RUN_DB_TESTS"),
-    reason="set FW_RUN_DB_TESTS=1 with a PostGIS DATABASE_URL to run",
-)
+
+def _is_dedicated_test_db() -> bool:
+    """База выглядит выделенной под тесты (имя содержит «test»)."""
+    url = os.getenv("DATABASE_URL", "")
+    name = url.rsplit("/", 1)[-1].split("?", 1)[0].lower()
+    return "test" in name
+
+
+pytestmark = [
+    pytest.mark.skipif(
+        not os.getenv("FW_RUN_DB_TESTS"),
+        reason="set FW_RUN_DB_TESTS=1 with a PostGIS DATABASE_URL to run",
+    ),
+    pytest.mark.skipif(
+        os.getenv("FW_RUN_DB_TESTS") and not _is_dedicated_test_db(),
+        reason=(
+            "фикстура очищает buildings — нужна выделенная база с «test» в "
+            "имени, иначе прогон снесёт демо-данные общей dev-базы"
+        ),
+    ),
+]
 
 _POLY = (
     "ST_SetSRID(ST_GeomFromText("
@@ -355,3 +380,115 @@ def test_audit_date_filter_includes_today(client):
     r = client.get(f"/audit?date_from={today}", headers=h)
     assert r.status_code == 200, r.text
     assert r.json()["matched"] > 0
+
+
+# --- owner portal: score explanation + reviewer name (UX audit #4, #6) -----
+
+
+def test_owner_portal_summary_translates_type_and_surfaces_top_factors():
+    """Owner-facing #4/#5 from the UX audit: a bare `residential`/`11` on the
+    portal card explains nothing to an ОСИ chair. `/portal/summary` must ship
+    a translated `building_type_label` and a small, honest slice of the SHAP
+    explanation (top 2 factors) — without opening the full `/buildings/{id}`
+    dashboard, which stays closed to owner by design (district-scoped)."""
+    import json as _json
+
+    from app.db import engine
+    from app.main import app
+
+    explanation = [
+        {"feature": "Деревянные перекрытия", "value": 27.4},
+        {"feature": "Возраст здания", "value": 23.4},
+        {"feature": "Капитальный ремонт (недавний)", "value": -1.2},
+    ]
+    with engine.begin() as conn:
+        bid = conn.execute(
+            text(
+                f"INSERT INTO buildings (address, building_type, district, geom) "
+                f"VALUES ('портал-тест', 'industrial', 'Есильский', {_POLY}) RETURNING id"
+            )
+        ).scalar()
+        conn.execute(
+            text(
+                "INSERT INTO risk_scores (building_id, score, model_version, explanation) "
+                "VALUES (:b, 58, 'test', CAST(:e AS JSONB))"
+            ),
+            {"b": bid, "e": _json.dumps(explanation, ensure_ascii=False)},
+        )
+        owner_id = conn.execute(
+            text("SELECT id FROM users WHERE username = 'owner'")
+        ).scalar()
+        conn.execute(
+            text("INSERT INTO owner_buildings (user_id, building_id) VALUES (:u, :b)"),
+            {"u": owner_id, "b": bid},
+        )
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(app) as c:
+        h = _login(c, "owner", "owner123")
+        r = c.get("/portal/summary", headers=h)
+        assert r.status_code == 200, r.text
+        b = next(x for x in r.json()["buildings"] if x["id"] == bid)
+        assert b["building_type"] == "industrial"
+        assert b["building_type_label"] == "Производственное"  # not the raw English value
+        assert b["top_factors"] == explanation[:2]  # top 2, |value| desc, never the -1.2 tail
+
+
+def test_owner_portal_remediation_reviewed_by_name_is_human_readable():
+    """#6 from the UX audit: the portal showed the reviewer's login
+    ("inspector") instead of a name. `reviewed_by` (the login, kept for
+    compatibility) must be joined to `users.name` in `reviewed_by_name`."""
+    from app.db import engine
+    from app.main import app
+
+    with engine.begin() as conn:
+        bid = conn.execute(
+            text(
+                f"INSERT INTO buildings (address, building_type, district, geom) "
+                f"VALUES ('портал-тест-2', 'residential', 'Сарыаркинский', {_POLY}) RETURNING id"
+            )
+        ).scalar()
+        owner_id = conn.execute(
+            text("SELECT id FROM users WHERE username = 'owner'")
+        ).scalar()
+        inspector_name = conn.execute(
+            text("SELECT name FROM users WHERE username = 'inspector'")
+        ).scalar()
+        conn.execute(
+            text("INSERT INTO owner_buildings (user_id, building_id) VALUES (:u, :b)"),
+            {"u": owner_id, "b": bid},
+        )
+        card_id = conn.execute(
+            text(
+                "INSERT INTO operational_cards (building_id, filename, status, district) "
+                "VALUES (:b, 'tmp.pdf', 'reviewed', 'Сарыаркинский') RETURNING id"
+            ),
+            {"b": bid},
+        ).scalar()
+        presc_id = conn.execute(
+            text(
+                "INSERT INTO prescriptions (card_id, recommendation, severity, status) "
+                "VALUES (:c, 'Проверить огнетушители', 'high', 'approved') RETURNING id"
+            ),
+            {"c": card_id},
+        ).scalar()
+        conn.execute(
+            text(
+                "INSERT INTO remediations (prescription_id, submitted_by, note, status, reviewed_by, reviewed_at) "
+                "VALUES (:p, 'owner', 'Заменено', 'accepted', 'inspector', now())"
+            ),
+            {"p": presc_id},
+        )
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(app) as c:
+        h = _login(c, "owner", "owner123")
+        r = c.get("/portal/prescriptions", headers=h)
+        assert r.status_code == 200, r.text
+        presc = next(x for x in r.json() if x["id"] == presc_id)
+        rem = presc["remediation"]
+        assert rem["reviewed_by"] == "inspector"
+        assert rem["reviewed_by_name"] == inspector_name
+        assert rem["reviewed_by_name"] != "inspector"

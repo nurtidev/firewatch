@@ -6,6 +6,12 @@ from app.access import enforce_building_scope, has_citywide_data_access
 from app.audit import audit, client_ip
 from app.db import get_db
 from app.routers.auth import current_user
+# Нормализация адреса (казахская диакритика → базовая кириллица, опечатка в
+# номере дома, экранирование LIKE) — тот же механизм, что у пульта ЦОУ. Один
+# источник правды: правится в dispatch.py, здесь только переиспользуется, чтобы
+# «Тәуелсіздік 33» находилось одинаково что диспетчером, что супервайзером с
+# карты. `search_norm`/`fw_norm_addr` — миграция 0016.
+from app.routers.dispatch import _digit_variant, _like_escape, norm_addr
 
 router = APIRouter(
     prefix="/buildings",
@@ -118,6 +124,101 @@ def list_buildings(
         for row in rows
     ]
     return {"type": "FeatureCollection", "features": features}
+
+
+@router.get("/search")
+def search_buildings(
+    q: str,
+    db: Session = Depends(get_db),
+    user: dict = Depends(current_user),
+) -> list[dict]:
+    """Поиск объекта по адресу — вне пульта ЦОУ (карта, дашборд и т.п.).
+
+    Начальник отдела, которому позвонили «почему на Тәуелсіздік 33 не закрыты
+    нарушения», не может завести выезд — ему нужно найти здание в своём районе,
+    а не зарегистрировать боевой выезд. Отдельный эндпоинт, а не переиспользование
+    `/dispatch/search` (тот привязан к `DISPATCH_ROLES`, общегородской и не
+    режет по району), но **та же нормализация**: токены сворачиваются функцией
+    `norm_addr`, импортированной из `app.routers.dispatch` (единственное место,
+    где живёт таблица свёртки казахских букв — дублировать её здесь означало бы
+    рассинхрон с `fw_norm_addr` в БД при следующей правке).
+
+    Скоуп: inspector/supervisor видят только здания своего района
+    (`enforce_building_scope`, как и `GET /buildings`); leadership/admin — весь
+    город. Возвращает координаты центроида — фронт центрирует карту по ним.
+    """
+    tokens = [t for t in q.split() if t][:5]
+    if not tokens:
+        return []
+
+    clauses: list[str] = []
+    params: dict = {}
+    for i, token in enumerate(tokens):
+        normalized = norm_addr(token)
+        params[f"q{i}"] = f"%{_like_escape(normalized)}%"
+        variant = _digit_variant(normalized)
+        if variant is None:
+            clauses.append(f"b.search_norm LIKE :q{i}")
+        else:
+            # Опечатка в номере дома («3З» вместо 33) — доп. вариант токена.
+            params[f"d{i}"] = f"%{_like_escape(variant)}%"
+            clauses.append(f"(b.search_norm LIKE :q{i} OR b.search_norm LIKE :d{i})")
+    params["raw"] = norm_addr(tokens[0])
+
+    # Server-side district confinement for scoped roles — тот же слой, что и у
+    # GET /buildings, поэтому супервайзер не найдёт поиском объект чужого района
+    # даже зная точный адрес.
+    enforce_building_scope(clauses, params, user)
+
+    rows = db.execute(
+        text(
+            f"""
+            SELECT b.id, b.address, b.alias, b.district, b.building_type, b.floors,
+                   r.score AS risk_score,
+                   ST_X(ST_Centroid(b.geom)) AS lng, ST_Y(ST_Centroid(b.geom)) AS lat
+            FROM buildings b
+            LEFT JOIN risk_scores r ON r.building_id = b.id
+            WHERE {" AND ".join(clauses)}
+            ORDER BY POSITION(:raw IN b.search_norm),
+                     COALESCE(substring(b.address FROM '[0-9]+')::int, 999999),
+                     b.address
+            LIMIT 10
+            """
+        ),
+        params,
+    ).mappings().all()
+    return [
+        {
+            "id": r["id"],
+            "address": r["address"],
+            "alias": r["alias"],
+            "district": r["district"],
+            "building_type": r["building_type"],
+            "floors": r["floors"],
+            "risk_score": r["risk_score"],
+            "lat": r["lat"],
+            "lng": r["lng"],
+        }
+        for r in rows
+    ]
+
+
+@router.get("/freshness")
+def risk_freshness(
+    db: Session = Depends(get_db),
+    _user: dict = Depends(current_user),
+) -> dict:
+    """Реальная метка свежести риск-модели — для честного бейджа «LIVE».
+
+    До этого «LIVE · обновлено HH:MM» на дашборде был `new Date()` в момент
+    рендера страницы: если ежедневный пересчёт риска сломается на неделю,
+    бейдж всё равно показывал бы текущее время. Здесь — фактический
+    `MAX(risk_scores.computed_at)`. Не district-скоупится: пересчёт риска —
+    свойство пайплайна целиком (один прогон на весь город разом), а не данных
+    конкретного района, поэтому метка одна и та же для supervisor и leadership.
+    """
+    computed_at = db.execute(text("SELECT max(computed_at) FROM risk_scores")).scalar()
+    return {"computed_at": computed_at.isoformat() if computed_at else None}
 
 
 @router.get("/{building_id}")

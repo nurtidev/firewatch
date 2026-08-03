@@ -16,6 +16,12 @@
  *   4. Per-object visit drafts: checklist marks are written to the device as
  *      they are made, so an interrupted inspection (a call, a mis-tap on
  *      "back", a dead battery) can be resumed instead of redone.
+ *   5. Per-object visit log: what was actually submitted for an object stays
+ *      readable (on this device) after the fact, so a `done`/`violation` stop
+ *      can be reopened read-only at the end of the shift instead of forcing
+ *      the inspector to remember or ask a supervisor. There is no server
+ *      endpoint for this (out of this track's scope) — it is honestly a
+ *      same-device record, not a synced one.
  *
  * Keys:
  *   fw_route_<inspectorId>  — cached Route JSON
@@ -23,6 +29,7 @@
  *   fw_visit_queue          — QueuedVisit[] awaiting sync
  *   fw_report_queue         — QueuedReport[] awaiting sync
  *   fw_visit_drafts         — in-progress checklist marks, keyed inspector:building
+ *   fw_visit_log            — submitted checklist marks, keyed inspector:building
  */
 
 import { apiFetch } from "@/lib/auth";
@@ -74,6 +81,7 @@ const MY_INSPECTOR_KEY = "fw_my_inspector";
 const QUEUE_KEY = "fw_visit_queue";
 const REPORT_QUEUE_KEY = "fw_report_queue";
 const DRAFT_KEY = "fw_visit_drafts";
+const VISIT_LOG_KEY = "fw_visit_log";
 
 /** Upload budget per photo. Bigger shots are re-encoded down to fit (see
  *  `preparePhoto`) — the field never sees "reduce it yourself". */
@@ -518,4 +526,46 @@ export function clearDraft(inspectorId: number, buildingId: number): void {
   const drafts = readDrafts();
   delete drafts[draftId(inspectorId, buildingId)];
   write(DRAFT_KEY, drafts);
+}
+
+/* ───────────────────────────── Visit log (submitted, read-only) ───────────────────────────── */
+
+/**
+ * What was actually submitted for one object's visit — kept on the device so
+ * a `done`/`violation` stop can be reopened read-only later the same shift.
+ * Photos are deliberately not stored here either, same reasoning as drafts.
+ */
+export type VisitLogRecord = {
+  savedAt: number;
+  status: "done" | "violation";
+  marks: Record<string, MarkValue>;
+  violationNotes: Record<string, string>;
+  note: string;
+};
+
+/** Records older than this are pruned — not a legal record, just a same-shift aid. */
+const VISIT_LOG_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+function readVisitLogs(): Record<string, VisitLogRecord> {
+  const all = read<Record<string, VisitLogRecord>>(VISIT_LOG_KEY) ?? {};
+  const cutoff = Date.now() - VISIT_LOG_TTL_MS;
+  const fresh: Record<string, VisitLogRecord> = {};
+  for (const [k, r] of Object.entries(all)) {
+    if (r && typeof r.savedAt === "number" && r.savedAt >= cutoff) fresh[k] = r;
+  }
+  return fresh;
+}
+
+export function readVisitLog(inspectorId: number, buildingId: number): VisitLogRecord | null {
+  return readVisitLogs()[draftId(inspectorId, buildingId)] ?? null;
+}
+
+export function saveVisitLog(
+  inspectorId: number,
+  buildingId: number,
+  record: Omit<VisitLogRecord, "savedAt">,
+): void {
+  const logs = readVisitLogs();
+  logs[draftId(inspectorId, buildingId)] = { ...record, savedAt: Date.now() };
+  write(VISIT_LOG_KEY, logs);
 }

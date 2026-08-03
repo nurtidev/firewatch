@@ -45,9 +45,22 @@ docker compose exec api python -m scripts.import_infra     # ПЧ + гидран
 docker compose exec api python -m scripts.seed_users       # демо-пользователи
 docker compose exec api python -m scripts.seed_ops         # районы, инспекции, связь с учётками
 docker compose exec api python -m scripts.compute_risk     # риск-скоры (дергает ml)
-docker compose exec api python -m scripts.seed_hayvill     # структурная ПТП-карточка Хайвилл
+docker compose exec api python -m scripts.seed_hayvill     # ПТП Хайвилл + предписания и заявка owner
 docker compose exec api python -m scripts.seed_extra_objects  # Аланда, Евразия
+docker compose exec api python -m scripts.seed_field_reports  # донесения по районам
 ```
+
+> **Никогда не запускай `FW_RUN_DB_TESTS=1 pytest` на общей dev-базе.** Фикстура
+> `test_db_integration` чистит `buildings` и всё, что на неё ссылается. Однажды
+> такой прогон снёс демо-данные целиком. Сейчас стоит защита: тесты
+> пропускаются, если в имени базы нет «test». Правильный способ:
+> ```bash
+> docker compose exec -T db psql -U firewatch -d postgres -c "create database fw_test;"
+> docker compose exec -T db psql -U firewatch -d fw_test -c "create extension postgis;"
+> docker compose exec -T -e FW_RUN_DB_TESTS=1 \
+>   -e DATABASE_URL=postgresql+psycopg://firewatch:firewatch@db:5432/fw_test \
+>   api python -m pytest -q
+> ```
 
 > `import_infra` синтезирует гидранты с `osm_id = NULL`, а защита от дублей —
 > `ON CONFLICT (osm_id)`, которая для NULL не срабатывает: каждый повторный

@@ -26,7 +26,7 @@ import {
 import AppShell from "@/components/AppShell";
 import DemoBanner from "@/components/DemoBanner";
 import { apiFetch, useAuth } from "@/lib/auth";
-import { intlLocale, useLocale, useT } from "@/lib/i18n";
+import { intlLocale, useLocale, useT, type Locale } from "@/lib/i18n";
 import { navForRole } from "@/lib/nav";
 import { scoreBand, scoreSeverity, SEVERITY } from "@/lib/risk";
 import {
@@ -73,6 +73,29 @@ type ProgressItem = {
   violations: number;
 };
 
+// Настоящая метка свежести риск-модели (GET /buildings/freshness) — не
+// `new Date()` в момент рендера. Раньше «LIVE · обновлено HH:MM» показывал бы
+// текущее время, даже если ежедневный пересчёт риска сломался неделю назад.
+type Freshness = { computed_at: string | null };
+// Телеметрия сервиса (GET /health) — существовала, но не была выведена ни на
+// один экран; здесь превращается в предупреждение рядом с меткой свежести.
+type Health = { status: string; db: boolean; ml: boolean; ml_model_loaded: boolean | null };
+
+/** HH:MM, если метка сегодняшняя; иначе дата+время — стало видно, что бейдж
+ *  показывает вчерашний (или более старый) пересчёт, а не текущее время. */
+function formatComputedAt(iso: string, locale: Locale): string {
+  const d = new Date(iso);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay
+    ? d.toLocaleTimeString(intlLocale(locale), { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleString(intlLocale(locale), {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+}
+
 const MODULE_META: Record<string, { desc: string; icon: LucideIcon }> = {
   "/routes": { desc: "Маршрут на день по приоритету риска и срока", icon: Route },
   "/control": { desc: "Выполнение маршрутов инспекторами в реальном времени", icon: Activity },
@@ -91,7 +114,8 @@ export default function Dashboard() {
   const [ov, setOv] = useState<Overview | null>(null);
   const [progress, setProgress] = useState<ProgressItem[] | null>(null);
   const [error, setError] = useState(false);
-  const [updated, setUpdated] = useState<string>("");
+  const [freshness, setFreshness] = useState<Freshness | null>(null);
+  const [health, setHealth] = useState<Health | null>(null);
 
   // Inspectors don't have a dashboard — send them to their route.
   useEffect(() => {
@@ -105,14 +129,23 @@ export default function Dashboard() {
       apiFetch(`/routes/progress`)
         .then((r) => (r.ok ? r.json() : []))
         .catch(() => []),
+      // Реальная метка пересчёта риска и телеметрия сервиса — не критичны для
+      // самой сводки, поэтому падают тихо (null), а не валят всю страницу.
+      apiFetch(`/buildings/freshness`)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+      apiFetch(`/health`)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
     ])
-      .then(([o, p]) => {
+      .then(([o, p, fr, h]) => {
         setOv(o);
         setProgress(p);
-        setUpdated(new Date().toLocaleTimeString(intlLocale(locale), { hour: "2-digit", minute: "2-digit" }));
+        setFreshness(fr);
+        setHealth(h);
       })
       .catch(() => setError(true));
-  }, [locale]);
+  }, []);
 
   useEffect(() => {
     // Inspectors get redirected to /routes above and have no /overview access —
@@ -129,6 +162,28 @@ export default function Dashboard() {
   // exact same number GET /buildings?risk=high returns for this user.
   const highRisk = ov?.risk_bands.find((b) => b.key === "high")?.count ?? 0;
 
+  // Честный "обновлено": реальный MAX(risk_scores.computed_at), а не время
+  // рендера страницы. Формат — при желании читай как локальное время; для
+  // локали используется тот же intlLocale, что и остальные числа страницы.
+  const updatedLabel = freshness?.computed_at
+    ? formatComputedAt(freshness.computed_at, locale)
+    : undefined;
+  // Предупреждение рядом с меткой — та самая телеметрия из /health, которая
+  // раньше не была выведена ни на один экран. Молчит, пока всё в порядке.
+  const staleWarning = health && health.status !== "ok"
+    ? { severity: SEVERITY.critical, label: t("Нет связи с базой данных") }
+    : health && health.ml === false
+      ? { severity: SEVERITY.high, label: t("Модель риска недоступна") }
+      : freshness && !freshness.computed_at
+        ? { severity: SEVERITY.high, label: t("Риск ни разу не рассчитывался") }
+        : freshness?.computed_at &&
+            Date.now() - new Date(freshness.computed_at).getTime() > 48 * 3_600_000
+          ? { severity: SEVERITY.critical, label: t("Пересчёт риска не запускался больше суток") }
+          : freshness?.computed_at &&
+              Date.now() - new Date(freshness.computed_at).getTime() > 30 * 3_600_000
+            ? { severity: SEVERITY.high, label: t("Пересчёт риска задерживается") }
+            : null;
+
   const opsTotal = progress?.reduce((a, p) => a + p.total, 0) ?? 0;
   const opsDone = progress?.reduce((a, p) => a + p.done, 0) ?? 0;
   const opsViol = progress?.reduce((a, p) => a + p.violations, 0) ?? 0;
@@ -136,6 +191,12 @@ export default function Dashboard() {
   const modules = user
     ? navForRole(user.role).filter((n) => n.href !== "/" && MODULE_META[n.href])
     : [];
+  // `/control` — supervisor/admin в общей навигации (lib/nav.ts), leadership
+  // туда тихо не пускают (AppShell редиректит обратно на /dashboard). Раньше
+  // ссылка рендерилась всем безусловно — ровно в момент, когда из «1/18»
+  // руководству нужна детализация, клик вёл в никуда. Тот же источник
+  // доступа, что и у общей навигации — задваивать список ролей здесь не нужно.
+  const canOpenControl = user ? navForRole(user.role).some((n) => n.href === "/control") : false;
 
   return (
     <AppShell>
@@ -145,7 +206,14 @@ export default function Dashboard() {
           subtitle={t("Состояние пожарной безопасности города по данным ДЧС и модели риска")}
           actions={
             <>
-              <LiveIndicator updated={updated} className="hidden sm:inline-flex" />
+              <LiveIndicator updated={updatedLabel} className="hidden sm:inline-flex" />
+              {staleWarning && (
+                <StatusChip
+                  severity={staleWarning.severity}
+                  label={staleWarning.label}
+                  className="hidden sm:inline-flex"
+                />
+              )}
               <Button variant="secondary" size="sm" onClick={load} aria-label={t("Обновить")}>
                 <RefreshCw className="h-4 w-4" />
                 <span className="hidden sm:inline">{t("Обновить")}</span>
@@ -240,12 +308,14 @@ export default function Dashboard() {
               <Card className="flex flex-col p-5">
                 <div className="flex items-center justify-between">
                   <SectionLabel>{t("Инспекции сегодня")}</SectionLabel>
-                  <Link
-                    href="/control"
-                    className="inline-flex items-center gap-0.5 text-2xs text-muted hover:text-accent"
-                  >
-                    {t("Контроль")} <ArrowUpRight className="h-3 w-3" />
-                  </Link>
+                  {canOpenControl && (
+                    <Link
+                      href="/control"
+                      className="inline-flex items-center gap-0.5 text-2xs text-muted hover:text-accent"
+                    >
+                      {t("Контроль")} <ArrowUpRight className="h-3 w-3" />
+                    </Link>
+                  )}
                 </div>
 
                 {loading ? (

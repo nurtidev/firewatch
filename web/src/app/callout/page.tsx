@@ -6,7 +6,8 @@
  * big touch targets — this runs in a truck cab or on the fireground, not at
  * a desk. Polls every 15s so it stays current without anyone tapping refresh.
  */
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Siren } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import CalloutPack from "@/components/CalloutPack";
@@ -17,21 +18,43 @@ import { useCalloutList, useCalloutPack } from "@/lib/dispatch";
 
 const POLL_MS = 15000;
 
+/** /callout?id=9 keeps the open pack in the URL (same deep-link convention as
+ *  /cards?id=). Without this, "Открыть ПТП" navigates to /cards and the
+ *  system/browser "back" gesture — a reflex in a truck cab — remounted this
+ *  page with the selection gone, dropping the РТП back into the citywide
+ *  callout list instead of their pack. useSearchParams requires a Suspense
+ *  boundary around the page (Next.js CSR bailout rule) — same as /cards. */
 export default function CalloutPage() {
+  return (
+    <Suspense fallback={null}>
+      <CalloutPageInner />
+    </Suspense>
+  );
+}
+
+function CalloutPageInner() {
   const t = useT();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const idParam = searchParams.get("id");
+  const selectedId = idParam ? Number(idParam) : null;
+
   const { callouts, error: listError } = useCalloutList("active", POLL_MS);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [autoSelected, setAutoSelected] = useState(false);
 
   const { pack, loading: packLoading, error: packError } = useCalloutPack(selectedId, POLL_MS);
+
+  const selectCallout = (id: number) => router.replace(`/callout?id=${id}`);
+  const backToList = () => router.replace("/callout");
 
   // Exactly one active callout → open it right away, no extra tap.
   useEffect(() => {
     if (autoSelected || selectedId != null || !callouts) return;
     if (callouts.length === 1) {
       setAutoSelected(true);
-      setSelectedId(callouts[0].id);
+      selectCallout(callouts[0].id);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callouts, selectedId, autoSelected]);
 
   const showList = selectedId == null;
@@ -68,7 +91,7 @@ export default function CalloutPage() {
             ) : (
               <div className="mt-5 space-y-3">
                 {(callouts ?? []).map((c) => (
-                  <CalloutRow key={c.id} callout={c} size="lg" onClick={() => setSelectedId(c.id)} />
+                  <CalloutRow key={c.id} callout={c} size="lg" onClick={() => selectCallout(c.id)} />
                 ))}
               </div>
             )}
@@ -76,7 +99,7 @@ export default function CalloutPage() {
         ) : (
           <>
             <div className="mb-4 flex items-center gap-2">
-              <Button size="lg" variant="secondary" onClick={() => setSelectedId(null)}>
+              <Button size="lg" variant="secondary" onClick={backToList}>
                 <ArrowLeft className="h-4 w-4" />
                 {t("К списку")}
               </Button>

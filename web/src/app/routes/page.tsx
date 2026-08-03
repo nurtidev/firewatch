@@ -18,6 +18,7 @@ import {
   RefreshCw,
   RotateCcw,
   FileClock,
+  Eye,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch, useAuth } from "@/lib/auth";
@@ -59,8 +60,11 @@ import {
   saveDraft,
   clearDraft,
   draftBuildingIds,
+  readVisitLog,
+  saveVisitLog,
   type MarkValue,
   type VisitPayload,
+  type VisitLogRecord,
 } from "@/lib/offline";
 
 /* ───────────────────────────── Types ───────────────────────────── */
@@ -105,6 +109,19 @@ const STOP_STATUS_LABEL = {
   done: "Выполнено",
   violation: "Нарушение",
 } as const;
+
+/**
+ * The checklist item starts a new topical section (group) that wasn't already
+ * shown by the previous item. `CHECKLIST` on the backend is grouped in
+ * contiguous runs (routes.py) — a plain index-vs-previous comparison is
+ * enough, no separate sort/group pass needed. Section headers give an
+ * inspector standing in the cold with 17 items and gloves on a visual anchor
+ * for "this part is done" instead of one flat scroll.
+ */
+function groupHeaderAt(list: ChecklistItem[], i: number): string | null {
+  const g = list[i]?.group;
+  return g && g !== list[i - 1]?.group ? g : null;
+}
 
 /* ───────────────────────────── Page ────────────────────────────── */
 
@@ -463,6 +480,18 @@ export default function RoutesPage() {
           }}
         />
       )}
+
+      {/* Read-only view of an already-closed stop — what was recorded, no
+          way to change it. Lets the inspector double-check the day at the
+          end of the shift without a supervisor. */}
+      {isInspector && activeStop && activeStop.status !== "pending" && route && (
+        <VisitLogSheet
+          stop={activeStop}
+          checklist={checklist}
+          inspectorId={route.inspector.id}
+          onClose={() => setOpenStop(null)}
+        />
+      )}
     </AppShell>
   );
 }
@@ -487,6 +516,10 @@ function StopCard({
   const isDone = stop.status !== "pending";
   const stopSeverity = STOP_STATUS_SEVERITY[stop.status];
   const actionable = canMark && !isDone;
+  // A closed stop can still be opened — read-only — so an inspector can check
+  // what was recorded without being able to change it.
+  const viewable = canMark && isDone;
+  const clickable = actionable || viewable;
   // A draft only matters while the object can still be marked.
   const showDraft = hasDraft && actionable;
 
@@ -545,6 +578,7 @@ function StopCard({
       {actionable && (
         <ChevronRight className="h-5 w-5 shrink-0 text-faint" aria-hidden />
       )}
+      {viewable && <Eye className="h-4 w-4 shrink-0 text-faint" aria-hidden />}
     </>
   );
 
@@ -558,13 +592,13 @@ function StopCard({
 
   return (
     <li>
-      {actionable ? (
+      {clickable ? (
         <button
           type="button"
           onClick={onOpen}
           style={accent}
           className={cn(base, tone, "min-h-[68px] hover:border-border-strong hover:bg-surface-2 active:bg-surface-3")}
-          aria-label={`${t("Открыть объект:")} ${stop.address}`}
+          aria-label={`${viewable ? t("Только просмотр") + ": " : t("Открыть объект:")} ${stop.address}`}
         >
           {inner}
         </button>
@@ -774,6 +808,12 @@ function ObjectSheet({
       note: note || null,
     };
 
+    // A same-device record of what's being submitted, kept after the draft is
+    // cleared — the only way a `done`/`violation` stop can be reopened
+    // read-only later (see VisitLogSheet). Recorded regardless of the
+    // online/offline path below: the marks are final either way.
+    saveVisitLog(inspectorId, stop.building_id, { status, marks, violationNotes, note });
+
     // Offline (or photos captured offline still pending upload): queue + mark.
     if (!isOnline() || offlinePhotos.length > 0) {
       const ok = enqueueVisit(payload, offlinePhotos, photos);
@@ -890,40 +930,47 @@ function ObjectSheet({
                 {t("Отметьте каждый пункт: соответствует, нарушение или не применимо.")}
               </p>
               <div className="space-y-2">
-                {checklist.map((c) => {
+                {checklist.map((c, i) => {
                   const value = marks[c.key];
+                  const groupHeader = groupHeaderAt(checklist, i);
                   return (
-                    <div
-                      key={c.key}
-                      className={cn(
-                        "rounded-lg border px-3.5 py-2.5 transition-colors",
-                        value === "violation"
-                          ? "border-critical/40 bg-critical-bg"
-                          : "border-border bg-surface-2",
+                    <div key={c.key}>
+                      {groupHeader && (
+                        <SectionLabel className={cn(i > 0 && "mt-4", "mb-1.5")}>
+                          {groupHeader}
+                        </SectionLabel>
                       )}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm text-fg">{c.label}</p>
-                          {c.code && (
-                            <p className="mt-0.5 text-2xs tabular text-faint">{c.code}</p>
-                          )}
+                      <div
+                        className={cn(
+                          "rounded-lg border px-3.5 py-2.5 transition-colors",
+                          value === "violation"
+                            ? "border-critical/40 bg-critical-bg"
+                            : "border-border bg-surface-2",
+                        )}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm text-fg">{c.label}</p>
+                            {c.code && (
+                              <p className="mt-0.5 text-2xs tabular text-faint">{c.code}</p>
+                            )}
+                          </div>
+                          <ChecklistMarkControl
+                            value={value}
+                            onChange={(v) => setMark(c.key, v)}
+                          />
                         </div>
-                        <ChecklistMarkControl
-                          value={value}
-                          onChange={(v) => setMark(c.key, v)}
-                        />
+                        {value === "violation" && (
+                          <Input
+                            value={violationNotes[c.key] ?? ""}
+                            onChange={(e) =>
+                              setViolationNotes((n) => ({ ...n, [c.key]: e.target.value }))
+                            }
+                            placeholder={t("Что именно нарушено — детали для предписания")}
+                            className="mt-2.5 h-10"
+                          />
+                        )}
                       </div>
-                      {value === "violation" && (
-                        <Input
-                          value={violationNotes[c.key] ?? ""}
-                          onChange={(e) =>
-                            setViolationNotes((n) => ({ ...n, [c.key]: e.target.value }))
-                          }
-                          placeholder={t("Что именно нарушено — детали для предписания")}
-                          className="mt-2.5 h-10"
-                        />
-                      )}
                     </div>
                   );
                 })}
@@ -1095,6 +1142,191 @@ function ObjectSheet({
         </div>
       )}
     </div>
+  );
+}
+
+/* ───────────────────────────── VisitLogSheet ───────────────────── */
+
+/**
+ * Read-only view of an already-closed stop (`done`/`violation`), opened from
+ * the same StopCard used to record it. There is no server endpoint returning
+ * a submitted visit's checklist detail (out of scope here) — this reads the
+ * local record `save()` leaves on the device (see lib/offline.ts
+ * `saveVisitLog`), which covers the case that actually matters: checking your
+ * own morning's work before the shift ends. If the record isn't on this
+ * device (another device, or the cache was cleared), it says so honestly
+ * instead of pretending to show data it doesn't have.
+ */
+function VisitLogSheet({
+  stop,
+  checklist,
+  inspectorId,
+  onClose,
+}: {
+  stop: Stop;
+  checklist: ChecklistItem[];
+  inspectorId: number;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const { locale } = useLocale();
+  const { visible, requestClose } = useDismiss(onClose, 140);
+  const [record] = useState<VisitLogRecord | null>(() =>
+    readVisitLog(inspectorId, stop.building_id),
+  );
+  const scoreSev = scoreSeverity(stop.score);
+  const stopSeverity = STOP_STATUS_SEVERITY[stop.status];
+
+  const savedAt = record
+    ? new Date(record.savedAt).toLocaleString(intlLocale(locale), {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col bg-bg"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${t("Только просмотр")}: ${stop.address}`}
+      style={{
+        opacity: visible ? 1 : 0,
+        transform: visible ? "scale(1)" : "scale(0.97)",
+        transition: `opacity ${visible ? 200 : 140}ms var(--ease), transform ${
+          visible ? 200 : 140
+        }ms var(--ease)`,
+      }}
+    >
+      {/* Header */}
+      <header className="shrink-0 border-b border-border bg-surface">
+        <div className="flex items-center gap-2 px-2 py-2">
+          <button
+            type="button"
+            onClick={() => requestClose()}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted transition-[color,background-color,scale] duration-[var(--dur-fast)] hover:bg-surface-2 hover:text-fg active:scale-[0.97]"
+            aria-label={t("Назад к маршруту")}
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[15px] font-semibold text-fg">{stop.address}</p>
+            <p className="mt-0.5 flex items-center gap-1.5 text-xs text-faint">
+              <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              {t("Только просмотр")}
+            </p>
+          </div>
+          <StatusChip severity={stopSeverity} label={t(STOP_STATUS_LABEL[stop.status])} />
+          <ScoreBadge score={stop.score} severity={scoreSev} className="shrink-0" />
+        </div>
+      </header>
+
+      {/* Scrollable body */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+        <div className="mx-auto max-w-2xl space-y-5">
+          {!record ? (
+            <EmptyState
+              icon={FileClock}
+              title={t("Данные визита не сохранены на этом устройстве")}
+              description={t(
+                "Отметки чек-листа хранятся локально на устройстве, где выполнялся осмотр.",
+              )}
+            />
+          ) : (
+            <>
+              <Banner tone="info" icon={FileClock}>
+                {t("Сохранено")} · <span className="tabular">{savedAt}</span>
+              </Banner>
+
+              {checklist.length > 0 && (
+                <section>
+                  <SectionLabel className="mb-2">{t("Чек-лист осмотра")}</SectionLabel>
+                  <div className="space-y-2">
+                    {checklist.map((c, i) => {
+                      const value = record.marks[c.key];
+                      const groupHeader = groupHeaderAt(checklist, i);
+                      return (
+                        <div key={c.key}>
+                          {groupHeader && (
+                            <SectionLabel className={cn(i > 0 && "mt-4", "mb-1.5")}>
+                              {groupHeader}
+                            </SectionLabel>
+                          )}
+                          <div
+                            className={cn(
+                              "rounded-lg border px-3.5 py-2.5",
+                              value === "violation"
+                                ? "border-critical/40 bg-critical-bg"
+                                : "border-border bg-surface-2",
+                            )}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm text-fg">{c.label}</p>
+                                {c.code && (
+                                  <p className="mt-0.5 text-2xs tabular text-faint">{c.code}</p>
+                                )}
+                              </div>
+                              <MarkBadge value={value} />
+                            </div>
+                            {value === "violation" && record.violationNotes[c.key] && (
+                              <p className="mt-2 text-xs text-muted">
+                                {record.violationNotes[c.key]}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              {record.note && (
+                <section>
+                  <Field label={t("Примечание")}>
+                    <p className="text-sm text-fg">{record.note}</p>
+                  </Field>
+                </section>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Sticky footer — nothing to submit, just close */}
+      <footer
+        className="shrink-0 border-t border-border bg-surface px-4 pt-3"
+        style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+      >
+        <div className="mx-auto max-w-2xl">
+          <Button variant="secondary" size="xl" onClick={() => requestClose()} className="w-full">
+            {t("Закрыть")}
+          </Button>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+/** Static (non-interactive) rendering of one checklist item's recorded mark. */
+function MarkBadge({ value }: { value: MarkValue | undefined }) {
+  const t = useT();
+  if (!value) {
+    return <span className="shrink-0 text-2xs text-faint">{t("нет отметки")}</span>;
+  }
+  const meta = {
+    pass: { icon: Check, cls: "text-normal", label: "Соответствует" },
+    violation: { icon: X, cls: "text-critical", label: "Нарушение" },
+    na: { icon: Minus, cls: "text-muted", label: "Не применимо" },
+  }[value];
+  return (
+    <span className={cn("inline-flex shrink-0 items-center gap-1 text-xs font-medium", meta.cls)}>
+      <meta.icon className="h-4 w-4" aria-hidden />
+      {t(meta.label)}
+    </span>
   );
 }
 
