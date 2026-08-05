@@ -207,13 +207,35 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)) -
             "name": row["name"],
             "role": row["role"],
             "district": row["district"],
+            "station": _station_of(db, row["username"]),
         },
     }
 
 
+def _station_of(db: Session, username: str) -> dict | None:
+    """Пожарная часть пользователя (для боевых ролей).
+
+    Резолвится из БД, а не из токена: привязку меняет администратор, и токен,
+    выданный до перевода в другую часть, не должен продолжать указывать на
+    прежнюю. По той же причине так устроен `_user_station` в dispatch.py.
+    """
+    row = db.execute(
+        text(
+            "SELECT s.id, s.name FROM users u "
+            "JOIN fire_stations s ON s.id = u.station_id "
+            "WHERE u.username = :u"
+        ),
+        {"u": username},
+    ).mappings().first()
+    return {"id": row["id"], "name": row["name"]} if row else None
+
+
 @router.get("/me")
-def me(user: dict = Depends(current_user)) -> dict:
-    return user
+def me(user: dict = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    # Часть нужна фронту, чтобы показывать действия только там, где сервер их
+    # разрешит: начальник караула ведёт технику своей части, а видит — всего
+    # города (ему нужно знать, откуда идёт подкрепление).
+    return {**user, "station": _station_of(db, user["username"])}
 
 
 @router.get("/users")

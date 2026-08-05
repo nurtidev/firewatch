@@ -19,7 +19,16 @@ export type Role =
   | "owner"
   | "dispatcher"
   | "responder";
-export type User = { username: string; name: string; role: Role };
+export type User = {
+  username: string;
+  name: string;
+  role: Role;
+  /** Пожарная часть боевой роли. Начальник караула ведёт технику только своей
+   *  части (сервер отдаёт 403 на чужую), а видит — по всему городу: ему нужно
+   *  знать, откуда идёт подкрепление. Без этого поля интерфейс рисовал бы
+   *  действия, которые сервер запретит. */
+  station?: { id: number; name: string } | null;
+};
 
 type AuthCtx = {
   user: User | null;

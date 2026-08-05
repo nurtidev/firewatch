@@ -70,8 +70,13 @@ export default function VehiclesPage() {
   const { user } = useAuth();
   const [tab, setTab] = useState("fleet");
 
-  const canEdit =
-    user?.role === "responder" || user?.role === "dispatcher" || user?.role === "admin";
+  // Диспетчер и админ распределяют силы по городу — правят любую часть.
+  // Начальник караула ведёт технику ТОЛЬКО своей части: он относится к одной
+  // части, и сервер это подтверждает 403-м на чужую. Видит он при этом весь
+  // город — как РТП ему нужно знать, откуда идёт подкрепление.
+  const citywideEdit = user?.role === "dispatcher" || user?.role === "admin";
+  const ownStationId = user?.role === "responder" ? (user.station?.id ?? null) : null;
+  const canEdit = citywideEdit || ownStationId !== null;
 
   return (
     <AppShell>
@@ -94,7 +99,11 @@ export default function VehiclesPage() {
         />
 
         <div className="mt-5">
-          {tab === "fleet" ? <FleetTab canEdit={canEdit} /> : <StatsTab />}
+          {tab === "fleet" ? (
+            <FleetTab canEdit={canEdit} ownStationId={ownStationId} />
+          ) : (
+            <StatsTab />
+          )}
         </div>
       </div>
     </AppShell>
@@ -103,7 +112,14 @@ export default function VehiclesPage() {
 
 /* ─────────────────────────── Техника частей ─────────────────────────── */
 
-function FleetTab({ canEdit }: { canEdit: boolean }) {
+function FleetTab({
+  canEdit,
+  ownStationId,
+}: {
+  canEdit: boolean;
+  /** Не null только у начальника караула — тогда правится лишь эта часть. */
+  ownStationId: number | null;
+}) {
   const t = useT();
   const { data, error, reload } = useVehicles(null, POLL_MS);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -122,6 +138,13 @@ function FleetTab({ canEdit }: { canEdit: boolean }) {
       setBusy(null);
     }
   };
+
+  // Права на конкретную часть: диспетчер и админ правят любую (ownStationId
+  // = null), начальник караула — только свою. Ровно та же граница, что и на
+  // сервере (_assert_station_access), иначе интерфейс предлагал бы действие,
+  // которое закончится 403.
+  const canEditStation = (stationId: number) =>
+    canEdit && (ownStationId === null || ownStationId === stationId);
 
   const totals = useMemo(() => {
     const all = data?.vehicles ?? [];
@@ -192,8 +215,13 @@ function FleetTab({ canEdit }: { canEdit: boolean }) {
           <Card key={st.station_id} className="p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-fg">
-                  {st.station_name ?? `${t("Часть")} #${st.station_id}`}
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-sm font-semibold text-fg">
+                    {st.station_name ?? `${t("Часть")} #${st.station_id}`}
+                  </span>
+                  {ownStationId === st.station_id && (
+                    <Badge tone="accent">{t("Ваша часть")}</Badge>
+                  )}
                 </div>
                 <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
                   <span>
@@ -209,7 +237,7 @@ function FleetTab({ canEdit }: { canEdit: boolean }) {
                   )}
                 </div>
               </div>
-              {canEdit && (
+              {canEditStation(st.station_id) && (
                 <Button
                   size="sm"
                   variant="secondary"
@@ -230,7 +258,7 @@ function FleetTab({ canEdit }: { canEdit: boolean }) {
               </Banner>
             )}
 
-            {adding === st.station_id && canEdit && (
+            {adding === st.station_id && canEditStation(st.station_id) && (
               <AddVehicleForm
                 stationId={st.station_id}
                 onDone={() => {
@@ -252,7 +280,7 @@ function FleetTab({ canEdit }: { canEdit: boolean }) {
                       <th className="pb-2 pr-3 font-medium">{t("Тип")}</th>
                       <th className="pb-2 pr-3 font-medium">{t("Состояние")}</th>
                       <th className="pb-2 pr-3 text-right font-medium">{t("Вода, л")}</th>
-                      {canEdit && <th className="pb-2 w-10" />}
+                      {canEditStation(st.station_id) && <th className="pb-2 w-10" />}
                     </tr>
                   </thead>
                   <tbody>
@@ -260,7 +288,7 @@ function FleetTab({ canEdit }: { canEdit: boolean }) {
                       <VehicleRow
                         key={v.id}
                         vehicle={v}
-                        canEdit={canEdit}
+                        canEdit={canEditStation(st.station_id)}
                         busy={busy === v.id}
                         onStatus={(status) => run(v.id, () => patchVehicle(v.id, { status }))}
                         onDelete={() => run(v.id, () => deleteVehicle(v.id))}
