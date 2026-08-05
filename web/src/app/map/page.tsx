@@ -280,7 +280,7 @@ export default function MapPage() {
         {!collapsed && (
           <div className="border-t border-border px-4 pb-4 pt-3">
             {/* Subtitle */}
-            <p className="text-2xs text-faint">{t("Астана · ДЧС РК")}</p>
+            <p className="text-2xs text-faint">{t("ДЧС Астаны")}</p>
 
             {/* Demo-data notice — synthetic risk, must be visible on the map */}
             {DEMO_DATA && (

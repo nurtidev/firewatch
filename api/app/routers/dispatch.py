@@ -11,6 +11,7 @@ data reads here are citywide — dispatcher/responder are not district-scoped.
 """
 
 import re
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -21,6 +22,7 @@ from app.audit import audit, client_ip
 from app.db import get_db
 from app.routers.auth import current_user, require_roles
 from app.routers.forces import PRESETS
+from app.telematics import get_provider, match_positions
 
 # Registering / closing a callout is a dispatcher action (admin may operate too).
 DISPATCH_ROLES = require_roles("dispatcher", "admin")
@@ -28,10 +30,31 @@ DISPATCH_ROLES = require_roles("dispatcher", "admin")
 VIEW_ROLES = require_roles(
     "dispatcher", "responder", "supervisor", "leadership", "admin"
 )
+# Боевые отметки (таймлайн, наряд, расход) ставит тот, кто на месте, — РТП;
+# диспетчер дублирует их с пульта, когда РТП докладывает по радио.
+OPS_ROLES = require_roles("dispatcher", "responder", "admin")
 
 router = APIRouter(prefix="/dispatch", tags=["dispatch"], dependencies=[Depends(current_user)])
 
 CALLOUT_TYPES = {"fire", "smoke", "alarm", "other"}
+
+# Номенклатура оперативного модуля. Дублирует CHECK-констрейнты миграции
+# 0017 — при изменении править оба места (иначе вставка упадёт на уровне БД).
+VEHICLE_TYPES = ("ac", "al", "akp", "anr", "asa", "other")
+VEHICLE_STATUSES = ("in_service", "on_callout", "repair", "reserve")
+# Расход средств: 7 позиций, которые реально считают в частях. Расширять
+# номенклатуру дороже, чем кажется — незаполненная форма хуже отсутствующей.
+RESOURCE_ITEMS = ("hose", "barrel", "foam", "water", "fuel", "ladder", "scba")
+
+# Хронология боевых действий. Порядок в кортеже — порядок в реальном выезде,
+# на нём же строится проверка монотонности отметок.
+TIMELINE_FIELDS = (
+    "dispatched_at",
+    "arrived_at",
+    "first_jet_at",
+    "localized_at",
+    "extinguished_at",
+)
 
 # Nearest hydrants / access reports around the callout point (metres).
 HYDRANT_RADIUS_M = 800
@@ -150,11 +173,46 @@ _CALLOUT_SELECT = """
     SELECT c.id, c.building_id, b.district, c.address, c.callout_type, c.note,
            c.status, ST_Y(c.geom) AS lat, ST_X(c.geom) AS lng,
            c.station_id, s.name AS station_name,
-           c.created_by, c.created_at, c.closed_by, c.closed_at, c.close_note
+           c.created_by, c.created_at, c.closed_by, c.closed_at, c.close_note,
+           c.dispatched_at, c.arrived_at, c.first_jet_at, c.localized_at,
+           c.extinguished_at, c.rank_declared
     FROM callouts c
     LEFT JOIN buildings b ON b.id = c.building_id
     LEFT JOIN fire_stations s ON s.id = c.station_id
 """
+
+
+def _iso(v: object) -> str | None:
+    return v.isoformat() if v is not None and hasattr(v, "isoformat") else None
+
+
+def _timeline_dict(r: dict) -> dict:
+    """Хронология выезда плюс производные интервалы в секундах.
+
+    Интервалы считаются на сервере, а не на клиенте: они же уходят в
+    статистику по частям, и расхождение в округлении между экраном и сводкой
+    читалось бы как ошибка данных.
+    """
+    marks = {f: _iso(r.get(f)) for f in TIMELINE_FIELDS}
+    created, arrived = r.get("created_at"), r.get("arrived_at")
+    dispatched, extinguished = r.get("dispatched_at"), r.get("extinguished_at")
+
+    def _delta(a: object, b: object) -> int | None:
+        if a is None or b is None:
+            return None
+        return max(0, round((b - a).total_seconds()))
+
+    return {
+        **marks,
+        "reported_at": _iso(created),
+        "rank_declared": r.get("rank_declared"),
+        # Норматив прибытия отсчитывается от сообщения о пожаре, а сбор караула
+        # (сообщение → выезд) — отдельная метрика: это разные зоны влияния.
+        "response_sec": _delta(created, arrived),
+        "turnout_sec": _delta(created, dispatched),
+        "travel_sec": _delta(dispatched, arrived),
+        "total_sec": _delta(created, extinguished),
+    }
 
 
 def _callout_dict(r: dict) -> dict:
@@ -176,6 +234,7 @@ def _callout_dict(r: dict) -> dict:
         "closed_by": r["closed_by"],
         "closed_at": r["closed_at"].isoformat() if r["closed_at"] else None,
         "close_note": r["close_note"],
+        "timeline": _timeline_dict(r),
     }
 
 
@@ -465,6 +524,10 @@ def _build_pack(db: Session, callout_id: int) -> dict:
             for r in reports
         ],
         "forces_hint": forces_hint,
+        # Наряд и расход живут в пакете, а не отдельным запросом: планшет РТП
+        # открывается один раз и должен показать всё состояние выезда сразу.
+        "vehicles": _callout_vehicles(db, callout_id),
+        "resources": _callout_resources(db, callout_id),
     }
 
 
@@ -795,3 +858,676 @@ def close_callout(
     )
 
     return _callout_dict(_fetch_callout(db, callout_id))
+
+
+# --- оперативный модуль: таймлайн, техника, наряд, расход ---------------------
+#
+# Разделение ответственности здесь важнее удобства: система *предлагает* расчёт
+# по методике, а решение и отметки ставит человек. Поэтому ни одна отметка
+# таймлайна не выставляется автоматически — даже когда её можно было бы вывести
+# (например, «прибытие» по геометке машины). Автоматика появится там, где
+# появится доверенный источник — телематика из системы мониторинга.
+
+
+class TimelineUpdate(BaseModel):
+    """Отметки боевых действий. Любое подмножество, null снимает отметку."""
+
+    dispatched_at: str | None = None
+    arrived_at: str | None = None
+    first_jet_at: str | None = None
+    localized_at: str | None = None
+    extinguished_at: str | None = None
+    rank_declared: str | None = Field(None, max_length=16)
+
+    @model_validator(mode="after")
+    def _require_change(self) -> "TimelineUpdate":
+        if not self.model_fields_set:
+            raise ValueError("укажите хотя бы одну отметку")
+        return self
+
+
+class VehicleCreate(BaseModel):
+    callsign: str = Field(..., min_length=1, max_length=32)
+    vehicle_type: str
+    water_l: int | None = Field(None, ge=0, le=100_000)
+    note: str | None = Field(None, max_length=500)
+
+    @field_validator("vehicle_type")
+    @classmethod
+    def _known_type(cls, v: str) -> str:
+        if v not in VEHICLE_TYPES:
+            raise ValueError(f"неизвестный тип техники: {v}")
+        return v
+
+
+class VehiclePatch(BaseModel):
+    status: str | None = None
+    water_l: int | None = Field(None, ge=0, le=100_000)
+    note: str | None = Field(None, max_length=500)
+
+    @field_validator("status")
+    @classmethod
+    def _known_status(cls, v: str | None) -> str | None:
+        if v is not None and v not in VEHICLE_STATUSES:
+            raise ValueError(f"неизвестный статус: {v}")
+        return v
+
+    @model_validator(mode="after")
+    def _require_change(self) -> "VehiclePatch":
+        if not self.model_fields_set:
+            raise ValueError("укажите хотя бы одно поле")
+        return self
+
+
+class VehicleAssign(BaseModel):
+    vehicle_ids: list[int] = Field(..., min_length=1, max_length=50)
+
+
+class ResourceLine(BaseModel):
+    item_key: str
+    qty: float = Field(..., ge=0, le=1_000_000)
+
+    @field_validator("item_key")
+    @classmethod
+    def _known_item(cls, v: str) -> str:
+        if v not in RESOURCE_ITEMS:
+            raise ValueError(f"неизвестная позиция: {v}")
+        return v
+
+
+class ResourcesPut(BaseModel):
+    """Полный список расхода по выезду — перезаписывает предыдущий."""
+
+    items: list[ResourceLine] = Field(default_factory=list, max_length=len(RESOURCE_ITEMS))
+
+    @model_validator(mode="after")
+    def _no_duplicates(self) -> "ResourcesPut":
+        keys = [i.item_key for i in self.items]
+        if len(keys) != len(set(keys)):
+            raise ValueError("позиция указана дважды")
+        return self
+
+
+def _user_station(db: Session, user: dict) -> int | None:
+    """Часть пользователя. Резолвится из БД, а не из токена: привязка меняется
+    администратором, и старый токен не должен давать доступ к прежней части."""
+    return db.execute(
+        text("SELECT station_id FROM users WHERE username = :u"),
+        {"u": user.get("username")},
+    ).scalar()
+
+
+def _assert_station_access(db: Session, user: dict, station_id: int) -> None:
+    """Начальник караула ведёт технику только своей части.
+
+    Диспетчер и админ работают по всему городу — им нужен полный обзор для
+    распределения сил. Responder без привязки к части (не заполнено
+    `users.station_id`) не может менять ничего: молча пускать его на любую
+    часть опаснее, чем потребовать явную привязку.
+    """
+    if user.get("role") in ("dispatcher", "admin"):
+        return
+    own = _user_station(db, user)
+    if own is None:
+        raise HTTPException(403, "Учётная запись не привязана к пожарной части")
+    if own != station_id:
+        raise HTTPException(403, "Доступна только техника своей части")
+
+
+def _vehicle_row(r: dict) -> dict:
+    return {
+        "id": r["id"],
+        "station_id": r["station_id"],
+        "station_name": r.get("station_name"),
+        "callsign": r["callsign"],
+        "vehicle_type": r["vehicle_type"],
+        "status": r["status"],
+        "water_l": r["water_l"],
+        "note": r["note"],
+        "updated_at": _iso(r.get("updated_at")),
+    }
+
+
+def _callout_vehicles(db: Session, callout_id: int) -> list[dict]:
+    rows = db.execute(
+        text(
+            """
+            SELECT v.id, v.station_id, s.name AS station_name, v.callsign,
+                   v.vehicle_type, v.status, v.water_l, v.note, v.updated_at,
+                   cv.assigned_at, cv.released_at
+              FROM callout_vehicles cv
+              JOIN station_vehicles v ON v.id = cv.vehicle_id
+              LEFT JOIN fire_stations s ON s.id = v.station_id
+             WHERE cv.callout_id = :id AND cv.released_at IS NULL
+             ORDER BY s.name, v.callsign
+            """
+        ),
+        {"id": callout_id},
+    ).mappings().all()
+    return [
+        {**_vehicle_row(dict(r)), "assigned_at": _iso(r["assigned_at"])} for r in rows
+    ]
+
+
+def _callout_resources(db: Session, callout_id: int) -> list[dict]:
+    rows = db.execute(
+        text(
+            "SELECT item_key, qty, recorded_by, recorded_at FROM callout_resources "
+            "WHERE callout_id = :id ORDER BY item_key"
+        ),
+        {"id": callout_id},
+    ).mappings().all()
+    return [
+        {
+            "item_key": r["item_key"],
+            "qty": float(r["qty"]),
+            "recorded_by": r["recorded_by"],
+            "recorded_at": _iso(r["recorded_at"]),
+        }
+        for r in rows
+    ]
+
+
+@router.patch("/{callout_id}/timeline")
+def update_timeline(
+    callout_id: int,
+    body: TimelineUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(OPS_ROLES),
+) -> dict:
+    """Проставить отметки боевых действий.
+
+    Проверяется только монотонность фактически заполненных отметок: реальный
+    выезд часто не имеет полного набора (ложный вызов закрывается без подачи
+    ствола), и требовать все отметки значило бы заставлять РТП выдумывать их.
+    """
+    row = _fetch_callout(db, callout_id)
+    patch = body.model_dump(exclude_unset=True)
+
+    # Итоговое состояние = текущее + патч; порядок проверяется по нему целиком,
+    # иначе отметку можно было бы «просунуть» между уже стоящими.
+    merged: dict = {f: row.get(f) for f in TIMELINE_FIELDS}
+    for field in TIMELINE_FIELDS:
+        if field in patch:
+            raw = patch[field]
+            if raw is None:
+                merged[field] = None
+                continue
+            try:
+                merged[field] = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            except ValueError:
+                raise HTTPException(422, f"{field}: ожидается дата в формате ISO 8601")
+
+    created = row["created_at"]
+    ordered = [(f, merged[f]) for f in TIMELINE_FIELDS if merged[f] is not None]
+    for field, value in ordered:
+        if created is not None and value < created:
+            raise HTTPException(422, f"{field}: раньше времени регистрации вызова")
+    for (prev_f, prev_v), (next_f, next_v) in zip(ordered, ordered[1:]):
+        if next_v < prev_v:
+            raise HTTPException(422, f"{next_f} не может быть раньше {prev_f}")
+
+    sets = [f"{f} = :{f}" for f in TIMELINE_FIELDS if f in patch]
+    params: dict = {f: merged[f] for f in TIMELINE_FIELDS if f in patch}
+    if "rank_declared" in patch:
+        sets.append("rank_declared = :rank_declared")
+        params["rank_declared"] = patch["rank_declared"]
+    if sets:
+        params["id"] = callout_id
+        db.execute(
+            text(f"UPDATE callouts SET {', '.join(sets)} WHERE id = :id"), params
+        )
+        db.commit()
+
+    audit(
+        action="callout.timeline",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="PATCH",
+        path=f"/dispatch/{callout_id}/timeline",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"callout_id": callout_id, "fields": sorted(patch)},
+    )
+    return _callout_dict(_fetch_callout(db, callout_id))
+
+
+@router.get("/vehicles")
+def list_vehicles(
+    station_id: int | None = None,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(VIEW_ROLES),
+) -> dict:
+    """Техника частей со сводкой доступности.
+
+    Сводка — то, чего не хватало расчёту сил: он предлагает N отделений, не
+    зная, есть ли они в строю. `available` считается по всему городу, чтобы
+    диспетчер видел, откуда добирать силы, если своя часть исчерпана.
+    """
+    clause = "WHERE v.station_id = :sid" if station_id is not None else ""
+    params = {"sid": station_id} if station_id is not None else {}
+    rows = db.execute(
+        text(
+            f"""
+            SELECT v.id, v.station_id, s.name AS station_name, v.callsign,
+                   v.vehicle_type, v.status, v.water_l, v.note, v.updated_at
+              FROM station_vehicles v
+              LEFT JOIN fire_stations s ON s.id = v.station_id
+              {clause}
+             ORDER BY s.name, v.callsign
+            """
+        ),
+        params,
+    ).mappings().all()
+
+    vehicles = [_vehicle_row(dict(r)) for r in rows]
+    by_station: dict[int, dict] = {}
+    for v in vehicles:
+        entry = by_station.setdefault(
+            v["station_id"],
+            {
+                "station_id": v["station_id"],
+                "station_name": v["station_name"],
+                "total": 0,
+                **{s: 0 for s in VEHICLE_STATUSES},
+            },
+        )
+        entry["total"] += 1
+        entry[v["status"]] += 1
+
+    return {
+        "vehicles": vehicles,
+        "by_station": sorted(by_station.values(), key=lambda e: e["station_name"] or ""),
+        "types": list(VEHICLE_TYPES),
+        "statuses": list(VEHICLE_STATUSES),
+    }
+
+
+@router.post("/stations/{station_id}/vehicles")
+def create_vehicle(
+    station_id: int,
+    body: VehicleCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(OPS_ROLES),
+) -> dict:
+    """Поставить машину на учёт в части."""
+    exists = db.execute(
+        text("SELECT 1 FROM fire_stations WHERE id = :id"), {"id": station_id}
+    ).scalar()
+    if not exists:
+        raise HTTPException(404, "Пожарная часть не найдена")
+    _assert_station_access(db, user, station_id)
+
+    dup = db.execute(
+        text(
+            "SELECT 1 FROM station_vehicles "
+            "WHERE station_id = :sid AND lower(callsign) = lower(:cs)"
+        ),
+        {"sid": station_id, "cs": body.callsign},
+    ).scalar()
+    if dup:
+        raise HTTPException(409, "Позывной уже занят в этой части")
+
+    new_id = db.execute(
+        text(
+            """
+            INSERT INTO station_vehicles
+                (station_id, callsign, vehicle_type, water_l, note, updated_by)
+            VALUES (:sid, :cs, :vt, :water, :note, :by)
+            RETURNING id
+            """
+        ),
+        {
+            "sid": station_id,
+            "cs": body.callsign.strip(),
+            "vt": body.vehicle_type,
+            "water": body.water_l,
+            "note": body.note,
+            "by": user.get("username"),
+        },
+    ).scalar()
+    db.commit()
+
+    audit(
+        action="vehicle.created",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="POST",
+        path=f"/dispatch/stations/{station_id}/vehicles",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"vehicle_id": new_id, "station_id": station_id,
+                "callsign": body.callsign},
+    )
+    return {"id": new_id}
+
+
+@router.patch("/vehicles/{vehicle_id}")
+def update_vehicle(
+    vehicle_id: int,
+    body: VehiclePatch,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(OPS_ROLES),
+) -> dict:
+    """Изменить состояние машины (в строю / на выезде / ремонт / резерв)."""
+    row = db.execute(
+        text("SELECT id, station_id FROM station_vehicles WHERE id = :id"),
+        {"id": vehicle_id},
+    ).mappings().first()
+    if row is None:
+        raise HTTPException(404, "Машина не найдена")
+    _assert_station_access(db, user, row["station_id"])
+
+    patch = body.model_dump(exclude_unset=True)
+    sets = ", ".join(f"{k} = :{k}" for k in patch)
+    db.execute(
+        text(
+            f"UPDATE station_vehicles SET {sets}, updated_by = :by, "
+            "updated_at = now() WHERE id = :id"
+        ),
+        {**patch, "by": user.get("username"), "id": vehicle_id},
+    )
+    db.commit()
+
+    audit(
+        action="vehicle.updated",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="PATCH",
+        path=f"/dispatch/vehicles/{vehicle_id}",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"vehicle_id": vehicle_id, "changes": patch},
+    )
+    return {"id": vehicle_id, **patch}
+
+
+@router.delete("/vehicles/{vehicle_id}")
+def delete_vehicle(
+    vehicle_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(OPS_ROLES),
+) -> dict:
+    """Снять машину с учёта. Назначения на прошлые выезды уходят каскадом."""
+    row = db.execute(
+        text("SELECT id, station_id, callsign FROM station_vehicles WHERE id = :id"),
+        {"id": vehicle_id},
+    ).mappings().first()
+    if row is None:
+        raise HTTPException(404, "Машина не найдена")
+    _assert_station_access(db, user, row["station_id"])
+
+    db.execute(text("DELETE FROM station_vehicles WHERE id = :id"), {"id": vehicle_id})
+    db.commit()
+
+    audit(
+        action="vehicle.deleted",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="DELETE",
+        path=f"/dispatch/vehicles/{vehicle_id}",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"vehicle_id": vehicle_id, "callsign": row["callsign"]},
+    )
+    return {"deleted": vehicle_id}
+
+
+@router.post("/{callout_id}/vehicles")
+def assign_vehicles(
+    callout_id: int,
+    body: VehicleAssign,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(OPS_ROLES),
+) -> list[dict]:
+    """Назначить машины на выезд и перевести их в статус «на выезде».
+
+    Повторное назначение уже назначенной машины не ошибка, а обычная гонка
+    двух диспетчеров — оно просто игнорируется (частичный уникальный индекс
+    `callout_vehicles_active_key` гарантирует одно действующее назначение).
+    """
+    row = _fetch_callout(db, callout_id)
+    if row["status"] != "active":
+        raise HTTPException(409, "Выезд закрыт — наряд не меняется")
+
+    found = db.execute(
+        text("SELECT id FROM station_vehicles WHERE id = ANY(:ids)"),
+        {"ids": body.vehicle_ids},
+    ).scalars().all()
+    missing = set(body.vehicle_ids) - set(found)
+    if missing:
+        raise HTTPException(404, f"Машины не найдены: {sorted(missing)}")
+
+    db.execute(
+        text(
+            """
+            INSERT INTO callout_vehicles (callout_id, vehicle_id, assigned_by)
+            SELECT :cid, unnest(CAST(:ids AS bigint[])), :by
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        {"cid": callout_id, "ids": body.vehicle_ids, "by": user.get("username")},
+    )
+    db.execute(
+        text(
+            "UPDATE station_vehicles SET status = 'on_callout', updated_at = now() "
+            "WHERE id = ANY(:ids) AND status = 'in_service'"
+        ),
+        {"ids": body.vehicle_ids},
+    )
+    db.commit()
+
+    audit(
+        action="callout.vehicles_assigned",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="POST",
+        path=f"/dispatch/{callout_id}/vehicles",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"callout_id": callout_id, "vehicle_ids": body.vehicle_ids},
+    )
+    return _callout_vehicles(db, callout_id)
+
+
+@router.delete("/{callout_id}/vehicles/{vehicle_id}")
+def release_vehicle(
+    callout_id: int,
+    vehicle_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(OPS_ROLES),
+) -> list[dict]:
+    """Снять машину с выезда и вернуть её в строй."""
+    released = db.execute(
+        text(
+            "UPDATE callout_vehicles SET released_at = now() "
+            "WHERE callout_id = :cid AND vehicle_id = :vid AND released_at IS NULL "
+            "RETURNING id"
+        ),
+        {"cid": callout_id, "vid": vehicle_id},
+    ).scalar()
+    if released is None:
+        raise HTTPException(404, "Машина не числится в наряде этого выезда")
+    # Из ремонта/резерва машину в строй не возвращаем — её статус сменили руками.
+    db.execute(
+        text(
+            "UPDATE station_vehicles SET status = 'in_service', updated_at = now() "
+            "WHERE id = :vid AND status = 'on_callout'"
+        ),
+        {"vid": vehicle_id},
+    )
+    db.commit()
+
+    audit(
+        action="callout.vehicle_released",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="DELETE",
+        path=f"/dispatch/{callout_id}/vehicles/{vehicle_id}",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"callout_id": callout_id, "vehicle_id": vehicle_id},
+    )
+    return _callout_vehicles(db, callout_id)
+
+
+@router.put("/{callout_id}/resources")
+def put_resources(
+    callout_id: int,
+    body: ResourcesPut,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(OPS_ROLES),
+) -> list[dict]:
+    """Записать расход средств по выезду (полная перезапись списка)."""
+    _fetch_callout(db, callout_id)
+
+    db.execute(
+        text("DELETE FROM callout_resources WHERE callout_id = :id"),
+        {"id": callout_id},
+    )
+    for line in body.items:
+        db.execute(
+            text(
+                "INSERT INTO callout_resources (callout_id, item_key, qty, recorded_by) "
+                "VALUES (:cid, :key, :qty, :by)"
+            ),
+            {
+                "cid": callout_id,
+                "key": line.item_key,
+                "qty": line.qty,
+                "by": user.get("username"),
+            },
+        )
+    db.commit()
+
+    audit(
+        action="callout.resources",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="PUT",
+        path=f"/dispatch/{callout_id}/resources",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"callout_id": callout_id,
+                "items": {i.item_key: i.qty for i in body.items}},
+    )
+    return _callout_resources(db, callout_id)
+
+
+@router.get("/live")
+def live_positions(
+    db: Session = Depends(get_db),
+    _user: dict = Depends(VIEW_ROLES),
+) -> dict:
+    """Позиции техники из системы мониторинга ДЧС.
+
+    Читаем существующую платформу как потребитель — своего трекинга не заводим
+    и к трекерам напрямую не подключаемся (см. app/telematics.py). Пока доступ
+    к API не выдан, ответ честно говорит `configured: false`: пустой список
+    без этого признака был бы неотличим от «вся техника в гараже».
+    """
+    snapshot = get_provider().fetch()
+    if not snapshot.configured or snapshot.error:
+        return snapshot.as_dict()
+
+    rows = db.execute(
+        text("SELECT id, lower(callsign) AS cs FROM station_vehicles")
+    ).mappings().all()
+    matched, unmatched = match_positions(snapshot, {r["cs"]: r["id"] for r in rows})
+
+    out = snapshot.as_dict()
+    out["positions"] = matched
+    out["unmatched"] = unmatched
+    return out
+
+
+@router.get("/stats")
+def dispatch_stats(
+    days: int = 30,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(VIEW_ROLES),
+) -> dict:
+    """Сводка по частям: выезды, время реагирования, расход.
+
+    Медиана, а не среднее: одна буксировка по перекрытой дороге сдвигает
+    среднее так, что сводка перестаёт описывать типичный выезд.
+    """
+    if not 1 <= days <= 365:
+        raise HTTPException(422, "days должен быть в диапазоне 1..365")
+
+    by_station = db.execute(
+        text(
+            """
+            SELECT s.id AS station_id, s.name AS station_name,
+                   COUNT(c.id) AS callouts,
+                   COUNT(c.arrived_at) AS with_arrival,
+                   PERCENTILE_CONT(0.5) WITHIN GROUP (
+                       ORDER BY EXTRACT(EPOCH FROM (c.arrived_at - c.created_at))
+                   ) FILTER (WHERE c.arrived_at IS NOT NULL) AS median_response_sec,
+                   PERCENTILE_CONT(0.5) WITHIN GROUP (
+                       ORDER BY EXTRACT(EPOCH FROM (c.dispatched_at - c.created_at))
+                   ) FILTER (WHERE c.dispatched_at IS NOT NULL) AS median_turnout_sec
+              FROM fire_stations s
+              LEFT JOIN callouts c
+                ON c.station_id = s.id
+               AND c.created_at >= now() - make_interval(days => :days)
+             GROUP BY s.id, s.name
+             ORDER BY callouts DESC, s.name
+            """
+        ),
+        {"days": days},
+    ).mappings().all()
+
+    by_type = db.execute(
+        text(
+            """
+            SELECT callout_type, COUNT(*) AS n FROM callouts
+             WHERE created_at >= now() - make_interval(days => :days)
+             GROUP BY callout_type ORDER BY n DESC
+            """
+        ),
+        {"days": days},
+    ).mappings().all()
+
+    resources = db.execute(
+        text(
+            """
+            SELECT r.item_key, SUM(r.qty) AS total
+              FROM callout_resources r
+              JOIN callouts c ON c.id = r.callout_id
+             WHERE c.created_at >= now() - make_interval(days => :days)
+             GROUP BY r.item_key ORDER BY r.item_key
+            """
+        ),
+        {"days": days},
+    ).mappings().all()
+
+    return {
+        "days": days,
+        "by_station": [
+            {
+                "station_id": r["station_id"],
+                "station_name": r["station_name"],
+                "callouts": r["callouts"],
+                "with_arrival": r["with_arrival"],
+                "median_response_sec": round(r["median_response_sec"])
+                if r["median_response_sec"] is not None
+                else None,
+                "median_turnout_sec": round(r["median_turnout_sec"])
+                if r["median_turnout_sec"] is not None
+                else None,
+            }
+            for r in by_station
+        ],
+        "by_type": [{"callout_type": r["callout_type"], "count": r["n"]} for r in by_type],
+        "resources": [
+            {"item_key": r["item_key"], "total": float(r["total"])} for r in resources
+        ],
+    }

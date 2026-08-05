@@ -115,7 +115,7 @@ export default function AppShell({
             FireWatch<span className="text-accent">.</span>
           </div>
           <div className="mt-0.5 text-2xs font-medium uppercase tracking-[0.18em] text-faint">
-            {t("ДЧС РК · Астана")}
+            {t("ДЧС Астаны")}
           </div>
         </Link>
         <button

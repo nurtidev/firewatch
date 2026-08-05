@@ -450,7 +450,7 @@ export default function Landing() {
         </Reveal>
       </section>
 
-      <LandingFooter tagline={t("Предиктивная пожарная безопасность · ДЧС РК · Астана")} />
+      <LandingFooter tagline={t("Предиктивная пожарная безопасность · МЧС РК · Астана")} />
     </div>
   );
 }

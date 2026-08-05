@@ -106,7 +106,7 @@ export default function LoginPage() {
             FireWatch<span className="text-accent">.</span>
           </div>
           <p className="mt-2 text-2xs font-medium uppercase tracking-[0.18em] text-faint">
-            {t("Предиктивная платформа · ДЧС РК")}
+            {t("Предиктивная платформа · МЧС РК")}
           </p>
         </div>
 

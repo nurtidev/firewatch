@@ -11,9 +11,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Siren } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import CalloutPack from "@/components/CalloutPack";
+import CalloutOps from "@/components/CalloutOps";
 import CalloutRow from "@/components/CalloutRow";
 import { PageHeader, Button, Skeleton, EmptyState, Banner } from "@/components/ui";
 import { useT } from "@/lib/i18n";
+import { useAuth } from "@/lib/auth";
 import { useCalloutList, useCalloutPack } from "@/lib/dispatch";
 
 const POLL_MS = 15000;
@@ -35,6 +37,7 @@ export default function CalloutPage() {
 function CalloutPageInner() {
   const t = useT();
   const router = useRouter();
+  const { user } = useAuth();
   const searchParams = useSearchParams();
   const idParam = searchParams.get("id");
   const selectedId = idParam ? Number(idParam) : null;
@@ -42,7 +45,17 @@ function CalloutPageInner() {
   const { callouts, error: listError } = useCalloutList("active", POLL_MS);
   const [autoSelected, setAutoSelected] = useState(false);
 
-  const { pack, loading: packLoading, error: packError } = useCalloutPack(selectedId, POLL_MS);
+  const {
+    pack,
+    loading: packLoading,
+    error: packError,
+    reload: reloadPack,
+  } = useCalloutPack(selectedId, POLL_MS);
+
+  // Отметки боевых действий ставит тот, кто на месте (РТП), либо диспетчер с
+  // пульта по докладу. Надзорные роли открывают тот же экран только на чтение.
+  const canEdit =
+    user?.role === "responder" || user?.role === "dispatcher" || user?.role === "admin";
 
   const selectCallout = (id: number) => router.replace(`/callout?id=${id}`);
   const backToList = () => router.replace("/callout");
@@ -112,7 +125,12 @@ function CalloutPageInner() {
               </div>
             )}
             {packError && !pack && <Banner tone="critical">{packError}</Banner>}
-            {pack && <CalloutPack pack={pack} canMarkHydrant large />}
+            {pack && (
+              <div className="space-y-5">
+                <CalloutPack pack={pack} canMarkHydrant large />
+                <CalloutOps pack={pack} onChanged={reloadPack} canEdit={canEdit} large />
+              </div>
+            )}
           </>
         )}
       </div>
