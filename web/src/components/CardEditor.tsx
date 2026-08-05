@@ -123,7 +123,9 @@ export default function CardEditor({
   const startEdit = () => {
     setDraft(
       Object.fromEntries(
-        fields.map(([key]) => [key, values[key] == null ? "" : String(values[key])]),
+        fields
+          .filter(([key]) => isScalar(values[key]))
+          .map(([key]) => [key, values[key] == null ? "" : String(values[key])]),
       ),
     );
     setEditing(true);
@@ -159,7 +161,7 @@ export default function CardEditor({
     // Отправляем только изменённое: PATCH пишет ревизию по фактическому диффу,
     // и полный набор полей раздул бы историю пустыми правками.
     const changed: Record<string, string> = {};
-    for (const [key] of fields) {
+    for (const [key] of editableFields) {
       const before = values[key] == null ? "" : String(values[key]);
       if ((draft[key] ?? "") !== before) changed[key] = draft[key] ?? "";
     }
@@ -208,7 +210,20 @@ export default function CardEditor({
   };
 
   const labelOf = (key: string) => fields.find(([k]) => k === key)?.[1] ?? key;
-  const filled = fields.filter(([key]) => values[key] != null && values[key] !== "");
+
+  /** В структурной карточке те же ключи хранят структуру, а не текст: contacts
+   *  — массив {роль, имя, телефон}. Такое поле нельзя ни показать через
+   *  String() (выйдет «[object Object]»), ни отдать в текстовый инпут: запись
+   *  строкой разрушила бы документ, и сервер её отклонит 422-м. Правим только
+   *  скаляры, структурные поля показываем на своём экране. */
+  const isScalar = (v: unknown) =>
+    v == null || typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+
+  const editableFields = fields.filter(([key]) => isScalar(values[key]));
+  const filled = editableFields.filter(
+    ([key]) => values[key] != null && values[key] !== "",
+  );
+  const structuredCount = fields.length - editableFields.length;
 
   return (
     <Card className={cn("p-5", className)}>
@@ -299,7 +314,7 @@ export default function CardEditor({
       {/* ─── Поля ─── */}
       {editing ? (
         <div className="mt-4 space-y-3">
-          {fields.map(([key, label]) => (
+          {editableFields.map(([key, label]) => (
             <Field key={key} label={t(label)}>
               {MULTILINE.has(key) ? (
                 <Textarea
@@ -326,6 +341,8 @@ export default function CardEditor({
           </div>
           <p className="text-xs text-faint">
             {t("Телефоны в поле «Контакты» маскируются автоматически — это требование по ПДн.")}
+            {structuredCount > 0 &&
+              ` ${t("Поля, заполненные структурой (контакты, блоки, расчёт), правятся в самом плане, а не текстом.")}`}
           </p>
         </div>
       ) : (

@@ -527,6 +527,20 @@ def patch_card(
     card = _fetch_card_for_edit(card_id, db, user)
     before = card["extracted"] if isinstance(card["extracted"], dict) else {}
 
+    # В структурной карточке те же ключи хранят не текст, а структуру: contacts
+    # — это массив {роль, имя, телефон}, а не строка. Плоская форма записала бы
+    # туда строку и разрушила документ: экран структурного ПТП ждёт массив и
+    # падает на нём. Текстом правится только то, что и так текст.
+    structured = sorted(
+        k for k in body.fields if isinstance(before.get(k), (dict, list))
+    )
+    if structured:
+        raise HTTPException(
+            422,
+            "Эти поля хранятся структурой и не правятся текстом: "
+            + ", ".join(structured),
+        )
+
     updates = dict(body.fields)
     # Маскирование ПДн действует и здесь — редактор не должен становиться
     # обходом `_mask_contacts` для телефонов ответственных лиц.

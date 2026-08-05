@@ -109,7 +109,14 @@ export default function AppShell({
     <div className="flex h-full flex-col">
       {/* Brand */}
       <div className="flex items-center justify-between px-5 pb-5 pt-5">
-        <Link href="/dashboard" className="block" onClick={() => setDrawer(false)}>
+        {/* Логотип ведёт на стартовый экран РОЛИ, а не на дашборд: у инспектора,
+            владельца объекта, диспетчера и начальника караула доступа к
+            дашборду нет, и клик по логотипу давал лишний редирект. */}
+        <Link
+          href={user ? DEFAULT_ROUTE[user.role] : "/"}
+          className="block"
+          onClick={() => setDrawer(false)}
+        >
           <div className="flex items-center gap-2 text-lg font-bold tracking-tight">
             <FireWatchMark size={23} />
             FireWatch<span className="text-accent">.</span>

@@ -61,9 +61,24 @@ type AuditData = {
  * произвольный набор key: value, а не как жёсткую схему. */
 function formatDetail(detail: Record<string, unknown> | null): string {
   if (!detail) return "";
+  // Вложенные объекты обязаны разворачиваться: часть действий кладёт в detail
+  // не плоские значения, а структуру — переназначение выезда пишет {from,to},
+  // правка машины — {changes}, расход — {items}. String() превращал их в
+  // «[object Object]», и запись в журнале переставала что-либо доказывать.
+  const render = (v: unknown): string => {
+    if (v === null || v === undefined) return "";
+    if (Array.isArray(v)) return v.map(render).join(",");
+    if (typeof v === "object") {
+      return `{${Object.entries(v as Record<string, unknown>)
+        .filter(([, x]) => x !== null && x !== undefined && x !== "")
+        .map(([k, x]) => `${k}=${render(x)}`)
+        .join(", ")}}`;
+    }
+    return String(v);
+  };
   return Object.entries(detail)
     .filter(([, v]) => v !== null && v !== undefined && v !== "")
-    .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(",") : String(v)}`)
+    .map(([k, v]) => `${k}: ${render(v)}`)
     .join(" · ");
 }
 
