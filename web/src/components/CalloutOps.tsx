@@ -14,12 +14,14 @@
  * Отметка ставится «сейчас» одним нажатием — в кабине и на месте пожара никто
  * не набирает время руками. Ошибочную отметку можно снять тем же нажатием.
  */
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Clock,
   Truck,
   Package,
   Map,
+  List,
+  LayoutGrid,
   Check,
   X,
   Plus,
@@ -41,6 +43,10 @@ import {
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { SEVERITY } from "@/lib/risk";
+import { apiFetch } from "@/lib/auth";
+import FloorPlan2D from "@/components/FloorPlan2D";
+import DeploymentPlan from "@/components/DeploymentPlan";
+import { realPlanForFloor } from "@/lib/realgeom";
 import {
   TIMELINE_STEPS,
   TIMELINE_STEP_LABEL,
@@ -61,6 +67,7 @@ import {
   POSITION_PHASE_LABEL,
   addPosition,
   deletePosition,
+  patchPosition,
   type CalloutPackData,
   type TimelineStep,
   type ResourceItem,
@@ -414,6 +421,36 @@ function DeploymentSection({
   const [kind, setKind] = useState<PositionKind>("barrel_ext");
   const [phase, setPhase] = useState<PositionPhase>("localization");
   const [sector, setSector] = useState("");
+  // Схема против списка: на объекте с оцифрованным планом расстановку ведут
+  // на схеме, без плана остаётся список по участкам — он работает всегда.
+  const [mode, setMode] = useState<"list" | "plan">("list");
+  const [card, setCard] = useState<{ extracted?: Record<string, unknown> } | null>(null);
+  const [floor, setFloor] = useState("");
+
+  const cardId = pack.building?.card_id ?? null;
+  useEffect(() => {
+    // Карточку тянем только когда открыли схему: боевой пакет отдаёт её id,
+    // но не геометрию, а на планшете лишний запрос стоит дорого.
+    if (mode !== "plan" || card || cardId == null) return;
+    apiFetch(`/cards/${cardId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setCard(d))
+      .catch(() => {});
+  }, [mode, card, cardId]);
+
+  const floors = useMemo(() => {
+    const ex = card?.extracted as { floor_plans?: { floor?: string }[] } | undefined;
+    return (ex?.floor_plans ?? []).map((f) => f.floor).filter(Boolean) as string[];
+  }, [card]);
+
+  const objectName = (
+    (card?.extracted as { object?: { name?: string } } | undefined)?.object?.name
+  );
+  const activeFloor = floor || floors[0] || "";
+  const plan = useMemo(
+    () => realPlanForFloor(objectName, activeFloor),
+    [objectName, activeFloor],
+  );
 
   const positions = pack.deployment ?? [];
   const hint = pack.forces_hint;
@@ -455,7 +492,21 @@ function DeploymentSection({
               />
             ) : null,
           )}
-          {editable && (
+          {cardId != null && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setMode(mode === "plan" ? "list" : "plan")}
+            >
+              {mode === "plan" ? (
+                <List className="h-4 w-4" aria-hidden />
+              ) : (
+                <LayoutGrid className="h-4 w-4" aria-hidden />
+              )}
+              {t(mode === "plan" ? "Списком" : "На схеме")}
+            </Button>
+          )}
+          {editable && mode === "list" && (
             <Button size="sm" variant="secondary" onClick={() => setAdding((v) => !v)}>
               <Plus className="h-4 w-4" aria-hidden />
               {t("Позиция")}
@@ -503,7 +554,72 @@ function DeploymentSection({
         </div>
       )}
 
-      {positions.length === 0 ? (
+      {mode === "plan" ? (
+        plan ? (
+          <div className="mt-3 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <SectionLabel className="mr-1">{t("Этаж")}</SectionLabel>
+              {floors.map((f) => (
+                <Button
+                  key={f}
+                  size="sm"
+                  variant={activeFloor === f ? "primary" : "secondary"}
+                  onClick={() => setFloor(f)}
+                >
+                  {f}
+                </Button>
+              ))}
+              <span className="ml-auto flex gap-2">
+                {POSITION_PHASES.map((ph) => (
+                  <Button
+                    key={ph}
+                    size="sm"
+                    variant={phase === ph ? "primary" : "secondary"}
+                    onClick={() => setPhase(ph)}
+                  >
+                    {t(POSITION_PHASE_LABEL[ph])}
+                  </Button>
+                ))}
+              </span>
+            </div>
+
+            <DeploymentPlan
+              positions={positions}
+              floor={activeFloor}
+              phase={phase}
+              editable={editable}
+              onAdd={(k, x, y) =>
+                onRun("add-position", () =>
+                  addPosition(pack.callout.id, {
+                    kind: k,
+                    phase,
+                    floor: activeFloor,
+                    plan_x: x,
+                    plan_y: y,
+                  }),
+                )
+              }
+              onMove={(id, x, y) =>
+                onRun(`move-${id}`, () =>
+                  patchPosition(pack.callout.id, id, { plan_x: x, plan_y: y }),
+                )
+              }
+              onRotate={(id, heading) =>
+                onRun(`rot-${id}`, () => patchPosition(pack.callout.id, id, { heading }))
+              }
+              onRemove={(id) =>
+                onRun(`del-pos-${id}`, () => deletePosition(pack.callout.id, id))
+              }
+            >
+              <FloorPlan2D plan={plan} />
+            </DeploymentPlan>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-muted">
+            {t("У объекта нет оцифрованного поэтажного плана — расстановка ведётся списком по участкам.")}
+          </p>
+        )
+      ) : positions.length === 0 ? (
         <p className="mt-3 text-sm text-muted">
           {t("Расстановка сил не зафиксирована.")}
         </p>

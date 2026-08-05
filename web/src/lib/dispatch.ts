@@ -310,20 +310,37 @@ export type DeploymentPosition = {
   vehicle_callsign: string | null;
   lat: number | null;
   lng: number | null;
+  /** Расстановка внутри здания: этаж и доля от габарита плана (0..1).
+   *  Доля, а не пиксели — план рисуется в разном масштабе (планшет РТП,
+   *  десктоп, экспорт в донесение), и пиксельная координата уехала бы при
+   *  первом изменении размера. */
+  floor: string | null;
+  plan_x: number | null;
+  plan_y: number | null;
+  /** Направление работы ствола, градусы (0 = север, по часовой).
+   *  null ≠ 0: у штаба и рубежа направления нет, а ствол без heading — это
+   *  ствол, направление которому ещё не задали. */
+  heading: number | null;
   created_by: string;
   created_at: string | null;
 };
 
+export type PositionInput = {
+  kind: PositionKind;
+  phase: PositionPhase;
+  sector?: string | null;
+  note?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  floor?: string | null;
+  plan_x?: number | null;
+  plan_y?: number | null;
+  heading?: number | null;
+};
+
 export async function addPosition(
   calloutId: number,
-  body: {
-    kind: PositionKind;
-    phase: PositionPhase;
-    sector?: string | null;
-    note?: string | null;
-    lat?: number | null;
-    lng?: number | null;
-  },
+  body: PositionInput,
 ): Promise<DeploymentPosition[]> {
   const r = await apiFetch(`/dispatch/${calloutId}/deployment`, {
     method: "POST",
@@ -331,6 +348,23 @@ export async function addPosition(
     body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(await errorText(r, "Не удалось добавить позицию"));
+  return r.json();
+}
+
+/** Правка позиции: перетаскивание, поворот, смена участка или этажа.
+ *  Двигать маркер — это менять координаты, а не удалять и создавать заново:
+ *  иначе каждая корректировка попадала бы в историю выезда как новая позиция. */
+export async function patchPosition(
+  calloutId: number,
+  positionId: number,
+  patch: Partial<Omit<PositionInput, "kind">>,
+): Promise<DeploymentPosition[]> {
+  const r = await apiFetch(`/dispatch/${calloutId}/deployment/${positionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!r.ok) throw new Error(await errorText(r, "Не удалось переместить позицию"));
   return r.json();
 }
 
