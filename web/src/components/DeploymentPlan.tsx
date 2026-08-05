@@ -179,6 +179,7 @@ export default function DeploymentPlan({
 
       <div
         ref={boxRef}
+        data-deployment-canvas
         onPointerDown={handlePlanClick}
         onPointerMove={handleMarkerMove}
         onPointerUp={handleMarkerUp}
