@@ -1470,6 +1470,15 @@ class PositionCreate(BaseModel):
     lng: float | None = Field(None, ge=-180, le=180)
     note: str | None = Field(None, max_length=500)
     vehicle_id: int | None = None
+    # Расстановка внутри здания. Координаты — доля от габарита плана (0..1),
+    # а не пиксели: план рисуется в разном масштабе (планшет, десктоп,
+    # экспорт в донесение), и пиксельная координата «поехала» бы при первом
+    # изменении размера.
+    floor: str | None = Field(None, max_length=40)
+    plan_x: float | None = Field(None, ge=0, le=1)
+    plan_y: float | None = Field(None, ge=0, le=1)
+    # Направление работы ствола, градусы (0 = север, по часовой).
+    heading: int | None = Field(None, ge=0, le=359)
 
     @field_validator("kind")
     @classmethod
@@ -1491,6 +1500,45 @@ class PositionCreate(BaseModel):
         # нулевой точке — требуем пару целиком либо ничего.
         if (self.lat is None) != (self.lng is None):
             raise ValueError("координаты указываются парой lat+lng")
+        if (self.plan_x is None) != (self.plan_y is None):
+            raise ValueError("координаты на плане указываются парой plan_x+plan_y")
+        return self
+
+
+class PositionPatch(BaseModel):
+    """Правка позиции: перетаскивание на плане, поворот, смена участка.
+
+    Существует ради интерактивной расстановки: перетащить маркер — это
+    изменить координаты, а не удалить и создать заново (иначе в истории
+    выезда каждая корректировка выглядела бы как новая позиция).
+    """
+
+    sector: str | None = Field(None, max_length=120)
+    note: str | None = Field(None, max_length=500)
+    phase: str | None = None
+    floor: str | None = Field(None, max_length=40)
+    plan_x: float | None = Field(None, ge=0, le=1)
+    plan_y: float | None = Field(None, ge=0, le=1)
+    heading: int | None = Field(None, ge=0, le=359)
+    lat: float | None = Field(None, ge=-90, le=90)
+    lng: float | None = Field(None, ge=-180, le=180)
+
+    @field_validator("phase")
+    @classmethod
+    def _known_phase(cls, v: str | None) -> str | None:
+        if v is not None and v not in POSITION_PHASES:
+            raise ValueError(f"неизвестный этап: {v}")
+        return v
+
+    @model_validator(mode="after")
+    def _require_change(self) -> "PositionPatch":
+        if not self.model_fields_set:
+            raise ValueError("укажите хотя бы одно поле")
+        sent = self.model_fields_set
+        if ("plan_x" in sent) != ("plan_y" in sent):
+            raise ValueError("координаты на плане меняются парой plan_x+plan_y")
+        if ("lat" in sent) != ("lng" in sent):
+            raise ValueError("координаты на карте меняются парой lat+lng")
         return self
 
 
@@ -1499,6 +1547,7 @@ def _deployment(db: Session, callout_id: int) -> list[dict]:
         text(
             """
             SELECT p.id, p.kind, p.phase, p.sector, p.note, p.vehicle_id,
+                   p.floor, p.plan_x, p.plan_y, p.heading,
                    v.callsign AS vehicle_callsign,
                    ST_Y(p.geom) AS lat, ST_X(p.geom) AS lng,
                    p.created_by, p.created_at
@@ -1517,6 +1566,10 @@ def _deployment(db: Session, callout_id: int) -> list[dict]:
             "phase": r["phase"],
             "sector": r["sector"],
             "note": r["note"],
+            "floor": r["floor"],
+            "plan_x": r["plan_x"],
+            "plan_y": r["plan_y"],
+            "heading": r["heading"],
             "vehicle_id": r["vehicle_id"],
             "vehicle_callsign": r["vehicle_callsign"],
             "lat": r["lat"],
@@ -1573,8 +1626,10 @@ def add_position(
         text(
             f"""
             INSERT INTO deployment_positions
-                (callout_id, kind, phase, sector, geom, note, vehicle_id, created_by)
-            VALUES (:cid, :kind, :phase, :sector, {geom}, :note, :vid, :by)
+                (callout_id, kind, phase, sector, geom, note, vehicle_id,
+                 floor, plan_x, plan_y, heading, created_by)
+            VALUES (:cid, :kind, :phase, :sector, {geom}, :note, :vid,
+                    :floor, :plan_x, :plan_y, :heading, :by)
             RETURNING id
             """
         ),
@@ -1587,6 +1642,10 @@ def add_position(
             "lng": body.lng,
             "note": body.note,
             "vid": body.vehicle_id,
+            "floor": body.floor,
+            "plan_x": body.plan_x,
+            "plan_y": body.plan_y,
+            "heading": body.heading,
             "by": user.get("username"),
         },
     ).scalar()
@@ -1602,6 +1661,73 @@ def add_position(
         ip=client_ip(request),
         detail={"callout_id": callout_id, "position_id": new_id,
                 "kind": body.kind, "phase": body.phase},
+    )
+    return _deployment(db, callout_id)
+
+
+@router.patch("/{callout_id}/deployment/{position_id}")
+def update_position(
+    callout_id: int,
+    position_id: int,
+    body: PositionPatch,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(OPS_ROLES),
+) -> list[dict]:
+    """Подвинуть позицию, повернуть ствол, сменить участок или этаж.
+
+    Перетаскивание маркера — это правка координат, а не «удалить и создать
+    заново»: иначе каждая корректировка расстановки выглядела бы в истории
+    выезда как новая позиция, и разобрать по ней ход тушения было бы нельзя.
+    """
+    row = _fetch_callout(db, callout_id)
+    if row["status"] != "active":
+        raise HTTPException(409, "Выезд закрыт — расстановка не меняется")
+
+    exists = db.execute(
+        text(
+            "SELECT 1 FROM deployment_positions WHERE id = :pid AND callout_id = :cid"
+        ),
+        {"pid": position_id, "cid": callout_id},
+    ).scalar()
+    if not exists:
+        raise HTTPException(404, "Позиция не найдена")
+
+    patch = body.model_dump(exclude_unset=True)
+    sets: list[str] = []
+    params: dict = {"pid": position_id}
+
+    # Географическая точка собирается из пары координат, остальное — как есть.
+    lat, lng = patch.pop("lat", None), patch.pop("lng", None)
+    if "lat" in body.model_fields_set:
+        if lat is None:
+            sets.append("geom = NULL")
+        else:
+            sets.append("geom = ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)")
+            params.update(lat=lat, lng=lng)
+    for key, value in patch.items():
+        sets.append(f"{key} = :{key}")
+        params[key] = value
+
+    if sets:
+        db.execute(
+            text(
+                f"UPDATE deployment_positions SET {', '.join(sets)} WHERE id = :pid"
+            ),
+            params,
+        )
+        db.commit()
+
+    audit(
+        action="callout.deployment_moved",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="PATCH",
+        path=f"/dispatch/{callout_id}/deployment/{position_id}",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"callout_id": callout_id, "position_id": position_id,
+                "fields": sorted(body.model_fields_set)},
     )
     return _deployment(db, callout_id)
 
