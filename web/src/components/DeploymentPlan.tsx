@@ -18,7 +18,7 @@
  * экрана: одна и та же расстановка одинаково верна на планшете, на десктопе
  * и в экспорте в донесение.
  */
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Flame,
   ShieldHalf,
@@ -29,9 +29,11 @@ import {
   RotateCw,
   Trash2,
   MousePointer2,
+  WifiOff,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Button, SectionLabel, StatusChip } from "@/components/ui";
+import { Button, SectionLabel, StatusChip, Banner } from "@/components/ui";
+import { isOnline } from "@/lib/offline";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { SEVERITY } from "@/lib/risk";
@@ -88,6 +90,21 @@ export default function DeploymentPlan({
   const t = useT();
   const boxRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState<PositionKind | null>(null);
+  // Связь на пожаре пропадает, а каждое действие здесь уходит на сервер.
+  // Без явного признака РТП видел бы только «не удалось сохранить» на каждый
+  // жест и мог решить, что промахнулся мимо маркера, — и продолжал бы
+  // расставлять то, что никуда не записывается.
+  const [online, setOnline] = useState(true);
+  useEffect(() => {
+    const sync = () => setOnline(isOnline());
+    sync();
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
+    return () => {
+      window.removeEventListener("online", sync);
+      window.removeEventListener("offline", sync);
+    };
+  }, []);
   const [selected, setSelected] = useState<number | null>(null);
   const dragRef = useRef<{ id: number; moved: boolean } | null>(null);
 
@@ -150,6 +167,13 @@ export default function DeploymentPlan({
 
   return (
     <div className="space-y-3">
+      {editable && !online && (
+        <Banner tone="critical" icon={WifiOff}>
+          {t(
+            "Связи нет — расстановка не сохраняется. Запомните позиции и повторите, когда связь появится.",
+          )}
+        </Banner>
+      )}
       {editable && (
         <div className="flex flex-wrap items-center gap-2">
           <SectionLabel className="mr-1">{t("Поставить")}</SectionLabel>
