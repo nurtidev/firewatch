@@ -271,7 +271,8 @@ function VehiclesSection({
 }) {
   const t = useT();
   const [picking, setPicking] = useState(false);
-  const { data, reload } = useVehicles(null, picking ? 15000 : undefined);
+  // Справочник по всему городу тянется только когда РТП открыл выбор техники.
+  const { data, reload } = useVehicles(null, picking ? 15000 : undefined, picking);
 
   const assigned = pack.vehicles;
   const assignedIds = new Set(assigned.map((v) => v.id));

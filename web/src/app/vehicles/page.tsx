@@ -143,13 +143,14 @@ function FleetTab({ canEdit }: { canEdit: boolean }) {
       </div>
     );
 
+  // Частей нет вовсе — учёт вести негде: сначала импорт инфраструктуры.
   if (data.by_station.length === 0)
     return (
       <EmptyState
         icon={Truck}
-        title={t("Техника не поставлена на учёт")}
+        title={t("Пожарные части не загружены")}
         description={t(
-          "Пока ни в одной части нет машин. Добавьте технику — расчёт сил начнёт сверяться с фактическим наличием.",
+          "В реестре нет ни одной части — сначала нужно загрузить инфраструктуру города.",
         )}
       />
     );
@@ -157,6 +158,14 @@ function FleetTab({ canEdit }: { canEdit: boolean }) {
   return (
     <div className="space-y-5">
       {actionError && <Banner tone="critical">{actionError}</Banner>}
+
+      {totals.total === 0 && (
+        <Banner tone="warning">
+          {t(
+            "Ни в одной части нет техники на учёте. Пока её нет, расчёт сил не с чем сверять — добавьте машины в частях ниже.",
+          )}
+        </Banner>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard label={t("Всего машин")} value={totals.total} icon={Truck} />

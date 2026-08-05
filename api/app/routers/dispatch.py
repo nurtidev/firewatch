@@ -1138,17 +1138,31 @@ def list_vehicles(
     ).mappings().all()
 
     vehicles = [_vehicle_row(dict(r)) for r in rows]
-    by_station: dict[int, dict] = {}
+
+    # Сводка строится от списка ЧАСТЕЙ, а не от списка машин: часть без техники
+    # обязана остаться видимой. Иначе она исчезает из интерфейса вместе с
+    # последней машиной — и поставить технику обратно становится некуда, а
+    # диспетчер не видит, что часть пуста (это ровно тот случай, ради которого
+    # учёт и заводился).
+    station_clause = "WHERE s.id = :sid" if station_id is not None else ""
+    stations = db.execute(
+        text(f"SELECT s.id, s.name FROM fire_stations s {station_clause} ORDER BY s.name"),
+        params,
+    ).mappings().all()
+
+    by_station: dict[int, dict] = {
+        s["id"]: {
+            "station_id": s["id"],
+            "station_name": s["name"],
+            "total": 0,
+            **{st: 0 for st in VEHICLE_STATUSES},
+        }
+        for s in stations
+    }
     for v in vehicles:
-        entry = by_station.setdefault(
-            v["station_id"],
-            {
-                "station_id": v["station_id"],
-                "station_name": v["station_name"],
-                "total": 0,
-                **{s: 0 for s in VEHICLE_STATUSES},
-            },
-        )
+        entry = by_station.get(v["station_id"])
+        if entry is None:  # часть удалена гонкой — машина осиротела
+            continue
         entry["total"] += 1
         entry[v["status"]] += 1
 

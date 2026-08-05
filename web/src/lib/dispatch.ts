@@ -564,11 +564,22 @@ export type VehiclesResponse = {
   statuses: VehicleStatus[];
 };
 
-export function useVehicles(stationId?: number | null, pollMs?: number) {
+/** Справочник техники частей.
+ *
+ *  `enabled` существует ради планшета РТП: там этот справочник нужен только в
+ *  момент назначения наряда, а грузится он по всему городу. Тянуть его при
+ *  каждом открытии боевого пакета — лишний трафик на мобильной сети в поле,
+ *  где пакет и открывают. */
+export function useVehicles(
+  stationId?: number | null,
+  pollMs?: number,
+  enabled: boolean = true,
+) {
   const [data, setData] = useState<VehiclesResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
+    if (!enabled) return;
     const q = stationId != null ? `?station_id=${stationId}` : "";
     apiFetch(`/dispatch/vehicles${q}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("vehicles"))))
@@ -577,14 +588,15 @@ export function useVehicles(stationId?: number | null, pollMs?: number) {
         setError(null);
       })
       .catch(() => setError("Не удалось загрузить технику частей."));
-  }, [stationId]);
+  }, [stationId, enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
     reload();
     if (!pollMs) return;
     const t = setInterval(reload, pollMs);
     return () => clearInterval(t);
-  }, [reload, pollMs]);
+  }, [reload, pollMs, enabled]);
 
   return { data, error, reload };
 }
