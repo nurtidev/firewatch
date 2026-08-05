@@ -28,7 +28,7 @@ from app.access import has_citywide_data_access
 from app.audit import audit, client_ip
 from app.config import settings
 from app.db import get_db
-from app.extraction import extract_card
+from app.extraction import extract_card, mask_contacts_field
 from app.routers.auth import current_user, require_roles
 
 # Router-level auth is just "authenticated"; each endpoint layers its own role
@@ -311,6 +311,14 @@ def _card_detail(card_id: int, db: Session, user: dict) -> dict:
         "extracted": card["extracted"],
         "prescriptions": [_prescription_row(p) for p in presc],
         "has_file": has_file,
+        # Согласование и авторство правки: караул должен видеть, утверждён ли
+        # документ, по которому он работает, и когда его меняли в последний раз.
+        "review_status": card["review_status"],
+        "updated_by": card["updated_by"],
+        "updated_at": card["updated_at"].isoformat() if card["updated_at"] else None,
+        "approved_by": card["approved_by"],
+        "approved_at": card["approved_at"].isoformat() if card["approved_at"] else None,
+        "editable_fields": list(EDITABLE_CARD_FIELDS),
     }
 
 
@@ -389,6 +397,317 @@ def delete_card(
         detail={"card_id": card_id},
     )
     return {"ok": True, "deleted": card_id}
+
+
+# --- редактор оперкарточки: правка, история, согласование --------------------
+#
+# До этого карточка была снимком распознавания: исправить опечатку модели или
+# внести изменение по объекту (сменили насосную, заложили проезд) можно было
+# только перезагрузкой документа — с потерей предписаний.
+#
+# Три правила, определяющие устройство редактора:
+#   1. Снимок пишется ДО изменения. Откат = взять снимок ревизии целиком, а не
+#      проигрывать историю с начала.
+#   2. Маскирование ПДн действует и на ручной ввод. Иначе редактор становится
+#      дырой в обход `_mask_contacts`: телефоны ответственных попали бы в базу
+#      в открытом виде через форму.
+#   3. Правка утверждённой карточки снимает утверждение. Карточка — документ,
+#      по которому караул работает на пожаре; изменение не должно попадать в
+#      боевой пакет молча.
+
+# Поля, доступные для ручной правки. Набор совпадает с EXTRACT_TOOL, кроме
+# `prescriptions` (у них свой жизненный цикл с проверкой исполнения) и
+# вложенных структур `object`/`force_calc` структурных карточек: их правка —
+# это правка расчёта, а не текста, и делается пересчётом через /forces.
+EDITABLE_CARD_FIELDS = (
+    "object_name",
+    "address",
+    "object_type",
+    "category",
+    "fire_resistance",
+    "floors",
+    "year_built",
+    "construction",
+    "fire_systems",
+    "water_source",
+    "nearest_station",
+    "distance_to_station",
+    "arrival_time",
+    "fire_rank",
+    "contacts",
+    "staff_day",
+    "staff_night",
+    "evacuation",
+    "notes",
+)
+
+CARD_REVIEW_STATUSES = ("draft", "on_review", "approved")
+# Утверждает карточку начальник отдела — то же разделение, что у предписаний:
+# инспектор готовит, руководитель подписывает.
+CARD_APPROVE = require_roles("supervisor", "admin")
+
+
+class CardPatch(BaseModel):
+    """Частичная правка полей карточки. Передаются только изменяемые поля."""
+
+    fields: dict[str, str | int | None] = Field(default_factory=dict)
+    note: str | None = Field(None, max_length=500)
+
+    @field_validator("fields")
+    @classmethod
+    def _known_fields(cls, v: dict) -> dict:
+        unknown = set(v) - set(EDITABLE_CARD_FIELDS)
+        if unknown:
+            raise ValueError(f"недопустимые поля: {sorted(unknown)}")
+        if not v:
+            raise ValueError("укажите хотя бы одно поле")
+        for key, value in v.items():
+            if isinstance(value, str) and len(value) > 4000:
+                raise ValueError(f"{key}: слишком длинное значение")
+        return v
+
+
+class CardReview(BaseModel):
+    action: str
+    note: str | None = Field(None, max_length=500)
+
+    @field_validator("action")
+    @classmethod
+    def _known_action(cls, v: str) -> str:
+        if v not in ("submit", "approve", "reject"):
+            raise ValueError("action: submit | approve | reject")
+        return v
+
+
+def _fetch_card_for_edit(card_id: int, db: Session, user: dict) -> dict:
+    params: dict = {"id": card_id}
+    scope = _card_scope_sql(user, params)
+    row = db.execute(
+        text(
+            "SELECT c.id, c.extracted, c.review_status FROM operational_cards c "
+            "LEFT JOIN buildings b ON b.id = c.building_id "
+            f"WHERE c.id = :id AND {scope}"
+        ),
+        params,
+    ).mappings().first()
+    if row is None:
+        raise HTTPException(404, "Карточка не найдена")
+    return dict(row)
+
+
+def _write_revision(
+    db: Session, card_id: int, before: dict | None, changed: list[str], author: str,
+    note: str | None,
+) -> None:
+    """Снимок состояния ДО изменения."""
+    db.execute(
+        text(
+            "INSERT INTO card_revisions (card_id, extracted, changed_fields, note, author) "
+            "VALUES (:cid, CAST(:extracted AS jsonb), CAST(:changed AS jsonb), :note, :author)"
+        ),
+        {
+            "cid": card_id,
+            "extracted": _json(before) if before is not None else None,
+            "changed": _json(changed),
+            "note": note,
+            "author": author,
+        },
+    )
+
+
+@router.patch("/{card_id}")
+def patch_card(
+    card_id: int,
+    body: CardPatch,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(CARD_WRITE),
+) -> dict:
+    """Отредактировать поля карточки, записав предыдущее состояние в историю."""
+    card = _fetch_card_for_edit(card_id, db, user)
+    before = card["extracted"] if isinstance(card["extracted"], dict) else {}
+
+    updates = dict(body.fields)
+    # Маскирование ПДн действует и здесь — редактор не должен становиться
+    # обходом `_mask_contacts` для телефонов ответственных лиц.
+    if settings.mask_pii and "contacts" in updates and updates["contacts"]:
+        updates["contacts"] = mask_contacts_field(str(updates["contacts"]))
+
+    changed = [k for k, v in updates.items() if before.get(k) != v]
+    if not changed:
+        return _card_detail(card_id, db, user)
+
+    after = {**before, **updates}
+    _write_revision(db, card_id, before, changed, user.get("username", ""), body.note)
+
+    # Правка утверждённой карточки снимает утверждение: караул должен видеть,
+    # что документ изменён и ещё не подписан.
+    next_status = "draft" if card["review_status"] == "approved" else card["review_status"]
+    db.execute(
+        text(
+            "UPDATE operational_cards SET extracted = CAST(:extracted AS jsonb), "
+            "updated_by = :by, updated_at = now(), review_status = :status, "
+            "approved_by = NULL, approved_at = NULL WHERE id = :id"
+        ),
+        {
+            "extracted": _json(after),
+            "by": user.get("username"),
+            "status": next_status,
+            "id": card_id,
+        },
+    )
+    db.commit()
+
+    audit(
+        action="card.edited",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="PATCH",
+        path=f"/cards/{card_id}",
+        status_code=200,
+        ip=client_ip(request),
+        # Значения полей в журнал не пишем: карточка содержит ПДн, а журнал
+        # читают роли, которым сама карточка может быть не видна по району.
+        detail={"card_id": card_id, "changed_fields": changed},
+    )
+    return _card_detail(card_id, db, user)
+
+
+@router.get("/{card_id}/revisions")
+def list_revisions(
+    card_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(CARD_READ),
+) -> list[dict]:
+    """История правок карточки, новые сверху."""
+    _assert_card_in_scope(card_id, db, user)
+    rows = db.execute(
+        text(
+            "SELECT id, changed_fields, note, author, created_at FROM card_revisions "
+            "WHERE card_id = :id ORDER BY created_at DESC, id DESC LIMIT 100"
+        ),
+        {"id": card_id},
+    ).mappings().all()
+    return [
+        {
+            "id": r["id"],
+            "changed_fields": r["changed_fields"],
+            "note": r["note"],
+            "author": r["author"],
+            "created_at": r["created_at"].isoformat(),
+        }
+        for r in rows
+    ]
+
+
+@router.post("/{card_id}/revisions/{revision_id}/restore")
+def restore_revision(
+    card_id: int,
+    revision_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(CARD_WRITE),
+) -> dict:
+    """Откатить карточку к состоянию ревизии.
+
+    Откат сам записывается в историю: иначе состояние, к которому откатились,
+    исчезло бы из журнала, и восстановить его после ошибочного отката было бы
+    нечем.
+    """
+    card = _fetch_card_for_edit(card_id, db, user)
+    rev = db.execute(
+        text(
+            "SELECT id, extracted FROM card_revisions WHERE id = :rid AND card_id = :cid"
+        ),
+        {"rid": revision_id, "cid": card_id},
+    ).mappings().first()
+    if rev is None:
+        raise HTTPException(404, "Ревизия не найдена")
+
+    before = card["extracted"] if isinstance(card["extracted"], dict) else {}
+    target = rev["extracted"] if isinstance(rev["extracted"], dict) else {}
+    changed = sorted(
+        {k for k in set(before) | set(target) if before.get(k) != target.get(k)}
+    )
+
+    _write_revision(
+        db, card_id, before, changed, user.get("username", ""),
+        f"Откат к ревизии #{revision_id}",
+    )
+    db.execute(
+        text(
+            "UPDATE operational_cards SET extracted = CAST(:extracted AS jsonb), "
+            "updated_by = :by, updated_at = now(), review_status = 'draft', "
+            "approved_by = NULL, approved_at = NULL WHERE id = :id"
+        ),
+        {"extracted": _json(target), "by": user.get("username"), "id": card_id},
+    )
+    db.commit()
+
+    audit(
+        action="card.restored",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="POST",
+        path=f"/cards/{card_id}/revisions/{revision_id}/restore",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"card_id": card_id, "revision_id": revision_id, "changed_fields": changed},
+    )
+    return _card_detail(card_id, db, user)
+
+
+@router.post("/{card_id}/review")
+def review_card(
+    card_id: int,
+    body: CardReview,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(CARD_WRITE),
+) -> dict:
+    """Движение карточки по согласованию: submit → approve / reject.
+
+    `submit` доступен тому, кто правит (инспектор); `approve` и `reject` —
+    только начальнику отдела: подписывает документ руководитель, а не автор
+    правки.
+    """
+    card = _fetch_card_for_edit(card_id, db, user)
+    status = card["review_status"]
+
+    if body.action == "submit":
+        if status == "on_review":
+            raise HTTPException(409, "Карточка уже на согласовании")
+        new_status, approver = "on_review", None
+    else:
+        if user.get("role") not in ("supervisor", "admin"):
+            raise HTTPException(403, "Утверждение доступно начальнику отдела")
+        if status != "on_review":
+            raise HTTPException(409, "Карточка не отправлена на согласование")
+        new_status = "approved" if body.action == "approve" else "draft"
+        approver = user.get("username") if body.action == "approve" else None
+
+    db.execute(
+        text(
+            "UPDATE operational_cards SET review_status = :status, "
+            "approved_by = :approver, "
+            "approved_at = CASE WHEN :status = 'approved' THEN now() ELSE NULL END "
+            "WHERE id = :id"
+        ),
+        {"status": new_status, "approver": approver, "id": card_id},
+    )
+    db.commit()
+
+    audit(
+        action=f"card.review.{body.action}",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="POST",
+        path=f"/cards/{card_id}/review",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"card_id": card_id, "from": status, "to": new_status, "note": body.note},
+    )
+    return _card_detail(card_id, db, user)
 
 
 @router.post("/{card_id}/prescriptions/{prescription_id}/review")
