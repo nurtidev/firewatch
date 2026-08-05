@@ -56,6 +56,21 @@ TIMELINE_FIELDS = (
     "extinguished_at",
 )
 
+# План развёртывания. Дублирует CHECK-констрейнты миграции 0019 — при
+# изменении править оба места. Стволы на тушение и на защиту разделены не для
+# красоты: расчёт по методике даёт для них разные величины (Qт и Qз), и
+# сверять факт с планом можно только раздельно.
+POSITION_KINDS = (
+    "barrel_ext",
+    "barrel_def",
+    "vehicle",
+    "checkpoint",
+    "hq",
+    "ladder",
+    "other",
+)
+POSITION_PHASES = ("localization", "extinguishing")
+
 # Nearest hydrants / access reports around the callout point (metres).
 HYDRANT_RADIUS_M = 800
 REPORTS_RADIUS_M = 400
@@ -528,6 +543,7 @@ def _build_pack(db: Session, callout_id: int) -> dict:
         # открывается один раз и должен показать всё состояние выезда сразу.
         "vehicles": _callout_vehicles(db, callout_id),
         "resources": _callout_resources(db, callout_id),
+        "deployment": _deployment(db, callout_id),
     }
 
 
@@ -1419,6 +1435,194 @@ def put_resources(
                 "items": {i.item_key: i.qty for i in body.items}},
     )
     return _callout_resources(db, callout_id)
+
+
+# --- план развёртывания ------------------------------------------------------
+#
+# Расстановка сил по боевым участкам. Позиции стволов сопоставимы с расчётом
+# (`forces_hint`): система показывает «подано 3 из 4 по расчёту» — то же
+# сравнение факта с методикой, что и у наряда техники.
+#
+# Расстановка на локализации и на ликвидации хранится раздельно: это разные
+# этапы боевых действий, и затирать первую второй нельзя — по ним разбирают
+# выезд.
+
+
+class PositionCreate(BaseModel):
+    kind: str
+    phase: str = "localization"
+    sector: str | None = Field(None, max_length=120)
+    lat: float | None = Field(None, ge=-90, le=90)
+    lng: float | None = Field(None, ge=-180, le=180)
+    note: str | None = Field(None, max_length=500)
+    vehicle_id: int | None = None
+
+    @field_validator("kind")
+    @classmethod
+    def _known_kind(cls, v: str) -> str:
+        if v not in POSITION_KINDS:
+            raise ValueError(f"неизвестный тип позиции: {v}")
+        return v
+
+    @field_validator("phase")
+    @classmethod
+    def _known_phase(cls, v: str) -> str:
+        if v not in POSITION_PHASES:
+            raise ValueError(f"неизвестный этап: {v}")
+        return v
+
+    @model_validator(mode="after")
+    def _coords_together(self) -> "PositionCreate":
+        # Половина координаты бесполезна и на карте выглядит как позиция в
+        # нулевой точке — требуем пару целиком либо ничего.
+        if (self.lat is None) != (self.lng is None):
+            raise ValueError("координаты указываются парой lat+lng")
+        return self
+
+
+def _deployment(db: Session, callout_id: int) -> list[dict]:
+    rows = db.execute(
+        text(
+            """
+            SELECT p.id, p.kind, p.phase, p.sector, p.note, p.vehicle_id,
+                   v.callsign AS vehicle_callsign,
+                   ST_Y(p.geom) AS lat, ST_X(p.geom) AS lng,
+                   p.created_by, p.created_at
+              FROM deployment_positions p
+              LEFT JOIN station_vehicles v ON v.id = p.vehicle_id
+             WHERE p.callout_id = :id
+             ORDER BY p.phase, p.id
+            """
+        ),
+        {"id": callout_id},
+    ).mappings().all()
+    return [
+        {
+            "id": r["id"],
+            "kind": r["kind"],
+            "phase": r["phase"],
+            "sector": r["sector"],
+            "note": r["note"],
+            "vehicle_id": r["vehicle_id"],
+            "vehicle_callsign": r["vehicle_callsign"],
+            "lat": r["lat"],
+            "lng": r["lng"],
+            "created_by": r["created_by"],
+            "created_at": _iso(r["created_at"]),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/{callout_id}/deployment")
+def get_deployment(
+    callout_id: int,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(VIEW_ROLES),
+) -> dict:
+    """Расстановка сил по выезду со сверкой стволов против расчёта."""
+    _fetch_callout(db, callout_id)
+    positions = _deployment(db, callout_id)
+    return {
+        "positions": positions,
+        "kinds": list(POSITION_KINDS),
+        "phases": list(POSITION_PHASES),
+    }
+
+
+@router.post("/{callout_id}/deployment")
+def add_position(
+    callout_id: int,
+    body: PositionCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(OPS_ROLES),
+) -> list[dict]:
+    """Поставить позицию в план развёртывания."""
+    row = _fetch_callout(db, callout_id)
+    if row["status"] != "active":
+        raise HTTPException(409, "Выезд закрыт — расстановка не меняется")
+
+    if body.vehicle_id is not None:
+        exists = db.execute(
+            text("SELECT 1 FROM station_vehicles WHERE id = :id"), {"id": body.vehicle_id}
+        ).scalar()
+        if not exists:
+            raise HTTPException(404, "Машина не найдена")
+
+    geom = (
+        "ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)"
+        if body.lat is not None
+        else "NULL"
+    )
+    new_id = db.execute(
+        text(
+            f"""
+            INSERT INTO deployment_positions
+                (callout_id, kind, phase, sector, geom, note, vehicle_id, created_by)
+            VALUES (:cid, :kind, :phase, :sector, {geom}, :note, :vid, :by)
+            RETURNING id
+            """
+        ),
+        {
+            "cid": callout_id,
+            "kind": body.kind,
+            "phase": body.phase,
+            "sector": body.sector,
+            "lat": body.lat,
+            "lng": body.lng,
+            "note": body.note,
+            "vid": body.vehicle_id,
+            "by": user.get("username"),
+        },
+    ).scalar()
+    db.commit()
+
+    audit(
+        action="callout.deployment_added",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="POST",
+        path=f"/dispatch/{callout_id}/deployment",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"callout_id": callout_id, "position_id": new_id,
+                "kind": body.kind, "phase": body.phase},
+    )
+    return _deployment(db, callout_id)
+
+
+@router.delete("/{callout_id}/deployment/{position_id}")
+def delete_position(
+    callout_id: int,
+    position_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(OPS_ROLES),
+) -> list[dict]:
+    """Снять позицию с плана развёртывания."""
+    deleted = db.execute(
+        text(
+            "DELETE FROM deployment_positions WHERE id = :pid AND callout_id = :cid "
+            "RETURNING id"
+        ),
+        {"pid": position_id, "cid": callout_id},
+    ).scalar()
+    if deleted is None:
+        raise HTTPException(404, "Позиция не найдена")
+    db.commit()
+
+    audit(
+        action="callout.deployment_removed",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="DELETE",
+        path=f"/dispatch/{callout_id}/deployment/{position_id}",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"callout_id": callout_id, "position_id": position_id},
+    )
+    return _deployment(db, callout_id)
 
 
 @router.get("/live")

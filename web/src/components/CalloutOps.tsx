@@ -19,6 +19,7 @@ import {
   Clock,
   Truck,
   Package,
+  Map,
   Check,
   X,
   Plus,
@@ -34,6 +35,8 @@ import {
   Banner,
   EmptyState,
   Input,
+  Select,
+  Field,
 } from "@/components/ui";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
@@ -52,10 +55,18 @@ import {
   releaseVehicle,
   putResources,
   useVehicles,
+  POSITION_KINDS,
+  POSITION_KIND_META,
+  POSITION_PHASES,
+  POSITION_PHASE_LABEL,
+  addPosition,
+  deletePosition,
   type CalloutPackData,
   type TimelineStep,
   type ResourceItem,
   type Vehicle,
+  type PositionKind,
+  type PositionPhase,
 } from "@/lib/dispatch";
 
 /** Норматив прибытия в городе — 10 минут (Закон «О гражданской защите»).
@@ -234,6 +245,9 @@ export default function CalloutOps({
         onRun={run}
       />
 
+      {/* ─────────────── План развёртывания ─────────────── */}
+      <DeploymentSection pack={pack} editable={editable} busy={busy} onRun={run} />
+
       {/* ─────────────── Расход средств ─────────────── */}
       <ResourcesSection pack={pack} editable={canEdit} busy={busy} onRun={run} />
     </div>
@@ -370,6 +384,178 @@ function VehiclesSection({
             </ul>
           )}
         </div>
+      )}
+    </Card>
+  );
+}
+
+/* ─────────────────────── План развёртывания ─────────────────────── */
+
+function DeploymentSection({
+  pack,
+  editable,
+  busy,
+  onRun,
+}: {
+  pack: CalloutPackData;
+  editable: boolean;
+  busy: string | null;
+  onRun: (key: string, fn: () => Promise<unknown>) => Promise<void>;
+}) {
+  const t = useT();
+  const [adding, setAdding] = useState(false);
+  const [kind, setKind] = useState<PositionKind>("barrel_ext");
+  const [phase, setPhase] = useState<PositionPhase>("localization");
+  const [sector, setSector] = useState("");
+
+  const positions = pack.deployment ?? [];
+  const hint = pack.forces_hint;
+
+  // Сверка факта с методикой — то же сравнение, что у наряда техники.
+  // Раздельно по тушению и защите: расчёт даёт для них разные величины.
+  const placed = (k: PositionKind) => positions.filter((p) => p.kind === k).length;
+  const compare: { k: PositionKind; need: number | null }[] = [
+    { k: "barrel_ext", need: hint?.barrels_ext ?? null },
+    { k: "barrel_def", need: hint?.barrels_def ?? null },
+  ];
+
+  const submit = () =>
+    onRun("add-position", () =>
+      addPosition(pack.callout.id, {
+        kind,
+        phase,
+        sector: sector.trim() || null,
+      }),
+    ).then(() => {
+      setSector("");
+      setAdding(false);
+    });
+
+  return (
+    <Card className="p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SectionLabel>
+          <Map className="mr-1.5 inline h-3.5 w-3.5" aria-hidden />
+          {t("План развёртывания")}
+        </SectionLabel>
+        <div className="flex flex-wrap items-center gap-2">
+          {compare.map(({ k, need }) =>
+            need != null ? (
+              <StatusChip
+                key={k}
+                severity={placed(k) < need ? SEVERITY.high : SEVERITY.normal}
+                label={`${t(POSITION_KIND_META[k].short)} ${placed(k)} / ${need}`}
+              />
+            ) : null,
+          )}
+          {editable && (
+            <Button size="sm" variant="secondary" onClick={() => setAdding((v) => !v)}>
+              <Plus className="h-4 w-4" aria-hidden />
+              {t("Позиция")}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {adding && editable && (
+        <div className="mt-3 grid gap-3 rounded-md border border-border bg-surface-2 p-3 sm:grid-cols-4">
+          <Field label={t("Тип позиции")}>
+            <Select value={kind} onChange={(e) => setKind(e.target.value as PositionKind)}>
+              {POSITION_KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {t(POSITION_KIND_META[k].label)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label={t("Этап")}>
+            <Select value={phase} onChange={(e) => setPhase(e.target.value as PositionPhase)}>
+              {POSITION_PHASES.map((p) => (
+                <option key={p} value={p}>
+                  {t(POSITION_PHASE_LABEL[p])}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label={t("Боевой участок")}>
+            <Input
+              value={sector}
+              onChange={(e) => setSector(e.target.value)}
+              placeholder={t("БУ-1, 5 этаж")}
+              maxLength={120}
+            />
+          </Field>
+          <div className="flex items-end">
+            <Button onClick={submit} disabled={busy === "add-position"} className="w-full">
+              {busy === "add-position" && (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              )}
+              {t("Поставить")}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {positions.length === 0 ? (
+        <p className="mt-3 text-sm text-muted">
+          {t("Расстановка сил не зафиксирована.")}
+        </p>
+      ) : (
+        POSITION_PHASES.map((ph) => {
+          const inPhase = positions.filter((p) => p.phase === ph);
+          if (inPhase.length === 0) return null;
+          return (
+            <div key={ph} className="mt-3">
+              <div className="text-xs font-medium text-faint">
+                {t(POSITION_PHASE_LABEL[ph])}
+              </div>
+              <ul className="mt-1.5 space-y-2">
+                {inPhase.map((p) => (
+                  <li
+                    key={p.id}
+                    className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface-2 px-3 py-2"
+                  >
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <Badge>{t(POSITION_KIND_META[p.kind].short)}</Badge>
+                      <span className="truncate text-sm text-fg">
+                        {p.sector || t("участок не указан")}
+                      </span>
+                      {p.note && (
+                        <span className="truncate text-xs text-faint">{p.note}</span>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {p.lat != null && (
+                        <span className="tabular text-2xs text-faint">
+                          {p.lat.toFixed(4)}, {p.lng?.toFixed(4)}
+                        </span>
+                      )}
+                      {editable && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            onRun(`del-pos-${p.id}`, () =>
+                              deletePosition(pack.callout.id, p.id),
+                            )
+                          }
+                          disabled={busy === `del-pos-${p.id}`}
+                          aria-label={`${t("Снять позицию")}: ${t(POSITION_KIND_META[p.kind].label)}`}
+                        >
+                          {busy === `del-pos-${p.id}` ? (
+                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                          ) : (
+                            <X className="h-4 w-4" aria-hidden />
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })
       )}
     </Card>
   );

@@ -266,6 +266,85 @@ export type CalloutResource = {
   recorded_at: string | null;
 };
 
+/* ─────────────────────── План развёртывания ────────────────────── */
+
+export const POSITION_KINDS = [
+  "barrel_ext",
+  "barrel_def",
+  "vehicle",
+  "checkpoint",
+  "hq",
+  "ladder",
+  "other",
+] as const;
+export type PositionKind = (typeof POSITION_KINDS)[number];
+
+/** Стволы на тушение и на защиту разделены не для красоты: методика даёт для
+ *  них разные величины (Qт и Qз), и сверять факт с расчётом можно только
+ *  раздельно. */
+export const POSITION_KIND_META: Record<PositionKind, { label: string; short: string }> = {
+  barrel_ext: { label: "Ствол на тушение", short: "Ств. туш." },
+  barrel_def: { label: "Ствол на защиту", short: "Ств. защ." },
+  vehicle: { label: "Позиция машины", short: "Машина" },
+  checkpoint: { label: "Рубеж локализации", short: "Рубеж" },
+  hq: { label: "Штаб пожаротушения", short: "Штаб" },
+  ladder: { label: "Автолестница", short: "АЛ" },
+  other: { label: "Прочее", short: "Проч." },
+};
+
+export const POSITION_PHASES = ["localization", "extinguishing"] as const;
+export type PositionPhase = (typeof POSITION_PHASES)[number];
+
+export const POSITION_PHASE_LABEL: Record<PositionPhase, string> = {
+  localization: "Локализация",
+  extinguishing: "Ликвидация",
+};
+
+export type DeploymentPosition = {
+  id: number;
+  kind: PositionKind;
+  phase: PositionPhase;
+  sector: string | null;
+  note: string | null;
+  vehicle_id: number | null;
+  vehicle_callsign: string | null;
+  lat: number | null;
+  lng: number | null;
+  created_by: string;
+  created_at: string | null;
+};
+
+export async function addPosition(
+  calloutId: number,
+  body: {
+    kind: PositionKind;
+    phase: PositionPhase;
+    sector?: string | null;
+    note?: string | null;
+    lat?: number | null;
+    lng?: number | null;
+  },
+): Promise<DeploymentPosition[]> {
+  const r = await apiFetch(`/dispatch/${calloutId}/deployment`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await errorText(r, "Не удалось добавить позицию"));
+  return r.json();
+}
+
+export async function deletePosition(
+  calloutId: number,
+  positionId: number,
+): Promise<DeploymentPosition[]> {
+  const r = await apiFetch(`/dispatch/${calloutId}/deployment/${positionId}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) throw new Error(await errorText(r, "Не удалось снять позицию"));
+  return r.json();
+}
+
 export type CalloutPackData = {
   callout: Callout;
   building: PackBuilding | null;
@@ -275,6 +354,7 @@ export type CalloutPackData = {
   forces_hint: ForcesHint | null;
   vehicles: Vehicle[];
   resources: CalloutResource[];
+  deployment: DeploymentPosition[];
 };
 
 /** Field-report categories that block a truck reaching the fire — the ones
