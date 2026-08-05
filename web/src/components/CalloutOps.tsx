@@ -93,7 +93,13 @@ export default function CalloutOps({
   const callout = pack.callout;
   const timeline = callout.timeline;
   const closed = callout.status === "closed";
+  // Граница проходит не по «закрыт / не закрыт», а по смыслу действия.
+  // Оперативные (наряд, расстановка) на закрытом выезде запрещает сервер —
+  // силами закрытого выезда уже не распоряжаются. Документальные (хронология,
+  // расход) он разрешает: их уточняют позже, когда РТП садится составлять
+  // донесение о пожаре. Интерфейс обязан повторять ровно это различие.
   const editable = canEdit && !closed;
+  const documentEditable = canEdit;
 
   const run = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key);
@@ -185,7 +191,7 @@ export default function CalloutOps({
 
                 <div className="flex shrink-0 items-center gap-2">
                   <span className="tabular text-sm text-muted">{formatClock(at)}</span>
-                  {editable && (
+                  {documentEditable && (
                     <Button
                       size={large ? "lg" : "sm"}
                       variant={done ? "ghost" : "secondary"}
@@ -249,7 +255,7 @@ export default function CalloutOps({
       <DeploymentSection pack={pack} editable={editable} busy={busy} onRun={run} />
 
       {/* ─────────────── Расход средств ─────────────── */}
-      <ResourcesSection pack={pack} editable={canEdit} busy={busy} onRun={run} />
+      <ResourcesSection pack={pack} editable={documentEditable} busy={busy} onRun={run} />
     </div>
   );
 }
