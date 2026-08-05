@@ -14,12 +14,15 @@ import {
   X,
   RefreshCw,
   Send,
+  Info,
+  TrendingUp,
+  TrendingDown,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch, apiSrc } from "@/lib/auth";
 import { intlLocale, useLocale, useT } from "@/lib/i18n";
 import { apiErrorText } from "@/lib/api-error";
-import { scoreSeverity } from "@/lib/risk";
+import { scoreSeverity, SCORE_HINT } from "@/lib/risk";
 import {
   PageHeader,
   Card,
@@ -187,7 +190,7 @@ function BuildingSection({
               {building.building_type && (
                 <span className="inline-flex items-center gap-1">
                   <Layers className="h-3.5 w-3.5" aria-hidden />
-                  {building.building_type}
+                  {t(building.building_type_label ?? building.building_type)}
                 </span>
               )}
               {building.floors != null && (
@@ -196,9 +199,43 @@ function BuildingSection({
             </p>
           </div>
           {sev && building.risk_score != null && (
-            <ScoreBadge score={building.risk_score} severity={sev} />
+            <div className="flex shrink-0 flex-col items-end gap-1">
+              <div className="flex items-center gap-2">
+                <ScoreBadge score={building.risk_score} severity={sev} />
+                <span className={cn("text-sm font-medium", sev.text)}>{t(sev.label)}</span>
+              </div>
+              <span className="text-2xs text-faint">{t("Риск-балл · шкала 0–100")}</span>
+            </div>
           )}
         </div>
+
+        {/* Explain the score in plain language — this is what a chair answers
+            to the general meeting with, not a bare number. */}
+        {sev && building.risk_score != null && (
+          <div className="mt-3 rounded-md border border-border bg-surface-2 px-3 py-2.5">
+            <p className="flex items-start gap-1.5 text-xs leading-relaxed text-muted">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
+              {t(SCORE_HINT[sev.key])}
+            </p>
+            {building.top_factors.length > 0 && (
+              <ul className="mt-2 space-y-1 pl-5">
+                {building.top_factors.map((f, i) => (
+                  <li key={i} className="flex items-center gap-1.5 text-xs">
+                    {f.value >= 0 ? (
+                      <TrendingUp className="h-3.5 w-3.5 shrink-0 text-critical" aria-hidden />
+                    ) : (
+                      <TrendingDown className="h-3.5 w-3.5 shrink-0 text-normal" aria-hidden />
+                    )}
+                    <span className="text-fg">{f.feature}</span>
+                    <span className="text-faint">
+                      · {f.value >= 0 ? t("повышает риск") : t("снижает риск")}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </Card>
 
       <div className="mt-3">
@@ -282,7 +319,8 @@ function PrescriptionRow({
 
         {p.remediation && p.remediation.status === "accepted" && (
           <p className="mt-2 text-2xs text-faint">
-            {t("Подтвердил")}{p.remediation.reviewed_by ? `: ${p.remediation.reviewed_by}` : ""}
+            {t("Подтвердил")}
+            {p.remediation.reviewed_by_name ? `: ${p.remediation.reviewed_by_name}` : ""}
             {p.remediation.reviewed_at &&
               ` · ${new Date(p.remediation.reviewed_at).toLocaleDateString(intlLocale(locale))}`}
           </p>

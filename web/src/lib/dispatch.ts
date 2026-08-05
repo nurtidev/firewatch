@@ -37,6 +37,45 @@ export const CALLOUT_TYPE_META: Record<
 
 export type Station = { id: number; name: string };
 
+/** Хронология боевых действий. Отметки ставит человек — ни одна не
+ *  выставляется автоматически, пока нет доверенного источника (телематика).
+ *  Интервалы считает сервер: они же идут в сводку по частям, и расхождение
+ *  округления между экраном и сводкой читалось бы как ошибка данных. */
+export type CalloutTimeline = {
+  reported_at: string | null;
+  dispatched_at: string | null;
+  arrived_at: string | null;
+  first_jet_at: string | null;
+  localized_at: string | null;
+  extinguished_at: string | null;
+  rank_declared: string | null;
+  /** Сообщение → прибытие: то, что сверяют с нормативом. */
+  response_sec: number | null;
+  /** Сообщение → выезд: сбор караула, отдельная зона ответственности. */
+  turnout_sec: number | null;
+  travel_sec: number | null;
+  total_sec: number | null;
+};
+
+/** Ключи отметок в порядке реального выезда — им же задан порядок в UI. */
+export const TIMELINE_STEPS = [
+  "dispatched_at",
+  "arrived_at",
+  "first_jet_at",
+  "localized_at",
+  "extinguished_at",
+] as const;
+
+export type TimelineStep = (typeof TIMELINE_STEPS)[number];
+
+export const TIMELINE_STEP_LABEL: Record<TimelineStep, string> = {
+  dispatched_at: "Выезд",
+  arrived_at: "Прибытие",
+  first_jet_at: "Первый ствол",
+  localized_at: "Локализация",
+  extinguished_at: "Ликвидация",
+};
+
 export type Callout = {
   id: number;
   address: string | null;
@@ -53,6 +92,7 @@ export type Callout = {
   closed_by: string | null;
   closed_at: string | null;
   close_note: string | null;
+  timeline: CalloutTimeline;
 };
 
 /* ───────────────────────────── Search ──────────────────────────── */
@@ -60,6 +100,9 @@ export type Callout = {
 export type BuildingSearchResult = {
   id: number;
   address: string;
+  /** Народные названия объекта («ЖК «Хайвилл-Астана»») — по ним тоже ищется,
+   *  поэтому в выдаче их видно: диспетчер понимает, почему нашлась эта строка. */
+  alias: string | null;
   district: string | null;
   building_type: string | null;
   floors: number | null;
@@ -73,7 +116,13 @@ export type PackBuilding = {
   address: string;
   district: string | null;
   building_type: string | null;
+  /** Этажность, по которой РТП выбирает автолестницу: из карточки ПТП, если она
+   *  есть (`floors_source = "card"`), иначе из реестра OSM. `floors_registry`
+   *  оставлен рядом, чтобы расхождение документа и реестра было видно, а не
+   *  подменялось молча. */
   floors: number | null;
+  floors_source: "card" | "registry";
+  floors_registry: number | null;
   year_built: number | null;
   risk_score: number | null;
   card_id: number | null;
@@ -111,7 +160,190 @@ export type PackReport = {
   photos: string[];
 };
 
-export type ForcesHint = { preset_key: string; label: string };
+/**
+ * Силы и средства в пакете вызова. Два источника, и путать их нельзя:
+ *   `card`   — расчёт по ПТП объекта (человек, реальный документ) — цифры;
+ *   `preset` — черновая прикидка по типу здания (эвристика) — только пресет.
+ * Пресет приходит всегда: им параметризуется ссылка на калькулятор /forces.
+ */
+export type ForcesHint = {
+  source: "card" | "preset";
+  preset_key: string;
+  label: string;
+  card_id: number | null;
+  rank: string | null;
+  barrels_ext: number | null;
+  barrels_def: number | null;
+  squads: number | null;
+  personnel: number | null;
+  trucks: number | null;
+  q_req_l_s: number | null;
+  q_req_ext_l_s: number | null;
+  q_req_def_l_s: number | null;
+  q_act_l_s: number | null;
+  s_fire_m2: number | null;
+  s_ext_m2: number | null;
+  scenario: string | null;
+};
+
+/* ───────────────────────── Техника и расход ────────────────────── */
+
+export const VEHICLE_TYPES = ["ac", "al", "akp", "anr", "asa", "other"] as const;
+export type VehicleType = (typeof VEHICLE_TYPES)[number];
+
+export const VEHICLE_STATUSES = ["in_service", "on_callout", "repair", "reserve"] as const;
+export type VehicleStatus = (typeof VEHICLE_STATUSES)[number];
+
+/** Сокращения — те же, что на бортах и в сводках части: РТП читает их быстрее
+ *  расшифровки, поэтому в таблице стоит аббревиатура, а полное название — в
+ *  подписи (цвет никогда не единственный сигнал). */
+export const VEHICLE_TYPE_META: Record<VehicleType, { short: string; label: string }> = {
+  ac: { short: "АЦ", label: "Автоцистерна" },
+  al: { short: "АЛ", label: "Автолестница" },
+  akp: { short: "АКП", label: "Коленчатый подъёмник" },
+  anr: { short: "АНР", label: "Насосно-рукавный" },
+  asa: { short: "АСА", label: "Аварийно-спасательный" },
+  other: { short: "Проч.", label: "Прочая техника" },
+};
+
+export const VEHICLE_STATUS_META: Record<
+  VehicleStatus,
+  { label: string; severity: SeverityMeta }
+> = {
+  in_service: { label: "В строю", severity: SEVERITY.normal },
+  on_callout: { label: "На выезде", severity: SEVERITY.elevated },
+  repair: { label: "В ремонте", severity: SEVERITY.critical },
+  reserve: { label: "В резерве", severity: SEVERITY.high },
+};
+
+export type Vehicle = {
+  id: number;
+  station_id: number;
+  station_name: string | null;
+  callsign: string;
+  vehicle_type: VehicleType;
+  status: VehicleStatus;
+  water_l: number | null;
+  note: string | null;
+  updated_at: string | null;
+  /** Только в наряде выезда (GET pack) — когда машина отправлена. */
+  assigned_at?: string | null;
+};
+
+export type StationAvailability = {
+  station_id: number;
+  station_name: string | null;
+  total: number;
+} & Record<VehicleStatus, number>;
+
+/** Номенклатура расхода: 7 позиций, которые реально считают в частях.
+ *  Расширять дороже, чем кажется — незаполненная форма хуже отсутствующей. */
+export const RESOURCE_ITEMS = [
+  "hose",
+  "barrel",
+  "foam",
+  "water",
+  "fuel",
+  "ladder",
+  "scba",
+] as const;
+export type ResourceItem = (typeof RESOURCE_ITEMS)[number];
+
+export const RESOURCE_META: Record<ResourceItem, { label: string; unit: string }> = {
+  hose: { label: "Рукава напорные", unit: "шт" },
+  barrel: { label: "Стволы", unit: "шт" },
+  foam: { label: "Пенообразователь", unit: "л" },
+  water: { label: "Вода", unit: "м³" },
+  fuel: { label: "ГСМ", unit: "л" },
+  ladder: { label: "Лестницы ручные", unit: "шт" },
+  scba: { label: "СИЗОД (использований)", unit: "шт" },
+};
+
+export type CalloutResource = {
+  item_key: ResourceItem;
+  qty: number;
+  recorded_by: string | null;
+  recorded_at: string | null;
+};
+
+/* ─────────────────────── План развёртывания ────────────────────── */
+
+export const POSITION_KINDS = [
+  "barrel_ext",
+  "barrel_def",
+  "vehicle",
+  "checkpoint",
+  "hq",
+  "ladder",
+  "other",
+] as const;
+export type PositionKind = (typeof POSITION_KINDS)[number];
+
+/** Стволы на тушение и на защиту разделены не для красоты: методика даёт для
+ *  них разные величины (Qт и Qз), и сверять факт с расчётом можно только
+ *  раздельно. */
+export const POSITION_KIND_META: Record<PositionKind, { label: string; short: string }> = {
+  barrel_ext: { label: "Ствол на тушение", short: "Ств. туш." },
+  barrel_def: { label: "Ствол на защиту", short: "Ств. защ." },
+  vehicle: { label: "Позиция машины", short: "Машина" },
+  checkpoint: { label: "Рубеж локализации", short: "Рубеж" },
+  hq: { label: "Штаб пожаротушения", short: "Штаб" },
+  ladder: { label: "Автолестница", short: "АЛ" },
+  other: { label: "Прочее", short: "Проч." },
+};
+
+export const POSITION_PHASES = ["localization", "extinguishing"] as const;
+export type PositionPhase = (typeof POSITION_PHASES)[number];
+
+export const POSITION_PHASE_LABEL: Record<PositionPhase, string> = {
+  localization: "Локализация",
+  extinguishing: "Ликвидация",
+};
+
+export type DeploymentPosition = {
+  id: number;
+  kind: PositionKind;
+  phase: PositionPhase;
+  sector: string | null;
+  note: string | null;
+  vehicle_id: number | null;
+  vehicle_callsign: string | null;
+  lat: number | null;
+  lng: number | null;
+  created_by: string;
+  created_at: string | null;
+};
+
+export async function addPosition(
+  calloutId: number,
+  body: {
+    kind: PositionKind;
+    phase: PositionPhase;
+    sector?: string | null;
+    note?: string | null;
+    lat?: number | null;
+    lng?: number | null;
+  },
+): Promise<DeploymentPosition[]> {
+  const r = await apiFetch(`/dispatch/${calloutId}/deployment`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await errorText(r, "Не удалось добавить позицию"));
+  return r.json();
+}
+
+export async function deletePosition(
+  calloutId: number,
+  positionId: number,
+): Promise<DeploymentPosition[]> {
+  const r = await apiFetch(`/dispatch/${calloutId}/deployment/${positionId}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) throw new Error(await errorText(r, "Не удалось снять позицию"));
+  return r.json();
+}
 
 export type CalloutPackData = {
   callout: Callout;
@@ -120,6 +352,9 @@ export type CalloutPackData = {
   station: PackStation | null;
   reports: PackReport[];
   forces_hint: ForcesHint | null;
+  vehicles: Vehicle[];
+  resources: CalloutResource[];
+  deployment: DeploymentPosition[];
 };
 
 /** Field-report categories that block a truck reaching the fire — the ones
@@ -248,4 +483,204 @@ export function useCalloutPack(selectedId: number | null, pollMs?: number) {
     },
     setPack,
   };
+}
+
+/* ────────────────────── Оперативные действия ───────────────────── */
+
+/** Секунды → «4 мин 30 с». Норматив прибытия обсуждают в минутах, но разница
+ *  в десятки секунд между частями существенна — поэтому не округляем до минут. */
+export function formatDuration(sec: number | null): string {
+  if (sec == null) return "—";
+  if (sec < 60) return `${sec} с`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  if (m < 60) return s ? `${m} мин ${s} с` : `${m} мин`;
+  const h = Math.floor(m / 60);
+  return `${h} ч ${m % 60} мин`;
+}
+
+/** Время отметки в виде ЧЧ:ММ — формат радиообмена и боевых документов. */
+export function formatClock(iso: string | null, locale: Locale = "ru"): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString(intlLocale(locale), {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export type TimelinePatch = Partial<Record<TimelineStep, string | null>> & {
+  rank_declared?: string | null;
+};
+
+export async function patchTimeline(calloutId: number, patch: TimelinePatch): Promise<Callout> {
+  const r = await apiFetch(`/dispatch/${calloutId}/timeline`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!r.ok) throw new Error(await errorText(r, "Не удалось сохранить отметку"));
+  return r.json();
+}
+
+export async function assignVehicles(calloutId: number, vehicleIds: number[]): Promise<Vehicle[]> {
+  const r = await apiFetch(`/dispatch/${calloutId}/vehicles`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ vehicle_ids: vehicleIds }),
+  });
+  if (!r.ok) throw new Error(await errorText(r, "Не удалось назначить технику"));
+  return r.json();
+}
+
+export async function releaseVehicle(calloutId: number, vehicleId: number): Promise<Vehicle[]> {
+  const r = await apiFetch(`/dispatch/${calloutId}/vehicles/${vehicleId}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) throw new Error(await errorText(r, "Не удалось снять машину с выезда"));
+  return r.json();
+}
+
+export async function putResources(
+  calloutId: number,
+  items: { item_key: ResourceItem; qty: number }[],
+): Promise<CalloutResource[]> {
+  const r = await apiFetch(`/dispatch/${calloutId}/resources`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ items }),
+  });
+  if (!r.ok) throw new Error(await errorText(r, "Не удалось сохранить расход"));
+  return r.json();
+}
+
+/* ──────────────────────── Техника частей ───────────────────────── */
+
+export type VehiclesResponse = {
+  vehicles: Vehicle[];
+  by_station: StationAvailability[];
+  types: VehicleType[];
+  statuses: VehicleStatus[];
+};
+
+/** Справочник техники частей.
+ *
+ *  `enabled` существует ради планшета РТП: там этот справочник нужен только в
+ *  момент назначения наряда, а грузится он по всему городу. Тянуть его при
+ *  каждом открытии боевого пакета — лишний трафик на мобильной сети в поле,
+ *  где пакет и открывают. */
+export function useVehicles(
+  stationId?: number | null,
+  pollMs?: number,
+  enabled: boolean = true,
+) {
+  const [data, setData] = useState<VehiclesResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(() => {
+    if (!enabled) return;
+    const q = stationId != null ? `?station_id=${stationId}` : "";
+    apiFetch(`/dispatch/vehicles${q}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("vehicles"))))
+      .then((d: VehiclesResponse) => {
+        setData(d);
+        setError(null);
+      })
+      .catch(() => setError("Не удалось загрузить технику частей."));
+  }, [stationId, enabled]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    reload();
+    if (!pollMs) return;
+    const t = setInterval(reload, pollMs);
+    return () => clearInterval(t);
+  }, [reload, pollMs, enabled]);
+
+  return { data, error, reload };
+}
+
+export async function createVehicle(
+  stationId: number,
+  body: { callsign: string; vehicle_type: VehicleType; water_l?: number | null; note?: string | null },
+): Promise<{ id: number }> {
+  const r = await apiFetch(`/dispatch/stations/${stationId}/vehicles`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await errorText(r, "Не удалось поставить машину на учёт"));
+  return r.json();
+}
+
+export async function patchVehicle(
+  vehicleId: number,
+  patch: { status?: VehicleStatus; water_l?: number | null; note?: string | null },
+): Promise<unknown> {
+  const r = await apiFetch(`/dispatch/vehicles/${vehicleId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!r.ok) throw new Error(await errorText(r, "Не удалось изменить состояние машины"));
+  return r.json();
+}
+
+export async function deleteVehicle(vehicleId: number): Promise<unknown> {
+  const r = await apiFetch(`/dispatch/vehicles/${vehicleId}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(await errorText(r, "Не удалось снять машину с учёта"));
+  return r.json();
+}
+
+/* ─────────────────────────── Статистика ────────────────────────── */
+
+export type StationStat = {
+  station_id: number;
+  station_name: string | null;
+  callouts: number;
+  with_arrival: number;
+  median_response_sec: number | null;
+  median_turnout_sec: number | null;
+};
+
+export type DispatchStats = {
+  days: number;
+  by_station: StationStat[];
+  by_type: { callout_type: CalloutType; count: number }[];
+  resources: { item_key: ResourceItem; total: number }[];
+};
+
+export function useDispatchStats(days: number) {
+  const [stats, setStats] = useState<DispatchStats | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setStats(null);
+    setError(null);
+    apiFetch(`/dispatch/stats?days=${days}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("stats"))))
+      .then((d: DispatchStats) => alive && setStats(d))
+      .catch(() => alive && setError("Не удалось загрузить сводку."));
+    return () => {
+      alive = false;
+    };
+  }, [days]);
+
+  return { stats, error };
+}
+
+/** Текст ошибки из ответа API: сервер объясняет отказ («Позывной уже занят»),
+ *  и подменять это общей фразой значит прятать причину от пользователя. */
+async function errorText(r: Response, fallback: string): Promise<string> {
+  try {
+    const body = await r.json();
+    const detail = body?.detail;
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail) && typeof detail[0]?.msg === "string") return detail[0].msg;
+  } catch {
+    /* тело не JSON — остаётся общий текст */
+  }
+  return fallback;
 }

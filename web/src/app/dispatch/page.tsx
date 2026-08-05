@@ -6,14 +6,17 @@
  * callout in the city. Same pack component as /callout (the responder
  * tablet) so a dispatcher and a начальник караула never read different data.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   Search,
+  SearchX,
   LocateFixed,
+  MapPinOff,
   Radio,
   Siren,
   Check,
   X,
+  Repeat2,
   RefreshCw,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
@@ -48,10 +51,13 @@ import {
   type BuildingSearchResult,
 } from "@/lib/dispatch";
 
-/** Astana city-centre default — a sane starting point for "точка без здания"
- *  when the dispatcher hasn't typed coordinates yet. */
-const DEFAULT_LAT = 51.128;
-const DEFAULT_LNG = 71.43;
+/** Ориентиры Астаны — только как placeholder в пустых полях координат.
+ *  Реальными значениями поля НЕ предзаполняются: «точка без здания» — это путь,
+ *  на который диспетчер уходит после неудачного поиска, под давлением. Забытые
+ *  координаты центра города выглядели бы на экране как учтённый адрес, а караул
+ *  уехал бы в центр. Пусто — значит видно, что не заполнено. */
+const LAT_PLACEHOLDER = "51.128";
+const LNG_PLACEHOLDER = "71.430";
 
 type ListFilter = "active" | "closed" | "all";
 
@@ -81,6 +87,20 @@ export default function DispatchPage() {
       reloadPack();
     }
     return r.ok;
+  }
+
+  /** Промах мимо строки в списке исправляется на месте: объект и часть выезда
+   *  меняются без закрытия — иначе неверная часть числится выехавшей. */
+  async function reassign(id: number, buildingId: number) {
+    const r = await apiFetch(`/dispatch/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ building_id: buildingId }),
+    });
+    if (!r.ok) return false;
+    setPack(await r.json());
+    loadList();
+    return true;
   }
 
   return (
@@ -166,7 +186,11 @@ export default function DispatchPage() {
             {!packLoading && !packError && pack && (
               <div className="fw-fade-in space-y-4">
                 {pack.callout.status === "active" && (
-                  <CloseCalloutBar onClose={(note) => closeCallout(pack.callout.id, note)} />
+                  <CalloutActions
+                    key={pack.callout.id}
+                    onReassign={(buildingId) => reassign(pack.callout.id, buildingId)}
+                    onClose={(note) => closeCallout(pack.callout.id, note)}
+                  />
                 )}
                 <CalloutPack pack={pack} canMarkHydrant />
               </div>
@@ -178,24 +202,41 @@ export default function DispatchPage() {
   );
 }
 
-/* ───────────────────────────── Register form ──────────────────────────── */
+/* ───────────────────────────── Building search ────────────────────────── */
 
-function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => void }) {
+/**
+ * Поиск объекта по адресу — общий для регистрации выезда и переназначения
+ * ошибочно выбранного объекта.
+ *
+ * Клавиатурный путь (скорость диспетчера, а не accessibility) держится на
+ * порядке DOM: поле ввода → кнопки результатов сразу за ним. Tab из поля
+ * попадает на первый результат, Enter выбирает. Подсказка «ничего не найдено»
+ * рендерится после списка и появляется только когда список пуст, поэтому в
+ * табуляцию между полем и результатами она не вклинивается.
+ */
+function BuildingSearch({
+  selected,
+  onSelect,
+  label,
+  emptyAction,
+}: {
+  selected: BuildingSearchResult | null;
+  onSelect: (b: BuildingSearchResult | null) => void;
+  label: string;
+  /** Что предложить, когда ничего не нашлось (получает набранный текст). */
+  emptyAction?: (query: string) => React.ReactNode;
+}) {
   const t = useT();
-  const [manual, setManual] = useState(false);
+  // Форма поиска живёт в двух местах сразу (регистрация и переназначение) —
+  // id статуса обязан быть свой у каждой, иначе aria-describedby указывает
+  // на чужой элемент.
+  const statusId = useId();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<BuildingSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
-  const [selected, setSelected] = useState<BuildingSearchResult | null>(null);
-
-  const [lat, setLat] = useState(String(DEFAULT_LAT));
-  const [lng, setLng] = useState(String(DEFAULT_LNG));
-  const [address, setAddress] = useState("");
-
-  const [calloutType, setCalloutType] = useState<CalloutType>("fire");
-  const [note, setNote] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // «Ответ пришёл, результатов ноль» — отдельное состояние: до этой отметки
+  // пустой экран означает «ещё не искали», а не «адреса нет».
+  const [answered, setAnswered] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Generation counter: a later search can resolve before an earlier one
@@ -205,8 +246,9 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
 
   // Debounced building search — 300ms, skipped once a building is selected.
   useEffect(() => {
-    if (manual || selected || query.trim().length < 2) {
+    if (selected || query.trim().length < 2) {
       setResults([]);
+      setAnswered(false);
       return;
     }
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -218,10 +260,12 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
         .then((d: BuildingSearchResult[]) => {
           if (searchGenRef.current !== gen) return;
           setResults(d);
+          setAnswered(true);
         })
         .catch(() => {
           if (searchGenRef.current !== gen) return;
           setResults([]);
+          setAnswered(true);
         })
         .finally(() => {
           if (searchGenRef.current === gen) setSearching(false);
@@ -230,17 +274,117 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, manual, selected]);
+  }, [query, selected]);
+
+  const nothingFound = !selected && !searching && answered && results.length === 0;
+
+  return (
+    <div className="relative">
+      <Field label={label}>
+        <div className="relative">
+          <Search
+            className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint"
+            aria-hidden
+          />
+          <Input
+            value={selected ? selected.address : query}
+            onChange={(e) => {
+              onSelect(null);
+              setQuery(e.target.value);
+            }}
+            placeholder={t("Начните вводить адрес…")}
+            className="pl-8"
+            aria-describedby={statusId}
+          />
+        </div>
+      </Field>
+      {searching && <p className="mt-1 text-xs text-faint">{t("Поиск…")}</p>}
+      {!selected && results.length > 0 && (
+        <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border border-border-strong bg-surface shadow-pop">
+          {results.map((b) => (
+            <button
+              key={b.id}
+              type="button"
+              onClick={() => {
+                onSelect(b);
+                setQuery(b.address);
+                setResults([]);
+              }}
+              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-surface-2"
+            >
+              <span className="min-w-0 truncate">
+                <span className="text-fg">{b.address}</span>
+                {b.district && <span className="text-faint"> · {b.district} {t("р-н")}</span>}
+                {/* Нашлось по народному названию — видно, почему эта строка */}
+                {b.alias && (
+                  <span className="block truncate text-xs text-faint">{b.alias}</span>
+                )}
+              </span>
+              {b.risk_score != null && (
+                <ScoreBadge
+                  score={b.risk_score}
+                  severity={scoreSeverity(b.risk_score)}
+                  className="shrink-0"
+                />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+      <p id={statusId} className="sr-only" role="status">
+        {searching
+          ? t("Поиск…")
+          : nothingFound
+            ? t("Ничего не найдено")
+            : results.length > 0
+              ? `${results.length}`
+              : ""}
+      </p>
+      {nothingFound && (
+        <div className="mt-2 rounded-lg border border-dashed border-border bg-surface/40 p-3">
+          <p className="flex items-center gap-2 text-sm font-medium text-fg">
+            <SearchX className="h-4 w-4 shrink-0 text-faint" aria-hidden />
+            {t("Ничего не найдено")}
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            {t(
+              "Проверьте номер дома или наберите улицу иначе — можно русскими буквами, без казахских (тауелсиздик 33). Ищется и по названию комплекса.",
+            )}
+          </p>
+          {emptyAction && <div className="mt-2.5">{emptyAction(query.trim())}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ───────────────────────────── Register form ──────────────────────────── */
+
+function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => void }) {
+  const t = useT();
+  const [manual, setManual] = useState(false);
+  const [selected, setSelected] = useState<BuildingSearchResult | null>(null);
+  // Ключ ремонтирует поисковое поле после успешной регистрации: своё состояние
+  // (набранный текст, выдача) сбрасывается вместе с формой.
+  const [formKey, setFormKey] = useState(0);
+
+  const [lat, setLat] = useState("");
+  const [lng, setLng] = useState("");
+  const [address, setAddress] = useState("");
+
+  const [calloutType, setCalloutType] = useState<CalloutType>("fire");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   function reset() {
     setSelected(null);
-    setQuery("");
-    setResults([]);
     setAddress("");
-    setLat(String(DEFAULT_LAT));
-    setLng(String(DEFAULT_LNG));
+    setLat("");
+    setLng("");
     setNote("");
     setCalloutType("fire");
+    setFormKey((k) => k + 1);
   }
 
   function locate() {
@@ -268,6 +412,10 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
     let latNum = 0;
     let lngNum = 0;
     if (manual) {
+      if (!lat.trim() || !lng.trim()) {
+        setError(t("Укажите координаты точки — по ним поедет караул."));
+        return;
+      }
       latNum = Number(lat);
       lngNum = Number(lng);
       if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) {
@@ -328,7 +476,6 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
             onClick={() => {
               setManual((m) => !m);
               setSelected(null);
-              setResults([]);
               setError(null);
             }}
             className={cn(
@@ -347,54 +494,28 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
       </div>
 
       {!manual ? (
-        <div className="relative">
-          <Field label={t("Адрес здания")}>
-            <div className="relative">
-              <Search
-                className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint"
-                aria-hidden
-              />
-              <Input
-                value={selected ? selected.address : query}
-                onChange={(e) => {
-                  setSelected(null);
-                  setQuery(e.target.value);
-                }}
-                placeholder={t("Начните вводить адрес…")}
-                className="pl-8"
-              />
-            </div>
-          </Field>
-          {searching && <p className="mt-1 text-xs text-faint">{t("Поиск…")}</p>}
-          {!selected && results.length > 0 && (
-            <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border border-border-strong bg-surface shadow-pop">
-              {results.map((b) => (
-                <button
-                  key={b.id}
-                  type="button"
-                  onClick={() => {
-                    setSelected(b);
-                    setQuery(b.address);
-                    setResults([]);
-                  }}
-                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-surface-2"
-                >
-                  <span className="min-w-0 truncate">
-                    <span className="text-fg">{b.address}</span>
-                    {b.district && <span className="text-faint"> · {b.district} {t("р-н")}</span>}
-                  </span>
-                  {b.risk_score != null && (
-                    <ScoreBadge
-                      score={b.risk_score}
-                      severity={scoreSeverity(b.risk_score)}
-                      className="shrink-0"
-                    />
-                  )}
-                </button>
-              ))}
-            </div>
+        <BuildingSearch
+          key={formKey}
+          selected={selected}
+          onSelect={setSelected}
+          label={t("Адрес здания")}
+          emptyAction={(q) => (
+            <Button
+              size="sm"
+              variant="secondary"
+              type="button"
+              onClick={() => {
+                setManual(true);
+                setSelected(null);
+                setError(null);
+                if (q) setAddress(q);
+              }}
+            >
+              <MapPinOff className="h-3.5 w-3.5" />
+              {t("Зарегистрировать как точку без здания")}
+            </Button>
           )}
-        </div>
+        />
       ) : (
         <div className="space-y-3">
           <Field label={t("Адрес (произвольный текст, необязательно)")}>
@@ -406,12 +527,32 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
           </Field>
           <div className="grid grid-cols-2 gap-2.5">
             <Field label={t("Широта (lat)")}>
-              <Input value={lat} onChange={(e) => setLat(e.target.value)} inputMode="decimal" className="tabular" />
+              <Input
+                value={lat}
+                onChange={(e) => setLat(e.target.value)}
+                inputMode="decimal"
+                className="tabular"
+                placeholder={LAT_PLACEHOLDER}
+                required
+              />
             </Field>
             <Field label={t("Долгота (lng)")}>
-              <Input value={lng} onChange={(e) => setLng(e.target.value)} inputMode="decimal" className="tabular" />
+              <Input
+                value={lng}
+                onChange={(e) => setLng(e.target.value)}
+                inputMode="decimal"
+                className="tabular"
+                placeholder={LNG_PLACEHOLDER}
+                required
+              />
             </Field>
           </div>
+          {/* Пустые координаты — не мелочь: по ним считается ближайшая часть */}
+          {(!lat.trim() || !lng.trim()) && (
+            <Banner tone="warning">
+              {t("Координаты не заданы — выезд не зарегистрируется, пока их нет. Текстовый адрес выше не определяет точку на карте.")}
+            </Banner>
+          )}
           <Button size="sm" variant="secondary" type="button" onClick={locate}>
             <LocateFixed className="h-3.5 w-3.5" />
             {t("Моё местоположение")}
@@ -468,25 +609,104 @@ function RegisterForm({ onCreated }: { onCreated: (pack: CalloutPackData) => voi
   );
 }
 
-/* ───────────────────────────── Close callout ──────────────────────────── */
+/* ───────────────────────────── Callout actions ────────────────────────── */
 
-function CloseCalloutBar({ onClose }: { onClose: (note: string) => Promise<boolean> }) {
+/**
+ * Действия по действующему выезду: переназначить объект и закрыть.
+ * «Переназначить» появилось потому, что промах мимо строки в выпадающем списке
+ * при быстром вводе стоил полного повторного прохода: закрыть выезд, набрать
+ * адрес заново, выбрать тип — и всё это время ошибочно назначенная часть
+ * числилась выехавшей не туда.
+ */
+function CalloutActions({
+  onReassign,
+  onClose,
+}: {
+  onReassign: (buildingId: number) => Promise<boolean>;
+  onClose: (note: string) => Promise<boolean>;
+}) {
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const [note, setNote] = useState("");
+  const [mode, setMode] = useState<"idle" | "reassign" | "close">("idle");
+
+  if (mode === "reassign") {
+    return <ReassignBar onReassign={onReassign} onCancel={() => setMode("idle")} />;
+  }
+  if (mode === "close") {
+    return <CloseCalloutBar onClose={onClose} onCancel={() => setMode("idle")} />;
+  }
+  return (
+    <div className="flex flex-wrap justify-end gap-2">
+      <Button size="sm" variant="secondary" onClick={() => setMode("reassign")}>
+        <Repeat2 className="h-3.5 w-3.5" />
+        {t("Переназначить объект")}
+      </Button>
+      <Button size="sm" variant="danger" onClick={() => setMode("close")}>
+        <X className="h-3.5 w-3.5" />
+        {t("Закрыть выезд")}
+      </Button>
+    </div>
+  );
+}
+
+function ReassignBar({
+  onReassign,
+  onCancel,
+}: {
+  onReassign: (buildingId: number) => Promise<boolean>;
+  onCancel: () => void;
+}) {
+  const t = useT();
+  const [selected, setSelected] = useState<BuildingSearchResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!open) {
-    return (
-      <div className="flex justify-end">
-        <Button size="sm" variant="danger" onClick={() => setOpen(true)}>
-          <X className="h-3.5 w-3.5" />
-          {t("Закрыть выезд")}
+  return (
+    <Card className="p-3.5">
+      <BuildingSearch
+        selected={selected}
+        onSelect={setSelected}
+        label={t("Новый объект выезда")}
+      />
+      <p className="mt-2 text-xs text-muted">
+        {t("Адрес, точка и ближайшая часть пересчитаются по выбранному объекту. Выезд останется открытым.")}
+      </p>
+      {error && <p className="mt-2 text-xs text-critical">{error}</p>}
+      <div className="mt-2.5 flex items-center gap-2">
+        <Button
+          size="sm"
+          disabled={busy || !selected}
+          onClick={async () => {
+            if (!selected) return;
+            setBusy(true);
+            setError(null);
+            const ok = await onReassign(selected.id);
+            setBusy(false);
+            if (ok) onCancel();
+            else setError(t("Не удалось переназначить выезд — проверьте связь."));
+          }}
+        >
+          {busy ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+          {t("Переназначить")}
+        </Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={onCancel}>
+          {t("Отмена")}
         </Button>
       </div>
-    );
-  }
+    </Card>
+  );
+}
+
+function CloseCalloutBar({
+  onClose,
+  onCancel,
+}: {
+  onClose: (note: string) => Promise<boolean>;
+  onCancel: () => void;
+}) {
+  const t = useT();
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   return (
     <Card className="p-3.5">
@@ -504,14 +724,14 @@ function CloseCalloutBar({ onClose }: { onClose: (note: string) => Promise<boole
             setError(null);
             const ok = await onClose(note);
             setBusy(false);
-            if (ok) setOpen(false);
+            if (ok) onCancel();
             else setError(t("Не удалось закрыть выезд — проверьте связь."));
           }}
         >
           {busy ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
           {t("Подтвердить закрытие")}
         </Button>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setOpen(false)}>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={onCancel}>
           {t("Отмена")}
         </Button>
       </div>

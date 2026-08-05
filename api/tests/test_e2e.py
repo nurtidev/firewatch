@@ -37,19 +37,27 @@ def client():
     seed_users.main()
 
     with engine.begin() as conn:
-        # An inspector in the test district (matches the seeded "inspector" user).
+        # Маршрут и визит привязаны к учётной записи через inspectors.user_id
+        # (миграция 0013_scoping_links): без связи API правомерно отвечает 403,
+        # поэтому строку реестра для пользователя "inspector" здесь создаём или
+        # находим по FK, а не по совпадению ФИО.
+        uid = conn.execute(
+            text("SELECT id FROM users WHERE username = 'inspector'")
+        ).scalar()
         iid = conn.execute(
-            text("SELECT id FROM inspectors WHERE district = :d ORDER BY id LIMIT 1"),
-            {"d": _DISTRICT},
+            text("SELECT id FROM inspectors WHERE user_id = :u"), {"u": uid}
         ).scalar()
         if iid is None:
             iid = conn.execute(
                 text(
-                    "INSERT INTO inspectors (name, district) "
-                    "VALUES ('E2E Инспектор', :d) RETURNING id"
+                    "INSERT INTO inspectors (name, district, user_id) "
+                    "VALUES ('E2E Инспектор', :d, :u) RETURNING id"
                 ),
-                {"d": _DISTRICT},
+                {"d": _DISTRICT, "u": uid},
             ).scalar()
+        district = conn.execute(
+            text("SELECT district FROM inspectors WHERE id = :i"), {"i": iid}
+        ).scalar()
 
         # A scorable building in that district so the route has a stop.
         bid = conn.execute(
@@ -57,7 +65,7 @@ def client():
                 f"INSERT INTO buildings (address, building_type, district, geom) "
                 f"VALUES ('E2E addr', 'residential', :d, {_POLY}) RETURNING id"
             ),
-            {"d": _DISTRICT},
+            {"d": district},
         ).scalar()
         conn.execute(
             text(

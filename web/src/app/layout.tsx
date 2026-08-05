@@ -18,8 +18,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FireWatch — ДЧС РК",
-  description: "Предиктивная аналитика пожарной безопасности — ДЧС РК",
+  title: "FireWatch — МЧС РК",
+  description: "Предиктивная аналитика пожарной безопасности — МЧС РК",
 };
 
 export default function RootLayout({

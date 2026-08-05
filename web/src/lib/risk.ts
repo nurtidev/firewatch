@@ -92,6 +92,20 @@ export function scoreBand(score: number): string {
 }
 
 /**
+ * One-line explanation of what a risk-score severity means in plain language —
+ * for surfaces that answer "why is this object rated like this" to someone
+ * outside the ДЧС (the owner portal). Not reused for other SEVERITY usages
+ * (visit/remediation status chips), which have their own meaning per badge.
+ */
+export const SCORE_HINT: Record<Severity, string> = {
+  critical: "Здание в приоритете проверок ДЧС — требуются срочные меры.",
+  high: "Риск выше среднего — объект проверяется чаще нормативного интервала.",
+  elevated: "Есть отдельные факторы риска, которые стоит держать под контролем.",
+  normal: "Существенных факторов пожарного риска не выявлено.",
+  info: "",
+};
+
+/**
  * Human-readable Russian labels for the model's feature names. Single source for
  * the building panel (SHAP) and the model page (feature importance) — an
  * inspector must never see `wooden_floors`, only «Деревянные перекрытия».

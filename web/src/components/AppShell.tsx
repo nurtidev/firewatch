@@ -14,6 +14,7 @@ import {
   Sparkles,
   Brain,
   ShieldCheck,
+  Users,
   Siren,
   Radio,
   Flame,
@@ -47,6 +48,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/chat": Sparkles,
   "/model": Brain,
   "/audit": ShieldCheck,
+  "/users": Users,
 };
 
 export default function AppShell({
@@ -113,7 +115,7 @@ export default function AppShell({
             FireWatch<span className="text-accent">.</span>
           </div>
           <div className="mt-0.5 text-2xs font-medium uppercase tracking-[0.18em] text-faint">
-            {t("ДЧС РК · Астана")}
+            {t("ДЧС Астаны")}
           </div>
         </Link>
         <button

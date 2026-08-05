@@ -25,6 +25,8 @@ export const NAV: NavItem[] = [
   { href: "/dashboard", label: "Дашборд", roles: ["supervisor", "leadership", "admin"] },
   { href: "/routes", label: "План инспекций", roles: ["inspector", "supervisor", "admin"] },
   { href: "/control", label: "Контроль выполнения", roles: ["supervisor", "admin"] },
+  { href: "/vehicles", label: "Силы и техника", roles: ["responder", "dispatcher", "supervisor", "leadership", "admin"],
+    hint: "Состояние машин по частям и сводка выездов: чем расчёт сил обеспечен фактически" },
   { href: "/reports", label: "Донесения", roles: ["inspector", "supervisor", "leadership", "admin", "dispatcher", "responder"],
     hint: "Полевые донесения: заблокированные проезды, неисправные гидранты — вне плановых проверок" },
   { href: "/map", label: "Карта риска", roles: ["inspector", "supervisor", "leadership", "admin"] },
@@ -43,6 +45,10 @@ export const NAV: NavItem[] = [
   { href: "/model", label: "Модель ИИ", roles: ["leadership", "supervisor", "admin"],
     hint: "Качество риск-модели: метрики и объяснимость (какие факторы влияют на оценку)" },
   { href: "/audit", label: "Журнал аудита", roles: ["leadership", "admin"] },
+  // Приём/отключение сотрудников и сброс паролей — привилегированная операция,
+  // строго admin (см. require_roles("admin") в api/app/routers/auth.py).
+  { href: "/users", label: "Пользователи", roles: ["admin"],
+    hint: "Учётные записи сотрудников: приём, отключение доступа, смена пароля" },
 ];
 
 export const DEFAULT_ROUTE: Record<Role, string> = {

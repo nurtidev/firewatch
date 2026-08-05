@@ -39,6 +39,7 @@ import AppShell from "@/components/AppShell";
 
 // Three.js touches WebGL/window — load client-side only.
 const Building3D = dynamic(() => import("@/components/Building3D"), { ssr: false });
+import CardEditor, { type CardReviewStatus } from "@/components/CardEditor";
 import FloorPlan2D from "@/components/FloorPlan2D";
 import SchemeGallery from "@/components/SchemeGallery";
 import { schemesForObject, totalSchemePages } from "@/data/schemes";
@@ -110,6 +111,13 @@ type ProcessedCard = {
   extracted: Record<string, unknown>;
   prescriptions: Prescription[];
   has_file?: boolean;
+  /** Согласование и авторство правки (миграция 0018). Карточки, созданные до
+   *  редактора, приходят со статусом `approved` — они уже в работе. */
+  review_status?: CardReviewStatus;
+  updated_by?: string | null;
+  updated_at?: string | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
 };
 
 type CardListItem = {
@@ -229,6 +237,9 @@ function CardsPageInner() {
   // и предписания только на просмотр.
   const canManageCards =
     user?.role === "inspector" || user?.role === "supervisor" || user?.role === "admin";
+  // Утверждает карточку начальник отдела, а не автор правки — то же
+  // разделение, что у предписаний: инспектор готовит, руководитель подписывает.
+  const canApproveCards = user?.role === "supervisor" || user?.role === "admin";
 
   const [card, setCard] = useState<ProcessedCard | null>(null);
   const [list, setList] = useState<CardListItem[]>([]);
@@ -509,6 +520,24 @@ function CardsPageInner() {
               ex={card.extracted as StructuredPlan}
               filename={card.filename}
             />
+            {/* Согласование и история применимы к любой карточке, в том числе
+                структурной: расчёт и планы правятся пересчётом, а текстовые
+                поля документа (конструктив, водоснабжение, эвакуация) —
+                здесь же. Без этого блока главные объекты (Хайвилл, Аланда)
+                остались бы вовсе без редактора и без подписи. */}
+            <CardEditor
+              className="mt-5"
+              cardId={card.id}
+              fields={FIELDS}
+              values={card.extracted ?? {}}
+              reviewStatus={card.review_status ?? "approved"}
+              updatedBy={card.updated_by ?? null}
+              updatedAt={card.updated_at ?? null}
+              approvedBy={card.approved_by ?? null}
+              canEdit={canManageCards}
+              canApprove={canApproveCards}
+              onSaved={() => openCard(card.id)}
+            />
             <PrescriptionsPanel
               card={card}
               className="mt-5"
@@ -570,25 +599,19 @@ function CardsPageInner() {
 
             {/* Right — extracted + prescriptions */}
             <div className="flex flex-col gap-5">
-              {/* Extracted fields */}
-              <Card className="p-5">
-                <SectionLabel className="mb-4">{t("Извлечено ИИ")}</SectionLabel>
-                <dl className="space-y-2">
-                  {FIELDS.map(([key, label]) => {
-                    const v = card.extracted?.[key];
-                    if (v == null || v === "") return null;
-                    return (
-                      <div key={key} className="flex gap-3 text-sm">
-                        <dt className="w-36 shrink-0 text-faint">{t(label)}</dt>
-                        <dd className="min-w-0 text-fg">{String(v)}</dd>
-                      </div>
-                    );
-                  })}
-                  {FIELDS.every(([key]) => !card.extracted?.[key]) && (
-                    <p className="text-sm text-faint">{t("Поля не извлечены")}</p>
-                  )}
-                </dl>
-              </Card>
+              {/* Карточка объекта: просмотр, правка, история, согласование */}
+              <CardEditor
+                cardId={card.id}
+                fields={FIELDS}
+                values={card.extracted ?? {}}
+                reviewStatus={card.review_status ?? "approved"}
+                updatedBy={card.updated_by ?? null}
+                updatedAt={card.updated_at ?? null}
+                approvedBy={card.approved_by ?? null}
+                canEdit={canManageCards}
+                canApprove={canApproveCards}
+                onSaved={() => openCard(card.id)}
+              />
 
               {/* Prescriptions */}
               <PrescriptionsPanel
@@ -1292,6 +1315,44 @@ const FORCE_FIELDS: Record<string, { label: string; unit?: string; num?: boolean
   privlekaemye_sily: { label: "Привлекаемые силы" },
   source: { label: "Источник" },
   note_2020: { label: "Примечание (ред. 2020)" },
+
+  // Аланда/Евразия используют другое соглашение имён (кириллица вперемешку с
+  // латиницей, как в исходном документе ДЧС) — те же величины, что и выше,
+  // под другими ключами JSON. Канонические алиасы для API — см.
+  // `_FC_NUM_FIELDS`/`_FC_COUNT_FIELDS` в api/app/routers/dispatch.py; здесь
+  // те же обозначения методики ДЧС переведены на подписи для человека, а не
+  // сведены к единому набору полей (тут — вся выкладка, а не выжимка).
+  Tсв_min: { label: "Своб. развитие пожара", unit: "мин", num: true },
+  Tсл_min: { label: "Время следования", unit: "мин", num: true },
+  T2_min: { label: "Время развития (Т2)", unit: "мин", num: true },
+  R1_m: { label: "Путь фронта пожара (R1)", unit: "м", num: true },
+  a_m: { label: "Ширина фронта (a)", unit: "м", num: true },
+  hт_m: { label: "Глубина тушения (h)", unit: "м", num: true },
+  Vл_m_min: { label: "Скорость распространения (Vл)", unit: "м/мин", num: true },
+  n_fronts: { label: "Число направлений", num: true },
+  Sп_m2: { label: "Площадь пожара", unit: "м²", num: true },
+  Sт_m2: { label: "Площадь тушения", unit: "м²", num: true },
+  Jтр_l_s_m2: { label: "Интенсивность", unit: "л/с·м²", num: true },
+  Qт_тр_l_s: { label: "Qтр на тушение", unit: "л/с", num: true },
+  Qз_тр_l_s: { label: "Qтр на защиту", unit: "л/с", num: true },
+  Qобщ_тр_l_s: { label: "Qтр общий", unit: "л/с", num: true },
+  Qтр_total_l_s: { label: "Qтр общий", unit: "л/с", num: true },
+  Qт_ф_l_s: { label: "Qф на тушение", unit: "л/с", num: true },
+  Qз_ф_l_s: { label: "Qф на защиту", unit: "л/с", num: true },
+  Qобщ_ф_l_s: { label: "Qф фактический", unit: "л/с", num: true },
+  Qф_total_l_s: { label: "Qф фактический", unit: "л/с", num: true },
+  Nств_тушение: { label: "Стволы на тушение" },
+  Nств_защита: { label: "Стволы на защиту" },
+  Nм_АЦ: { label: "Пожарные машины", num: true },
+  Nлс_чел: { label: "Личный состав", num: true },
+  Nотд: { label: "Отделений", num: true },
+  // ГТQQ (в документе — «ГТҚҚ», кириллическая Қ распознана как латинская Q)
+  // — газодымозащитная служба: командир и звенья ГДЗС, работающие в СИЗОД.
+  ГТQQ_units: { label: "Звенья ГДЗС", unit: "зв.", num: true },
+  water_reserve_l: { label: "Запас воды", unit: "л", num: true },
+  fire_shape: { label: "Форма пожара" },
+  hydrant_distances_note: { label: "Расстояния до гидрантов" },
+  summary: { label: "Итог расчёта" },
 };
 
 // force_calc keys whose values are long provenance text — folded by default.

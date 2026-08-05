@@ -11,6 +11,8 @@ import {
   Lock,
   ServerCrash,
   FileClock,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/auth";
@@ -43,12 +45,27 @@ type AuditEvent = {
   path: string | null;
   status_code: number | null;
   ip: string | null;
+  detail: Record<string, unknown> | null;
 };
 type AuditData = {
   total: number;
+  matched: number;
+  offset: number;
+  limit: number;
   failed_logins: number;
   events: AuditEvent[];
 };
+
+/** Компактная строка из detail (JSONB) — «что именно» произошло, не только
+ * факт запроса. Разные действия кладут разные поля, поэтому рендерим как
+ * произвольный набор key: value, а не как жёсткую схему. */
+function formatDetail(detail: Record<string, unknown> | null): string {
+  if (!detail) return "";
+  return Object.entries(detail)
+    .filter(([, v]) => v !== null && v !== undefined && v !== "")
+    .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(",") : String(v)}`)
+    .join(" · ");
+}
 
 const ACTION_LABEL: Record<string, string> = {
   "login.success": "Успешный вход",
@@ -110,13 +127,25 @@ export default function AuditPage() {
   const [action, setAction] = useState("");
   const [username, setUsername] = useState("");
   const [limit, setLimit] = useState(100);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [offset, setOffset] = useState(0);
   // username input is separate so typing doesn't refetch each keystroke
   const [userInput, setUserInput] = useState("");
 
+  /** Меняет фильтр и сбрасывает страницу на первую — иначе после сужения
+   * выборки offset может указывать за её пределы. */
+  const applyFilter = useCallback((fn: () => void) => {
+    fn();
+    setOffset(0);
+  }, []);
+
   const load = useCallback(() => {
-    const qs = new URLSearchParams({ limit: String(limit) });
+    const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (action) qs.set("action", action);
     if (username) qs.set("username", username);
+    if (dateFrom) qs.set("date_from", dateFrom);
+    if (dateTo) qs.set("date_to", dateTo);
     setError(null);
     apiFetch(`/audit?${qs.toString()}`)
       .then(async (r) => {
@@ -141,7 +170,7 @@ export default function AuditPage() {
       .catch((e) =>
         setError({ code: e.code ?? 0, msg: e.msg ?? t("Сервис недоступен") }),
       );
-  }, [action, username, limit, locale, t]);
+  }, [action, username, limit, offset, dateFrom, dateTo, locale, t]);
 
   useEffect(() => {
     load();
@@ -234,11 +263,11 @@ export default function AuditPage() {
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  setUsername(userInput.trim());
+                  applyFilter(() => setUsername(userInput.trim()));
                 }}
-                className="grid gap-3 sm:grid-cols-[1fr_auto_auto_auto] sm:items-end"
+                className="flex flex-wrap items-end gap-3"
               >
-                <Field label={t("Пользователь")}>
+                <Field label={t("Пользователь")} className="min-w-[12rem] flex-1">
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
                     <Input
@@ -253,8 +282,8 @@ export default function AuditPage() {
                 <Field label={t("Действие")}>
                   <Select
                     value={action}
-                    onChange={(e) => setAction(e.target.value)}
-                    className="sm:w-48"
+                    onChange={(e) => applyFilter(() => setAction(e.target.value))}
+                    className="w-48"
                   >
                     {ACTION_OPTIONS.map((a) => (
                       <option key={a} value={a}>
@@ -263,11 +292,31 @@ export default function AuditPage() {
                     ))}
                   </Select>
                 </Field>
+                <Field label={t("Дата с")}>
+                  <Input
+                    type="date"
+                    value={dateFrom}
+                    max={dateTo || undefined}
+                    onChange={(e) => applyFilter(() => setDateFrom(e.target.value))}
+                    className="w-36"
+                    aria-label={t("Дата с")}
+                  />
+                </Field>
+                <Field label={t("Дата по")}>
+                  <Input
+                    type="date"
+                    value={dateTo}
+                    min={dateFrom || undefined}
+                    onChange={(e) => applyFilter(() => setDateTo(e.target.value))}
+                    className="w-36"
+                    aria-label={t("Дата по")}
+                  />
+                </Field>
                 <Field label={t("Лимит")}>
                   <Select
                     value={limit}
-                    onChange={(e) => setLimit(Number(e.target.value))}
-                    className="sm:w-24"
+                    onChange={(e) => applyFilter(() => setLimit(Number(e.target.value)))}
+                    className="w-24"
                   >
                     {LIMITS.map((l) => (
                       <option key={l} value={l}>
@@ -358,15 +407,25 @@ export default function AuditPage() {
                                 icon={isLogin}
                               />
                             </td>
-                            <td className="hidden max-w-[22rem] truncate px-4 py-2.5 md:table-cell">
-                              {e.method && (
-                                <span className="mono mr-2 rounded bg-surface-3 px-1.5 py-0.5 text-2xs text-muted">
-                                  {e.method}
+                            <td className="hidden max-w-[22rem] px-4 py-2.5 md:table-cell">
+                              <div className="truncate">
+                                {e.method && (
+                                  <span className="mono mr-2 rounded bg-surface-3 px-1.5 py-0.5 text-2xs text-muted">
+                                    {e.method}
+                                  </span>
+                                )}
+                                <span className="mono text-xs text-muted">
+                                  {e.path ?? "—"}
                                 </span>
+                              </div>
+                              {e.detail && (
+                                <div
+                                  className="mt-0.5 truncate text-2xs text-faint"
+                                  title={formatDetail(e.detail)}
+                                >
+                                  {formatDetail(e.detail)}
+                                </div>
                               )}
-                              <span className="mono text-xs text-muted">
-                                {e.path ?? "—"}
-                              </span>
                             </td>
                             <td className="whitespace-nowrap px-4 py-2.5 text-right">
                               <span
@@ -390,6 +449,39 @@ export default function AuditPage() {
                       })}
                     </tbody>
                   </table>
+                </div>
+              )}
+              {data && data.matched > 0 && (
+                <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
+                  <span className="text-2xs text-faint">
+                    <span className="tabular">{offset + 1}</span>
+                    {"–"}
+                    <span className="tabular">{offset + data.events.length}</span>{" "}
+                    {t("из")}{" "}
+                    <span className="tabular">
+                      {data.matched.toLocaleString(intlLocale(locale))}
+                    </span>
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setOffset((o) => Math.max(0, o - limit))}
+                      disabled={offset === 0}
+                      aria-label={t("Предыдущая страница")}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setOffset((o) => o + limit)}
+                      disabled={offset + data.events.length >= data.matched}
+                      aria-label={t("Следующая страница")}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               )}
             </Card>

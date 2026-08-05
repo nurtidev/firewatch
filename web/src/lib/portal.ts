@@ -44,13 +44,20 @@ export const REMEDIATION_STATUS: Record<
   },
 };
 
+/** One SHAP-style factor behind a risk score — a small, owner-safe slice of
+ *  the internal explanation (see api/app/routers/portal.py `summary`). */
+export type RiskFactor = { feature: string; value: number };
+
 export type PortalBuilding = {
   id: number;
   address: string;
   district: string | null;
   building_type: string | null;
+  building_type_label: string | null;
   floors: number | null;
   risk_score: number | null;
+  /** Top 1-2 factors behind `risk_score`, sorted by |contribution| desc. */
+  top_factors: RiskFactor[];
 };
 
 export type PortalSummary = {
@@ -68,6 +75,8 @@ export type Remediation = {
   status: RemediationStatus;
   created_at: string;
   reviewed_by: string | null;
+  /** Human-readable reviewer name — prefer this over `reviewed_by` (a login). */
+  reviewed_by_name: string | null;
   reviewed_at: string | null;
   review_note: string | null;
 };

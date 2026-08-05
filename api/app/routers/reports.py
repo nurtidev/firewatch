@@ -1,7 +1,7 @@
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -11,8 +11,33 @@ from app.db import get_db
 from app.routers.auth import current_user, require_roles
 from app.routers.routes import _PHOTO_NAME
 
-# Field-report categories / statuses — the frontend uses the same keys.
-CATEGORIES = {"blocked_access", "parking_barrier", "hydrant_defect", "blocked_exit", "other"}
+# Field-report categories / statuses — the frontend uses the same keys
+# (web/src/lib/reports.ts). The category column is plain TEXT (no CHECK
+# constraint, see migration 0010), so this set is the only gate — keep the two
+# lists in sync when adding a category.
+CATEGORIES = {
+    "blocked_access",
+    "parking_barrier",
+    "hydrant_defect",
+    "blocked_exit",
+    # Reality on site didn't match the digitised ПТП (layout, a locked exit,
+    # a missing riser). Filed by a crew after a callout, not during it.
+    "ptp_mismatch",
+    "other",
+}
+# Obstacle categories: the photo IS the evidence — the car blocking the fire
+# lane is gone by tomorrow, so an unphotographed claim can't be enforced. The
+# remaining categories are filed after the fact, when there is nothing left to
+# photograph; those require a written description instead (see the validator).
+PHOTO_REQUIRED_CATEGORIES = {
+    "blocked_access",
+    "parking_barrier",
+    "hydrant_defect",
+    "blocked_exit",
+}
+# Minimum description length accepted in place of a photo — enough to force a
+# sentence, not a stray character.
+MIN_DESCRIPTION_WITHOUT_PHOTO = 10
 STATUSES = {"open", "in_progress", "resolved", "dismissed"}
 # Statuses a supervisor can move a report into via POST /{id}/status. "open" is
 # the initial state only — a report is never manually reopened here.
@@ -36,9 +61,12 @@ class ReportCreate(BaseModel):
     lat: float = Field(..., ge=-90, le=90)
     lng: float = Field(..., ge=-180, le=180)
     building_id: int | None = None
-    # A report without photographic evidence has no operational value — at
-    # least one is required, mirroring the evidence rule for visit violations.
-    photos: list[str] = Field(..., min_length=1)
+    photos: list[str] = Field(default_factory=list)
+    # Идентификатор попытки отправки, сгенерированный устройством. Офлайн-очередь
+    # повторяет POST, пока не получит ответ, поэтому один и тот же client_id
+    # может прийти дважды — второй раз вернём уже созданное донесение, а не
+    # создадим дубль (уникальный индекс в миграции 0014).
+    client_id: str | None = Field(None, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
 
     @field_validator("category")
     @classmethod
@@ -57,6 +85,24 @@ class ReportCreate(BaseModel):
             if not _PHOTO_NAME.match(photo_id):
                 raise ValueError(f"некорректный id фото: {photo_id}")
         return v
+
+    @model_validator(mode="after")
+    def _evidence_present(self) -> "ReportCreate":
+        """Every report carries evidence — a photo, or a description in its place.
+
+        Obstacle categories keep the hard photo requirement (that rule protects
+        the enforcement value of the report). Categories that are filed after
+        the fact accept a written description instead: a crew back from a
+        callout can't photograph a layout that didn't match the ПТП, and losing
+        that observation entirely is worse than accepting it in words.
+        """
+        if self.photos:
+            return self
+        if self.category in PHOTO_REQUIRED_CATEGORIES:
+            raise ValueError("для этой категории нужно приложить хотя бы одно фото")
+        if len((self.description or "").strip()) < MIN_DESCRIPTION_WITHOUT_PHOTO:
+            raise ValueError("без фото нужно описание — что именно обнаружено")
+        return self
 
 
 class ReportStatusUpdate(BaseModel):
@@ -98,37 +144,54 @@ def create_report(
         # access roles may have none (NULL) — that's expected, not an error.
         district = user.get("district")
 
+    params = {
+        "category": body.category,
+        "description": body.description,
+        "lng": body.lng,
+        "lat": body.lat,
+        "building_id": body.building_id,
+        "district": district,
+        "photos": json.dumps(body.photos, ensure_ascii=False),
+        "created_by": user.get("username"),
+        "created_role": user.get("role"),
+        "client_id": body.client_id,
+    }
+    returning = (
+        "id, category, description, status, building_id, district, "
+        "photos, created_by, created_role, created_at"
+    )
     row = db.execute(
         text(
-            """
+            f"""
             INSERT INTO field_reports
                 (category, description, geom, building_id, district, photos,
-                 created_by, created_role)
+                 created_by, created_role, client_id)
             VALUES
                 (:category, :description,
                  ST_SetSRID(ST_MakePoint(:lng, :lat), 4326),
                  :building_id, :district, CAST(:photos AS JSONB),
-                 :created_by, :created_role)
-            RETURNING id, category, description, status, building_id, district,
-                      photos, created_by, created_role, created_at
+                 :created_by, :created_role, :client_id)
+            ON CONFLICT (client_id) WHERE client_id IS NOT NULL DO NOTHING
+            RETURNING {returning}
             """
         ),
-        {
-            "category": body.category,
-            "description": body.description,
-            "lng": body.lng,
-            "lat": body.lat,
-            "building_id": body.building_id,
-            "district": district,
-            "photos": json.dumps(body.photos, ensure_ascii=False),
-            "created_by": user.get("username"),
-            "created_role": user.get("role"),
-        },
+        params,
     ).mappings().first()
     db.commit()
 
+    # Повтор отправки из офлайн-очереди: донесение уже создано — возвращаем его,
+    # а не второй экземпляр. Для клиента это тот же успешный ответ.
+    duplicate = row is None
+    if duplicate:
+        row = db.execute(
+            text(f"SELECT {returning} FROM field_reports WHERE client_id = :client_id"),
+            {"client_id": body.client_id},
+        ).mappings().first()
+        if row is None:  # pragma: no cover — конфликт был, строки нет: гонка отката
+            raise HTTPException(409, "Не удалось сохранить донесение, повторите отправку")
+
     audit(
-        action="report.created",
+        action="report.duplicate" if duplicate else "report.created",
         username=user.get("username"),
         role=user.get("role"),
         method="POST",

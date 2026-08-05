@@ -3,13 +3,20 @@ import uuid
 from datetime import date
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.access import has_full_access
+from app.access import (
+    enforce_building_scope,
+    has_citywide_data_access,
+    has_full_access,
+    linked_inspector,
+    resolve_inspector,
+)
+from app.audit import audit, client_ip
 from app.config import settings
 from app.db import get_db
 from app.routers.auth import current_user, require_roles
@@ -85,10 +92,29 @@ CHECKLIST = [
 @router.get("/inspectors")
 def list_inspectors(
     db: Session = Depends(get_db),
-    _user: dict = Depends(FIELD_ROLES),
+    user: dict = Depends(FIELD_ROLES),
 ) -> list[dict]:
+    """Реестр инспекторов в границах видимости роли.
+
+    Скоуп тот же, что у `GET /routes/progress`: supervisor — свой район, admin —
+    весь город. Инспектор видит только собственную запись: список нужен ему лишь
+    для выбора своего маршрута, а чужие ФИО с районами — уже чужие данные.
+    """
+    if user.get("role") == "inspector":
+        own = linked_inspector(db, user)
+        return [dict(own)] if own is not None else []
+
+    params: dict = {}
+    where = ""
+    if not has_citywide_data_access(user):
+        district = user.get("district")
+        if district is None:  # scoped-роль без района не видит никого (fail closed)
+            return []
+        where = "WHERE district IS NOT DISTINCT FROM :d"
+        params["d"] = district
     rows = db.execute(
-        text("SELECT id, name, district FROM inspectors ORDER BY id")
+        text(f"SELECT id, name, district FROM inspectors {where} ORDER BY id"),
+        params,
     ).mappings()
     return [dict(r) for r in rows]
 
@@ -183,21 +209,19 @@ def _visit_status(db: Session, inspector_id: int, building_ids: list[int]) -> di
 
 @router.get("/routes/today")
 def route_today(
-    inspector_id: int,
+    inspector_id: int | None = None,
     size: int = 6,
     db: Session = Depends(get_db),
-    _user: dict = Depends(FIELD_ROLES),
+    user: dict = Depends(FIELD_ROLES),
 ) -> dict:
-    inspector = db.execute(
-        text("SELECT id, name, district FROM inspectors WHERE id = :id"),
-        {"id": inspector_id},
-    ).mappings().first()
-    if inspector is None:
-        raise HTTPException(404, "Инспектор не найден")
+    # `inspector_id` приходит от клиента и потому не является подтверждением
+    # личности: маршрут (чужие адреса с нарушениями) отдаётся только после
+    # проверки связи учётной записи с реестром и района.
+    inspector = resolve_inspector(db, user, inspector_id)
 
     size = max(1, min(size, len(SLOTS)))
     ordered = _build_route(db, inspector["district"], size)
-    status_map = _visit_status(db, inspector_id, [s["id"] for s in ordered])
+    status_map = _visit_status(db, inspector["id"], [s["id"] for s in ordered])
 
     stops = []
     for i, s in enumerate(ordered):
@@ -251,7 +275,9 @@ class Violation(BaseModel):
 
 
 class VisitRequest(BaseModel):
-    inspector_id: int
+    # Необязателен: для инспектора авторство берётся из его учётной записи, а
+    # присланное чужое значение отклоняется (см. resolve_inspector).
+    inspector_id: int | None = None
     building_id: int
     status: str = Field(..., pattern="^(done|violation)$")
     # Планов/внеплан — основание выхода на объект (для юридической силы протокола).
@@ -282,7 +308,8 @@ async def upload_visit_photo(
 @router.get("/routes/visit/photo/{photo_id}")
 def get_visit_photo(
     photo_id: str,
-    _user: dict = Depends(PHOTO_VIEW_ROLES),
+    request: Request,
+    user: dict = Depends(PHOTO_VIEW_ROLES),
 ) -> FileResponse:
     """Serve an inspection-visit evidence photo to internal roles only. External
     owners are excluded — they must not see inspection proof. The name pattern
@@ -292,19 +319,34 @@ def get_visit_photo(
     path = Path(settings.uploads_dir) / photo_id
     if not path.exists():
         raise HTTPException(404, "Файл не найден")
+    # Evidence photo for a protocol — auditable like other ПДн/evidence reads
+    # (read.card, read.card_file, read.building), which are logged on purpose.
+    audit(
+        action="read.visit_photo",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="GET",
+        path=f"/routes/visit/photo/{photo_id}",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"photo_id": photo_id},
+    )
     return FileResponse(path, media_type=_EXT_MEDIA[path.suffix])
 
 
 @router.post("/routes/visit")
 def record_visit(
     body: VisitRequest,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: dict = Depends(FIELD_ROLES),
+    user: dict = Depends(FIELD_ROLES),
 ) -> dict:
     import json
 
     # A violation must carry at least one coded violation AND photographic
     # evidence — without both it has no legal force as a protocol attachment.
+    # Проверка формы акта идёт до обращения к БД (сообщения не зависят от
+    # данных и ничего о чужих районах не раскрывают).
     if body.status == "violation":
         if not body.violations:
             raise HTTPException(
@@ -314,6 +356,22 @@ def record_visit(
             raise HTTPException(
                 422, "Для статуса «нарушение» приложите хотя бы одно фото-доказательство"
             )
+
+    # Акт проверки имеет юридическую силу, поэтому автора определяет учётная
+    # запись, а не поле запроса: `inspector_id` из тела лишь сверяется с ней.
+    inspector = resolve_inspector(db, user, body.inspector_id)
+
+    # Объект тоже должен быть в зоне ответственности вызывающего — иначе визит
+    # закрывается по чужому району (для admin/общегородских ролей — no-op).
+    scope_clauses: list[str] = []
+    scope_params: dict = {"bid": body.building_id}
+    enforce_building_scope(scope_clauses, scope_params, user)
+    where = " AND ".join(["b.id = :bid", *scope_clauses])
+    in_scope = db.execute(
+        text(f"SELECT 1 FROM buildings b WHERE {where}"), scope_params
+    ).scalar()
+    if in_scope is None:
+        raise HTTPException(403, "Объект не найден или вне зоны вашей ответственности")
 
     violations = (
         json.dumps([v.model_dump() for v in body.violations], ensure_ascii=False)
@@ -344,7 +402,7 @@ def record_visit(
             """
         ),
         {
-            "iid": body.inspector_id,
+            "iid": inspector["id"],
             "bid": body.building_id,
             "st": body.status,
             "itype": body.inspection_type,
@@ -355,6 +413,26 @@ def record_visit(
         },
     )
     db.commit()
+
+    # Акт проверки имеет юридическую силу — журнал аудита должен отвечать «что
+    # именно» сделал инспектор (объект, статус, нарушения), а не только факт
+    # успешного POST (audit_log.detail; ранее не заполнялось для этого пути).
+    audit(
+        action="visit.recorded",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="POST",
+        path="/routes/visit",
+        status_code=200,
+        ip=client_ip(request),
+        detail={
+            "building_id": body.building_id,
+            "inspector_id": inspector["id"],
+            "status": body.status,
+            "inspection_type": body.inspection_type,
+            "violation_codes": [v.code for v in body.violations] if body.violations else None,
+        },
+    )
     return {"ok": True, "status": body.status}
 
 

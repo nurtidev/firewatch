@@ -9,6 +9,7 @@ import pytest
 
 from app.db import get_db
 from app.main import app
+from app.routers import reports as reports_router
 from app.routers.auth import current_user
 
 _VALID_PHOTO = f"visit_{'0' * 32}.jpg"
@@ -49,23 +50,85 @@ def _base_report(**overrides) -> dict:
     return body
 
 
-# --- POST /reports: validation --------------------------------------------
+# --- POST /reports: evidence rules -----------------------------------------
+#
+# Obstacle categories keep the hard photo requirement; the after-the-fact ones
+# (a crew recording a mismatch with the ПТП once back at the station) accept a
+# written description in place of a photo, but never nothing at all.
 
 
-def test_create_report_requires_at_least_one_photo(client):
-    resp = client.post("/reports", json=_base_report(photos=[]))
+@pytest.mark.parametrize("category", sorted(reports_router.PHOTO_REQUIRED_CATEGORIES))
+def test_obstacle_categories_require_at_least_one_photo(client, category):
+    resp = client.post("/reports", json=_base_report(category=category, photos=[]))
     assert resp.status_code == 422
 
 
-def test_create_report_rejects_missing_photos_field(client):
-    body = _base_report()
+@pytest.mark.parametrize("category", sorted(reports_router.PHOTO_REQUIRED_CATEGORIES))
+def test_obstacle_categories_reject_missing_photos_field(client, category):
+    body = _base_report(category=category)
     del body["photos"]
     resp = client.post("/reports", json=body)
     assert resp.status_code == 422
 
 
+@pytest.mark.parametrize("category", ["ptp_mismatch", "other"])
+def test_after_the_fact_categories_accept_description_without_photo(client, category):
+    resp = client.post(
+        "/reports",
+        json=_base_report(
+            category=category,
+            photos=[],
+            description="Планировка 14 этажа секции Б не совпадает с ПТП, второй выход закрыт",
+        ),
+    )
+    assert resp.status_code not in (401, 403, 422)
+
+
+@pytest.mark.parametrize("category", ["ptp_mismatch", "other"])
+def test_after_the_fact_categories_reject_no_photo_and_no_description(client, category):
+    resp = client.post("/reports", json=_base_report(category=category, photos=[]))
+    assert resp.status_code == 422
+
+
+@pytest.mark.parametrize("category", ["ptp_mismatch", "other"])
+def test_after_the_fact_categories_reject_a_token_description(client, category):
+    # A stray character is not a report — the description has to carry content.
+    resp = client.post(
+        "/reports",
+        json=_base_report(category=category, photos=[], description="  x  "),
+    )
+    assert resp.status_code == 422
+
+
+def test_ptp_mismatch_is_a_known_category(client):
+    resp = client.post("/reports", json=_base_report(category="ptp_mismatch"))
+    assert resp.status_code not in (401, 403, 422)
+
+
 def test_create_report_rejects_unknown_category(client):
     resp = client.post("/reports", json=_base_report(category="not_a_category"))
+    assert resp.status_code == 422
+
+
+# --- POST /reports: idempotency key ----------------------------------------
+
+
+def test_create_report_accepts_client_id(client):
+    resp = client.post("/reports", json=_base_report(client_id="1754212345678-ab12cd"))
+    assert resp.status_code not in (401, 403, 422)
+
+
+@pytest.mark.parametrize(
+    "bad_client_id",
+    [
+        "id with spaces",
+        "../../etc/passwd",
+        "id;DROP TABLE field_reports",
+        "x" * 65,
+    ],
+)
+def test_create_report_rejects_bad_client_id(client, bad_client_id):
+    resp = client.post("/reports", json=_base_report(client_id=bad_client_id))
     assert resp.status_code == 422
 
 

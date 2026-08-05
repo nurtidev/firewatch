@@ -19,7 +19,9 @@ from pathlib import Path
 
 from sqlalchemy import text
 
+from app.config import settings
 from app.db import engine
+from app.extraction import mask_contacts_field
 
 SEED_DIR = Path(__file__).resolve().parent / "seed_data"
 
@@ -68,6 +70,10 @@ def _seed_one(conn, spec: dict) -> None:
         print(f"SKIP {spec['filename']}: нет файла {path.name}")
         return
     card = json.loads(path.read_text(encoding="utf-8"))
+    # Belt-and-suspenders (see api/app/extraction.py): re-mask ПДн in structured
+    # contacts at import time rather than trust the hand-edited seed JSON.
+    if settings.mask_pii and "contacts" in card:
+        card["contacts"] = mask_contacts_field(card["contacts"])
     name = (card.get("object") or {}).get("name") or spec["filename"]
 
     b = _target_building(conn, spec["address_patterns"])

@@ -56,6 +56,8 @@ const REPORT_COLOR: maplibregl.ExpressionSpecification = [
   CATEGORY_MAP_COLOR.hydrant_defect,
   "parking_barrier",
   CATEGORY_MAP_COLOR.parking_barrier,
+  "ptp_mismatch",
+  CATEGORY_MAP_COLOR.ptp_mismatch,
   CATEGORY_MAP_COLOR.other,
 ];
 
@@ -87,12 +89,20 @@ function queryString(filters: MapFilters, bbox: string): string {
   return p.toString();
 }
 
+/** Точка, к которой карта обязана долететь по внешней команде (выбор из
+ *  поиска адреса) — не связана с фильтрами: смена фильтров не должна дёргать
+ *  камеру, а выбор результата поиска должен, даже если координаты те же, что
+ *  и в прошлый раз (поэтому новый объект-литерал при каждом клике). */
+export type MapFocus = { id: number; lat: number; lng: number };
+
 export default function RiskMap({
   onSelect,
   filters,
+  focus,
 }: {
   onSelect?: (id: number) => void;
   filters: MapFilters;
+  focus?: MapFocus | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -243,6 +253,23 @@ export default function RiskMap({
     if (map && map.isStyleLoaded()) void loadBuildings(map);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.type, filters.district, filters.risk]);
+
+  // Найденный поиском объект центрирует карту — тот самый шаг «нашли адрес →
+  // оказались на месте», которого не хватало (аудит: три `<select>`, ни одного
+  // поля ввода). Building-уровень зума (17) — виден конкретный дом, а не квартал.
+  useEffect(() => {
+    if (!focus) return;
+    const map = mapRef.current;
+    if (!map) return;
+    const flyThere = () =>
+      map.flyTo({
+        center: [focus.lng, focus.lat],
+        zoom: Math.max(map.getZoom(), 17),
+        duration: 900,
+      });
+    if (map.isStyleLoaded()) flyThere();
+    else map.once("load", flyThere);
+  }, [focus]);
 
   return (
     <div className="relative h-full w-full">

@@ -63,6 +63,30 @@ class Settings(BaseSettings):
     coverage_radius_m: int = 3500
     arrival_normative_min: int = 10
 
+    # Телематика: система мониторинга техники ДЧС. Позиции машин берутся из
+    # СУЩЕСТВУЮЩЕЙ системы (на технике уже стоят трекеры) — своего трекинга мы
+    # не заводим и к трекерам напрямую не подключаемся: это конфликт с
+    # работающей системой. Пустой provider = интеграция не настроена, экраны
+    # честно показывают «нет данных», а не выдумывают позиции.
+    #   FW_TELEMATICS_PROVIDER=wialon|none
+    #   FW_TELEMATICS_URL=https://hst-api.wialon.com
+    #   FW_TELEMATICS_TOKEN=<токен доступа, выдаёт владелец системы>
+    telematics_provider: str = Field(
+        "none",
+        validation_alias=AliasChoices("FW_TELEMATICS_PROVIDER", "TELEMATICS_PROVIDER"),
+    )
+    telematics_url: str = Field(
+        "", validation_alias=AliasChoices("FW_TELEMATICS_URL", "TELEMATICS_URL")
+    )
+    telematics_token: str = Field(
+        "", validation_alias=AliasChoices("FW_TELEMATICS_TOKEN", "TELEMATICS_TOKEN")
+    )
+    # Позиция старше этого возраста считается протухшей: показывать её на
+    # боевом экране опаснее, чем не показывать ничего.
+    telematics_stale_sec: int = Field(
+        180, validation_alias=AliasChoices("FW_TELEMATICS_STALE_SEC", "TELEMATICS_STALE_SEC")
+    )
+
     @property
     def is_production(self) -> bool:
         return self.env.strip().lower() in {"production", "prod"}

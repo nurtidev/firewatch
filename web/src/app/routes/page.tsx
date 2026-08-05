@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   MapPin,
   ChevronRight,
@@ -16,6 +16,9 @@ import {
   Minus,
   CloudOff,
   RefreshCw,
+  RotateCcw,
+  FileClock,
+  Eye,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch, useAuth } from "@/lib/auth";
@@ -45,13 +48,23 @@ import {
   cacheChecklist,
   readCachedRoute,
   readCachedChecklist,
+  cacheMyInspectorId,
+  readMyInspectorId,
   enqueueVisit,
   queueCount,
   flushQueue,
   fileToDataUrl,
+  preparePhoto,
   isOnline,
-  MAX_PHOTO_BYTES,
+  readDraft,
+  saveDraft,
+  clearDraft,
+  draftBuildingIds,
+  readVisitLog,
+  saveVisitLog,
+  type MarkValue,
   type VisitPayload,
+  type VisitLogRecord,
 } from "@/lib/offline";
 
 /* ───────────────────────────── Types ───────────────────────────── */
@@ -80,8 +93,6 @@ type Route = {
   total: number;
 };
 type ChecklistItem = { key: string; label: string; code?: string; group?: string };
-/** Explicit three-state checklist mark; an unset item is simply absent from the map. */
-type MarkValue = "pass" | "violation" | "na";
 
 type Filter = "all" | "pending" | "done";
 
@@ -99,6 +110,19 @@ const STOP_STATUS_LABEL = {
   violation: "Нарушение",
 } as const;
 
+/**
+ * The checklist item starts a new topical section (group) that wasn't already
+ * shown by the previous item. `CHECKLIST` on the backend is grouped in
+ * contiguous runs (routes.py) — a plain index-vs-previous comparison is
+ * enough, no separate sort/group pass needed. Section headers give an
+ * inspector standing in the cold with 17 items and gloves on a visual anchor
+ * for "this part is done" instead of one flat scroll.
+ */
+function groupHeaderAt(list: ChecklistItem[], i: number): string | null {
+  const g = list[i]?.group;
+  return g && g !== list[i - 1]?.group ? g : null;
+}
+
 /* ───────────────────────────── Page ────────────────────────────── */
 
 export default function RoutesPage() {
@@ -108,7 +132,12 @@ export default function RoutesPage() {
   const isInspector = user?.role === "inspector";
 
   const [inspectors, setInspectors] = useState<Inspector[]>([]);
+  // Which inspector's plan a supervisor/leadership is looking at. An inspector
+  // never sets this: the server resolves the route from the account itself.
   const [selected, setSelected] = useState<number | null>(null);
+  // Own inspector id, as returned by the server — the key for the local cache,
+  // sync queue and drafts. Never guessed from the name of the logged-in user.
+  const [myInspectorId, setMyInspectorId] = useState<number | null>(null);
   const [route, setRoute] = useState<Route | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
@@ -119,10 +148,29 @@ export default function RoutesPage() {
   const [offline, setOffline] = useState(false);
   const [pending, setPending] = useState(0);
   const [justSynced, setJustSynced] = useState(false);
+  // Objects with unfinished checklist marks saved on this device.
+  const [drafts, setDrafts] = useState<number[]>([]);
+
+  const scopeId = isInspector ? myInspectorId : selected;
+  // Mirrored into a ref so the loaders can read the current scope without
+  // taking it as a dependency (which would re-fetch on every resolve).
+  const scopeRef = useRef<number | null>(null);
 
   const refreshPending = useCallback(() => {
-    setPending(queueCount(selected ?? undefined));
-  }, [selected]);
+    const id = scopeRef.current;
+    setPending(queueCount(id ?? undefined));
+    setDrafts(id == null ? [] : draftBuildingIds(id));
+  }, []);
+
+  useEffect(() => {
+    scopeRef.current = scopeId;
+    refreshPending();
+  }, [scopeId, refreshPending]);
+
+  // Last known own id, so an offline first load can still find its cache.
+  useEffect(() => {
+    if (isInspector) setMyInspectorId((v) => v ?? readMyInspectorId());
+  }, [isInspector]);
 
   useEffect(() => {
     apiFetch(`/routes/checklist`)
@@ -139,37 +187,47 @@ export default function RoutesPage() {
   }, []);
 
   useEffect(() => {
+    // Only roles that choose an inspector need the list at all.
+    if (isInspector) return;
     apiFetch(`/inspectors`)
       .then((r) => (r.ok ? r.json() : []))
       .then((list: Inspector[]) => {
         setInspectors(list);
-        const mine = list.find((i) => i.name === user?.name);
-        setSelected((isInspector && mine ? mine : list[0])?.id ?? null);
+        setSelected(list[0]?.id ?? null);
       })
       .catch(() => {});
-  }, [user, isInspector]);
+  }, [isInspector]);
 
   const loadRoute = useCallback(() => {
-    if (selected == null) return;
-    const inspectorId = selected;
+    // An inspector asks for "my route" — no id in the query, the server maps
+    // the account to the inspector record (a supplied id is refused there).
+    if (!isInspector && selected == null) return;
+    const query = isInspector ? "" : `?inspector_id=${selected}`;
     setRouteLoading(true);
     refreshPending();
-    apiFetch(`/routes/today?inspector_id=${inspectorId}`)
+    apiFetch(`/routes/today${query}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("route"))))
       .then((data: Route | null) => {
         setRoute(data);
         setOffline(false);
-        if (data) cacheRoute(inspectorId, data);
+        if (data) {
+          cacheRoute(data.inspector.id, data);
+          if (isInspector) {
+            setMyInspectorId(data.inspector.id);
+            cacheMyInspectorId(data.inspector.id);
+          }
+        }
         setRouteLoading(false);
       })
       .catch(() => {
         // Network failed — show the last cached route, if any, in offline mode.
-        const cached = readCachedRoute<Route>(inspectorId);
+        const id = scopeRef.current;
+        const cached = id != null ? readCachedRoute<Route>(id) : null;
         setRoute(cached);
         setOffline(Boolean(cached) || !isOnline());
         setRouteLoading(false);
       });
-  }, [selected, refreshPending]);
+  }, [isInspector, selected, refreshPending]);
 
   useEffect(() => {
     loadRoute();
@@ -177,7 +235,6 @@ export default function RoutesPage() {
 
   // Sync queued visits on page load and whenever connectivity returns.
   useEffect(() => {
-    if (selected == null) return;
     let cancelled = false;
 
     async function sync() {
@@ -376,6 +433,7 @@ export default function RoutesPage() {
                         key={s.building_id}
                         stop={s}
                         canMark={isInspector}
+                        hasDraft={drafts.includes(s.building_id)}
                         onOpen={() => setOpenStop(s.building_id)}
                       />
                     ))}
@@ -393,7 +451,11 @@ export default function RoutesPage() {
           stop={activeStop}
           checklist={checklist}
           inspectorId={route.inspector.id}
-          onClose={() => setOpenStop(null)}
+          onClose={() => {
+            setOpenStop(null);
+            // The sheet may have written or dropped a draft — re-read the flags.
+            refreshPending();
+          }}
           onSaved={() => {
             setOpenStop(null);
             loadRoute();
@@ -418,6 +480,18 @@ export default function RoutesPage() {
           }}
         />
       )}
+
+      {/* Read-only view of an already-closed stop — what was recorded, no
+          way to change it. Lets the inspector double-check the day at the
+          end of the shift without a supervisor. */}
+      {isInspector && activeStop && activeStop.status !== "pending" && route && (
+        <VisitLogSheet
+          stop={activeStop}
+          checklist={checklist}
+          inspectorId={route.inspector.id}
+          onClose={() => setOpenStop(null)}
+        />
+      )}
     </AppShell>
   );
 }
@@ -427,10 +501,13 @@ export default function RoutesPage() {
 function StopCard({
   stop,
   canMark,
+  hasDraft,
   onOpen,
 }: {
   stop: Stop;
   canMark: boolean;
+  /** Unfinished checklist marks for this object are saved on the device. */
+  hasDraft: boolean;
   onOpen: () => void;
 }) {
   const t = useT();
@@ -439,6 +516,12 @@ function StopCard({
   const isDone = stop.status !== "pending";
   const stopSeverity = STOP_STATUS_SEVERITY[stop.status];
   const actionable = canMark && !isDone;
+  // A closed stop can still be opened — read-only — so an inspector can check
+  // what was recorded without being able to change it.
+  const viewable = canMark && isDone;
+  const clickable = actionable || viewable;
+  // A draft only matters while the object can still be marked.
+  const showDraft = hasDraft && actionable;
 
   const meta = [stop.type_label, stop.last_inspected && `${t("посл.")} ${stop.last_inspected}`]
     .filter(Boolean)
@@ -472,6 +555,12 @@ function StopCard({
           {stop.overdue && stop.overdue_label && (
             <span className="font-medium text-elevated">· {stop.overdue_label}</span>
           )}
+          {showDraft && (
+            <span className="inline-flex items-center gap-1 font-medium text-accent">
+              <FileClock className="h-3.5 w-3.5" aria-hidden />
+              {t("Черновик")}
+            </span>
+          )}
         </p>
       </div>
 
@@ -489,6 +578,7 @@ function StopCard({
       {actionable && (
         <ChevronRight className="h-5 w-5 shrink-0 text-faint" aria-hidden />
       )}
+      {viewable && <Eye className="h-4 w-4 shrink-0 text-faint" aria-hidden />}
     </>
   );
 
@@ -502,13 +592,13 @@ function StopCard({
 
   return (
     <li>
-      {actionable ? (
+      {clickable ? (
         <button
           type="button"
           onClick={onOpen}
           style={accent}
           className={cn(base, tone, "min-h-[68px] hover:border-border-strong hover:bg-surface-2 active:bg-surface-3")}
-          aria-label={`${t("Открыть объект:")} ${stop.address}`}
+          aria-label={`${viewable ? t("Только просмотр") + ": " : t("Открыть объект:")} ${stop.address}`}
         >
           {inner}
         </button>
@@ -539,21 +629,86 @@ function ObjectSheet({
   onQueued: (status: "done" | "violation") => void;
 }) {
   const t = useT();
+  const { locale } = useLocale();
   // Fade + scale-in on open (~200ms), faster scale-out on close (~140ms).
   const { visible, requestClose } = useDismiss(onClose, 140);
-  const [marks, setMarks] = useState<Record<string, MarkValue>>({});
-  const [violationNotes, setViolationNotes] = useState<Record<string, string>>({});
-  const [note, setNote] = useState("");
+  // Marks made earlier and left unsaved (interrupted inspection) are restored.
+  const [draft] = useState(() => readDraft(inspectorId, stop.building_id));
+  const [marks, setMarks] = useState<Record<string, MarkValue>>(draft?.marks ?? {});
+  const [violationNotes, setViolationNotes] = useState<Record<string, string>>(
+    draft?.violationNotes ?? {},
+  );
+  const [note, setNote] = useState(draft?.note ?? "");
+  const [showRestored, setShowRestored] = useState(Boolean(draft));
+  const [confirmClose, setConfirmClose] = useState(false);
   // Photos already uploaded to the server (online path) and their evidence ids.
   const [photos, setPhotos] = useState<string[]>([]);
   // Photos captured while offline, held as data URLs until the queue flushes.
   const [offlinePhotos, setOfflinePhotos] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [compressing, setCompressing] = useState(false);
+  const [compressed, setCompressed] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set once the visit is handed off (POSTed or queued) so the autosave effect
+  // can't write the draft back after we've dropped it.
+  const submitted = useRef(false);
 
   const photoCount = photos.length + offlinePhotos.length;
   const scoreSev = scoreSeverity(stop.score);
+
+  const markedCount = checklist.filter((c) => marks[c.key]).length;
+  const allMarked = checklist.length === 0 || markedCount === checklist.length;
+  const hasViolation = checklist.some((c) => marks[c.key] === "violation");
+  const busy = saving || uploading;
+  /** Work that a draft can actually hold (marks/notes), as opposed to photos. */
+  const hasDraftContent = markedCount > 0 || note.trim().length > 0;
+  /** There is inspection work on screen that isn't on the server yet. */
+  const dirty = hasDraftContent || photoCount > 0;
+
+  /**
+   * Autosave: checklist marks go to the device as they are made. Interruptions
+   * in the field (a call, a mis-tap on "back", a dead battery) are the norm, and
+   * an inspection is 17 items long — losing it silently means redoing the walk.
+   */
+  useEffect(() => {
+    if (submitted.current) return;
+    if (hasDraftContent) {
+      saveDraft({
+        inspectorId,
+        buildingId: stop.building_id,
+        marks,
+        violationNotes,
+        note,
+      });
+    } else {
+      clearDraft(inspectorId, stop.building_id);
+    }
+  }, [marks, violationNotes, note, hasDraftContent, inspectorId, stop.building_id]);
+
+  /** Drop the restored draft and start the object from scratch. */
+  function resetDraft() {
+    setMarks({});
+    setViolationNotes({});
+    setNote("");
+    setShowRestored(false);
+    clearDraft(inspectorId, stop.building_id);
+  }
+
+  /** Back arrow: never discard work silently. */
+  function handleBack() {
+    if (dirty) setConfirmClose(true);
+    else requestClose();
+  }
+
+  const draftSavedAt = draft
+    ? new Date(draft.savedAt).toLocaleString(intlLocale(locale), {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
 
   /** Set (or, on repeat click, unset) a checklist item's mark. */
   function setMark(key: string, value: MarkValue | null) {
@@ -580,11 +735,22 @@ function ObjectSheet({
     setUploading(true);
     setError(null);
     try {
-      for (const file of Array.from(files)) {
-        if (file.size > MAX_PHOTO_BYTES) {
-          setError(t("Фото больше 2 МБ — уменьшите размер перед добавлением."));
+      for (const raw of Array.from(files)) {
+        // A real camera shot is 2–8 MB — downscale it here instead of telling
+        // the inspector to "reduce the size" while standing in a yard.
+        setCompressing(true);
+        const prepared = await preparePhoto(raw);
+        setCompressing(false);
+        if (!prepared.ok) {
+          setError(
+            prepared.reason === "unreadable"
+              ? t("Не удалось обработать фото — снимите ещё раз.")
+              : t("Фото слишком большое даже после сжатия — снимите с меньшим разрешением."),
+          );
           continue;
         }
+        if (prepared.compressed) setCompressed((n) => n + 1);
+        const file = prepared.file;
         // Offline: stash the photo locally; it uploads on reconnect.
         if (!isOnline()) {
           const dataUrl = await fileToDataUrl(file);
@@ -607,6 +773,7 @@ function ObjectSheet({
     } catch (e) {
       setError(e instanceof Error ? e.message : t("Ошибка загрузки фото"));
     } finally {
+      setCompressing(false);
       setUploading(false);
     }
   }
@@ -641,6 +808,12 @@ function ObjectSheet({
       note: note || null,
     };
 
+    // A same-device record of what's being submitted, kept after the draft is
+    // cleared — the only way a `done`/`violation` stop can be reopened
+    // read-only later (see VisitLogSheet). Recorded regardless of the
+    // online/offline path below: the marks are final either way.
+    saveVisitLog(inspectorId, stop.building_id, { status, marks, violationNotes, note });
+
     // Offline (or photos captured offline still pending upload): queue + mark.
     if (!isOnline() || offlinePhotos.length > 0) {
       const ok = enqueueVisit(payload, offlinePhotos, photos);
@@ -648,6 +821,9 @@ function ObjectSheet({
         setError(t("Не удалось сохранить офлайн — переполнено хранилище устройства."));
         return;
       }
+      // The visit now lives in the sync queue — the draft has done its job.
+      submitted.current = true;
+      clearDraft(inspectorId, stop.building_id);
       requestClose(() => onQueued(status));
       return;
     }
@@ -666,6 +842,8 @@ function ObjectSheet({
         const d = await r.json().catch(() => ({}));
         throw new Error(d.detail || t("Не удалось сохранить визит"));
       }
+      submitted.current = true;
+      clearDraft(inspectorId, stop.building_id);
       requestClose(onSaved);
     } catch {
       // POST failed (likely network) — queue it instead of losing the visit.
@@ -675,16 +853,13 @@ function ObjectSheet({
         setError(t("Не удалось сохранить — переполнено хранилище устройства."));
         return;
       }
+      submitted.current = true;
+      clearDraft(inspectorId, stop.building_id);
       requestClose(() => onQueued(status));
     } finally {
       setSaving(false);
     }
   }
-
-  const markedCount = checklist.filter((c) => marks[c.key]).length;
-  const allMarked = checklist.length === 0 || markedCount === checklist.length;
-  const hasViolation = checklist.some((c) => marks[c.key] === "violation");
-  const busy = saving || uploading;
 
   return (
     <div
@@ -705,7 +880,7 @@ function ObjectSheet({
         <div className="flex items-center gap-2 px-2 py-2">
           <button
             type="button"
-            onClick={() => requestClose()}
+            onClick={handleBack}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted transition-[color,background-color,scale] duration-[var(--dur-fast)] hover:bg-surface-2 hover:text-fg active:scale-[0.97]"
             aria-label={t("Назад к маршруту")}
           >
@@ -726,6 +901,22 @@ function ObjectSheet({
       {/* Scrollable body */}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
         <div className="mx-auto max-w-2xl space-y-5">
+          {/* Restored draft — the object was opened and left unfinished before */}
+          {showRestored && (
+            <Banner tone="info" icon={FileClock} title={t("Восстановлен черновик осмотра")}>
+              <span className="tabular">{draftSavedAt}</span> ·{" "}
+              {t("Отметки сохранены на устройстве. Фото нужно приложить заново.")}
+              <button
+                type="button"
+                onClick={resetDraft}
+                className="ml-1 inline-flex items-center gap-1 font-medium text-accent underline-offset-2 hover:underline"
+              >
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                {t("Начать заново")}
+              </button>
+            </Banner>
+          )}
+
           {/* Checklist */}
           {checklist.length > 0 && (
             <section>
@@ -739,40 +930,47 @@ function ObjectSheet({
                 {t("Отметьте каждый пункт: соответствует, нарушение или не применимо.")}
               </p>
               <div className="space-y-2">
-                {checklist.map((c) => {
+                {checklist.map((c, i) => {
                   const value = marks[c.key];
+                  const groupHeader = groupHeaderAt(checklist, i);
                   return (
-                    <div
-                      key={c.key}
-                      className={cn(
-                        "rounded-lg border px-3.5 py-2.5 transition-colors",
-                        value === "violation"
-                          ? "border-critical/40 bg-critical-bg"
-                          : "border-border bg-surface-2",
+                    <div key={c.key}>
+                      {groupHeader && (
+                        <SectionLabel className={cn(i > 0 && "mt-4", "mb-1.5")}>
+                          {groupHeader}
+                        </SectionLabel>
                       )}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm text-fg">{c.label}</p>
-                          {c.code && (
-                            <p className="mt-0.5 text-2xs tabular text-faint">{c.code}</p>
-                          )}
+                      <div
+                        className={cn(
+                          "rounded-lg border px-3.5 py-2.5 transition-colors",
+                          value === "violation"
+                            ? "border-critical/40 bg-critical-bg"
+                            : "border-border bg-surface-2",
+                        )}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm text-fg">{c.label}</p>
+                            {c.code && (
+                              <p className="mt-0.5 text-2xs tabular text-faint">{c.code}</p>
+                            )}
+                          </div>
+                          <ChecklistMarkControl
+                            value={value}
+                            onChange={(v) => setMark(c.key, v)}
+                          />
                         </div>
-                        <ChecklistMarkControl
-                          value={value}
-                          onChange={(v) => setMark(c.key, v)}
-                        />
+                        {value === "violation" && (
+                          <Input
+                            value={violationNotes[c.key] ?? ""}
+                            onChange={(e) =>
+                              setViolationNotes((n) => ({ ...n, [c.key]: e.target.value }))
+                            }
+                            placeholder={t("Что именно нарушено — детали для предписания")}
+                            className="mt-2.5 h-10"
+                          />
+                        )}
                       </div>
-                      {value === "violation" && (
-                        <Input
-                          value={violationNotes[c.key] ?? ""}
-                          onChange={(e) =>
-                            setViolationNotes((n) => ({ ...n, [c.key]: e.target.value }))
-                          }
-                          placeholder={t("Что именно нарушено — детали для предписания")}
-                          className="mt-2.5 h-10"
-                        />
-                      )}
                     </div>
                   );
                 })}
@@ -826,7 +1024,9 @@ function ObjectSheet({
                 ) : (
                   <Camera className="h-5 w-5" aria-hidden />
                 )}
-                <span className="text-2xs">{uploading ? t("Загрузка") : t("Добавить")}</span>
+                <span className="text-2xs">
+                  {compressing ? t("Сжатие") : uploading ? t("Загрузка") : t("Добавить")}
+                </span>
                 <input
                   type="file"
                   accept="image/*"
@@ -841,6 +1041,11 @@ function ObjectSheet({
                 />
               </label>
             </div>
+            {compressed > 0 && (
+              <p className="mt-2 text-2xs text-faint">
+                {t("Снимки с камеры сжаты для передачи — детали для акта сохранены.")}
+              </p>
+            )}
             {offlinePhotos.length > 0 && (
               <p className="mt-2 text-2xs text-elevated">
                 {t("Часть фото будет загружена при появлении связи.")}
@@ -880,7 +1085,248 @@ function ObjectSheet({
           </Button>
         </div>
       </footer>
+
+      {/* Leaving with unsaved marks — confirm, and say where the work went */}
+      {confirmClose && (
+        <div
+          className="absolute inset-0 z-10 flex items-end justify-center bg-bg/80 p-4 backdrop-blur-sm sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("Осмотр не завершён")}
+        >
+          <Card className="w-full max-w-md p-4">
+            <p className="text-[15px] font-semibold text-fg">{t("Осмотр не завершён")}</p>
+            <p className="mt-1.5 text-sm leading-relaxed text-muted">
+              <span className="tabular">
+                {markedCount} {t("из")} {checklist.length}
+              </span>{" "}
+              {t("отмечено")}.{" "}
+              {/* Обещаем ровно то, что действительно сохранится: отметки —
+                  да, фото — нет (они не помещаются в локальное хранилище). */}
+              {hasDraftContent && t("Черновик сохранён на устройстве — вы продолжите с этого места.")}{" "}
+              {photoCount > 0 && t("Приложенные фото придётся снять заново.")}
+            </p>
+            <div className="mt-4 space-y-2">
+              <Button size="lg" className="w-full" onClick={() => setConfirmClose(false)}>
+                <ClipboardCheck className="h-4 w-4" />
+                {t("Продолжить осмотр")}
+              </Button>
+              <Button
+                size="lg"
+                variant="secondary"
+                className="w-full"
+                onClick={() => {
+                  setConfirmClose(false);
+                  requestClose();
+                }}
+              >
+                <ArrowLeft className="h-4 w-4" />
+                {t("Выйти — черновик сохранён")}
+              </Button>
+              <Button
+                size="lg"
+                variant="ghost"
+                className="w-full"
+                onClick={() => {
+                  submitted.current = true;
+                  clearDraft(inspectorId, stop.building_id);
+                  setConfirmClose(false);
+                  requestClose();
+                }}
+              >
+                <X className="h-4 w-4" />
+                {t("Удалить отметки и выйти")}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
+  );
+}
+
+/* ───────────────────────────── VisitLogSheet ───────────────────── */
+
+/**
+ * Read-only view of an already-closed stop (`done`/`violation`), opened from
+ * the same StopCard used to record it. There is no server endpoint returning
+ * a submitted visit's checklist detail (out of scope here) — this reads the
+ * local record `save()` leaves on the device (see lib/offline.ts
+ * `saveVisitLog`), which covers the case that actually matters: checking your
+ * own morning's work before the shift ends. If the record isn't on this
+ * device (another device, or the cache was cleared), it says so honestly
+ * instead of pretending to show data it doesn't have.
+ */
+function VisitLogSheet({
+  stop,
+  checklist,
+  inspectorId,
+  onClose,
+}: {
+  stop: Stop;
+  checklist: ChecklistItem[];
+  inspectorId: number;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const { locale } = useLocale();
+  const { visible, requestClose } = useDismiss(onClose, 140);
+  const [record] = useState<VisitLogRecord | null>(() =>
+    readVisitLog(inspectorId, stop.building_id),
+  );
+  const scoreSev = scoreSeverity(stop.score);
+  const stopSeverity = STOP_STATUS_SEVERITY[stop.status];
+
+  const savedAt = record
+    ? new Date(record.savedAt).toLocaleString(intlLocale(locale), {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col bg-bg"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${t("Только просмотр")}: ${stop.address}`}
+      style={{
+        opacity: visible ? 1 : 0,
+        transform: visible ? "scale(1)" : "scale(0.97)",
+        transition: `opacity ${visible ? 200 : 140}ms var(--ease), transform ${
+          visible ? 200 : 140
+        }ms var(--ease)`,
+      }}
+    >
+      {/* Header */}
+      <header className="shrink-0 border-b border-border bg-surface">
+        <div className="flex items-center gap-2 px-2 py-2">
+          <button
+            type="button"
+            onClick={() => requestClose()}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted transition-[color,background-color,scale] duration-[var(--dur-fast)] hover:bg-surface-2 hover:text-fg active:scale-[0.97]"
+            aria-label={t("Назад к маршруту")}
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[15px] font-semibold text-fg">{stop.address}</p>
+            <p className="mt-0.5 flex items-center gap-1.5 text-xs text-faint">
+              <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              {t("Только просмотр")}
+            </p>
+          </div>
+          <StatusChip severity={stopSeverity} label={t(STOP_STATUS_LABEL[stop.status])} />
+          <ScoreBadge score={stop.score} severity={scoreSev} className="shrink-0" />
+        </div>
+      </header>
+
+      {/* Scrollable body */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+        <div className="mx-auto max-w-2xl space-y-5">
+          {!record ? (
+            <EmptyState
+              icon={FileClock}
+              title={t("Данные визита не сохранены на этом устройстве")}
+              description={t(
+                "Отметки чек-листа хранятся локально на устройстве, где выполнялся осмотр.",
+              )}
+            />
+          ) : (
+            <>
+              <Banner tone="info" icon={FileClock}>
+                {t("Сохранено")} · <span className="tabular">{savedAt}</span>
+              </Banner>
+
+              {checklist.length > 0 && (
+                <section>
+                  <SectionLabel className="mb-2">{t("Чек-лист осмотра")}</SectionLabel>
+                  <div className="space-y-2">
+                    {checklist.map((c, i) => {
+                      const value = record.marks[c.key];
+                      const groupHeader = groupHeaderAt(checklist, i);
+                      return (
+                        <div key={c.key}>
+                          {groupHeader && (
+                            <SectionLabel className={cn(i > 0 && "mt-4", "mb-1.5")}>
+                              {groupHeader}
+                            </SectionLabel>
+                          )}
+                          <div
+                            className={cn(
+                              "rounded-lg border px-3.5 py-2.5",
+                              value === "violation"
+                                ? "border-critical/40 bg-critical-bg"
+                                : "border-border bg-surface-2",
+                            )}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm text-fg">{c.label}</p>
+                                {c.code && (
+                                  <p className="mt-0.5 text-2xs tabular text-faint">{c.code}</p>
+                                )}
+                              </div>
+                              <MarkBadge value={value} />
+                            </div>
+                            {value === "violation" && record.violationNotes[c.key] && (
+                              <p className="mt-2 text-xs text-muted">
+                                {record.violationNotes[c.key]}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              {record.note && (
+                <section>
+                  <Field label={t("Примечание")}>
+                    <p className="text-sm text-fg">{record.note}</p>
+                  </Field>
+                </section>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Sticky footer — nothing to submit, just close */}
+      <footer
+        className="shrink-0 border-t border-border bg-surface px-4 pt-3"
+        style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+      >
+        <div className="mx-auto max-w-2xl">
+          <Button variant="secondary" size="xl" onClick={() => requestClose()} className="w-full">
+            {t("Закрыть")}
+          </Button>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+/** Static (non-interactive) rendering of one checklist item's recorded mark. */
+function MarkBadge({ value }: { value: MarkValue | undefined }) {
+  const t = useT();
+  if (!value) {
+    return <span className="shrink-0 text-2xs text-faint">{t("нет отметки")}</span>;
+  }
+  const meta = {
+    pass: { icon: Check, cls: "text-normal", label: "Соответствует" },
+    violation: { icon: X, cls: "text-critical", label: "Нарушение" },
+    na: { icon: Minus, cls: "text-muted", label: "Не применимо" },
+  }[value];
+  return (
+    <span className={cn("inline-flex shrink-0 items-center gap-1 text-xs font-medium", meta.cls)}>
+      <meta.icon className="h-4 w-4" aria-hidden />
+      {t(meta.label)}
+    </span>
   );
 }
 

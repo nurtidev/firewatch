@@ -24,10 +24,13 @@ DISTRICTS = [
     "Нуринский",
 ]
 
+# Третий элемент — username учётной записи, с которой связана строка реестра
+# (inspectors.user_id). Связь обязательна: по ней резолвится авторство акта
+# проверки, сопоставление по ФИО как правило доступа неприемлемо.
 INSPECTORS = [
-    ("Ахметов Д.К.", "Сарыаркинский"),
-    ("Сулейменова А.Б.", "Алматинский"),
-    ("Жунусов Е.М.", "Есильский"),
+    ("Ахметов Д.К.", "Сарыаркинский", "inspector"),
+    ("Сулейменова А.Б.", "Алматинский", None),
+    ("Жунусов Е.М.", "Есильский", None),
 ]
 
 
@@ -57,11 +60,28 @@ def main() -> None:
 
         existing = conn.execute(text("SELECT count(*) FROM inspectors")).scalar()
         if not existing:
-            for name, district in INSPECTORS:
+            for name, district, username in INSPECTORS:
                 conn.execute(
-                    text("INSERT INTO inspectors (name, district) VALUES (:n, :d)"),
-                    {"n": name, "d": district},
+                    text(
+                        "INSERT INTO inspectors (name, district, user_id) VALUES "
+                        "(:n, :d, (SELECT id FROM users WHERE username = :u))"
+                    ),
+                    {"n": name, "d": district, "u": username},
                 )
+
+        # Досвязка на случай, когда реестр засеян раньше учётных записей
+        # (порядок скриптов при развёртывании с нуля не гарантирован).
+        for name, district, username in INSPECTORS:
+            if not username:
+                continue
+            conn.execute(
+                text(
+                    "UPDATE inspectors SET user_id = u.id FROM users u "
+                    "WHERE u.username = :u AND inspectors.user_id IS NULL "
+                    "AND inspectors.name = :n AND inspectors.district = :d"
+                ),
+                {"u": username, "n": name, "d": district},
+            )
 
     print(f"seeded districts/last_inspected for {len(rows)} buildings, "
           f"{len(INSPECTORS)} inspectors")
