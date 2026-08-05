@@ -65,7 +65,10 @@ def stations(db: Session = Depends(get_db)) -> dict:
 def hydrants(db: Session = Depends(get_db)) -> dict:
     rows = db.execute(
         text(
-            "SELECT status, last_check, pressure_bar, diameter_mm, hydrant_type, "
+            # id обязателен: по нему гидрант адресуется с карты (пометка
+            # неисправности). Без него слой рисовался, но каждая точка была
+            # безымянной — действие над ней выполнить было нельзя.
+            "SELECT id, status, last_check, pressure_bar, diameter_mm, hydrant_type, "
             "ST_AsGeoJSON(geom) AS geom FROM hydrants"
         )
     ).mappings().all()
@@ -73,6 +76,7 @@ def hydrants(db: Session = Depends(get_db)) -> dict:
         rows,
         "geom",
         lambda r: {
+            "id": r["id"],
             "status": r["status"],
             "last_check": r["last_check"].isoformat() if r["last_check"] else None,
             # Operational specs (NULL until the water-utility feed is wired) — let

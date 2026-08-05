@@ -28,7 +28,14 @@ async function geojson(path: string) {
   }
 }
 
-export default function InfraMap() {
+export default function InfraMap({
+  onSelectHydrant,
+}: {
+  /** Клик по гидранту. Нужен там, где роль вправе менять его состояние:
+   *  начальник отдела ГПК видит неисправный гидрант на карте покрытия, и до
+   *  этого пометить его было негде — право на сервере было, кнопки не было. */
+  onSelectHydrant?: (h: { id: number; status: string }) => void;
+} = {}) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -109,6 +116,19 @@ export default function InfraMap() {
         },
       });
 
+      map.on("click", "hydrants", (e) => {
+        const p = e.features?.[0]?.properties;
+        if (p && onSelectHydrant) {
+          onSelectHydrant({ id: Number(p.id), status: String(p.status ?? "ok") });
+        }
+      });
+      map.on("mouseenter", "hydrants", () => {
+        if (onSelectHydrant) map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", "hydrants", () => {
+        map.getCanvas().style.cursor = "";
+      });
+
       const popup = new maplibregl.Popup({ closeButton: false, offset: 12 });
       map.on("mouseenter", "stations", (e) => {
         map.getCanvas().style.cursor = "pointer";
@@ -127,6 +147,7 @@ export default function InfraMap() {
     });
 
     return () => map.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return <div ref={containerRef} className="h-full w-full" />;

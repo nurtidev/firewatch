@@ -11,11 +11,12 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import AppShell from "@/components/AppShell";
-import { apiFetch } from "@/lib/auth";
+import { apiFetch, useAuth } from "@/lib/auth";
 import { SEVERITY } from "@/lib/risk";
 import { useT, useLocale, intlLocale } from "@/lib/i18n";
-import { SectionLabel, Skeleton } from "@/components/ui";
+import { SectionLabel, Skeleton, Button, StatusChip } from "@/components/ui";
 
 const InfraMap = dynamic(() => import("@/components/InfraMap"), { ssr: false });
 
@@ -67,6 +68,14 @@ const LEGEND_ITEMS = [
 export default function InfraPage() {
   const t = useT();
   const { locale } = useLocale();
+  const { user } = useAuth();
+  // Право менять состояние гидранта сервер даёт боевым ролям и начальнику
+  // отдела ГПК; leadership смотрит покрытие, но состоянием не распоряжается.
+  // Список обязан совпадать с require_roles в api/app/routers/infra.py.
+  const canMarkHydrant = user?.role === "supervisor" || user?.role === "admin";
+  const [selected, setSelected] = useState<{ id: number; status: string } | null>(null);
+  const [marking, setMarking] = useState(false);
+  const [markError, setMarkError] = useState<string | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [legendCollapsed, setLegendCollapsed] = useState(false);
 
@@ -78,6 +87,29 @@ export default function InfraPage() {
   }, []);
 
   const loading = stats === null;
+
+  const markHydrant = async (status: "ok" | "broken") => {
+    if (!selected) return;
+    setMarking(true);
+    setMarkError(null);
+    try {
+      const r = await apiFetch(`/infra/hydrants/${selected.id}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (!r.ok) throw new Error();
+      setSelected({ ...selected, status });
+      // Счётчик неисправных в шапке обязан обновиться сразу: ради него
+      // отметку и ставят.
+      const s = await apiFetch("/infra/stats");
+      if (s.ok) setStats(await s.json());
+    } catch {
+      setMarkError(t("Не удалось изменить состояние гидранта"));
+    } finally {
+      setMarking(false);
+    }
+  };
 
   return (
     <AppShell fullBleed>
@@ -174,7 +206,38 @@ export default function InfraPage() {
         </div>
       </div>
 
-      <InfraMap />
+      <InfraMap onSelectHydrant={canMarkHydrant ? setSelected : undefined} />
+      {canMarkHydrant && selected && (
+        <div className="border-t border-border bg-surface px-4 py-3">
+          <div className="mx-auto flex max-w-[1400px] flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <StatusChip
+                severity={selected.status === "broken" ? SEVERITY.critical : SEVERITY.normal}
+                label={t(selected.status === "broken" ? "Неисправен" : "Исправен")}
+              />
+              <span className="text-sm text-fg">
+                {t("Гидрант")} <span className="tabular">#{selected.id}</span>
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {markError && <span className="text-xs text-critical">{markError}</span>}
+              <Button
+                size="sm"
+                variant={selected.status === "broken" ? "success" : "danger"}
+                onClick={() => markHydrant(selected.status === "broken" ? "ok" : "broken")}
+                disabled={marking}
+              >
+                {marking && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                {t(selected.status === "broken" ? "Отметить исправным" : "Отметить неисправным")}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>
+                {t("Закрыть")}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </AppShell>
   );
 }
