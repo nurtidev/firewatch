@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
@@ -20,6 +20,29 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "FireWatch — МЧС РК",
   description: "Предиктивная аналитика пожарной безопасности — МЧС РК",
+  // Установка на домашний экран: инспектор работает в поле, и приложение
+  // должно запускаться без браузерной строки. iOS читает эти поля отдельно от
+  // манифеста, поэтому они дублируются здесь.
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "FireWatch",
+    statusBarStyle: "black-translucent",
+  },
+  formatDetection: { telephone: false },
+  // Next выводит только современный mobile-web-app-capable, но iOS до сих пор
+  // читает apple-префикс: без него приложение с домашнего экрана открывается
+  // в браузерной строке, а не полноэкранно.
+  other: { "apple-mobile-web-app-capable": "yes" },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0a0a0b",
+  // Экран в перчатках: масштабирование не запрещаем (это ломает доступность),
+  // но стартуем в 1:1, чтобы боевые экраны не открывались уменьшенными.
+  initialScale: 1,
+  width: "device-width",
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
