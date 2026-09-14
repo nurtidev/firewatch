@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from dataclasses import dataclass
 
 import httpx
@@ -45,6 +46,14 @@ REQUEST_TIMEOUT_SEC = 20.0
 # по умолчанию 100 — мы поднимаем его в compose), и большой квадрат считается
 # заметно дольше, чем полезен.
 MAX_GRID_POINTS = 2500
+
+# Калибровка перебирает до 200 выездов последовательно, по одному /route на
+# каждый. При зависшем OSRM и REQUEST_TIMEOUT_SEC=20 это до ~66 минут синхронно
+# в HTTP-обработчике — недопустимо для ручной GET-ручки. Общий бюджет времени:
+# по истечении калибровка останавливается и отдаёт то, что успела посчитать,
+# с explicit-флагом `truncated`, а не молча зависает или падает по таймауту
+# gateway.
+CALIBRATION_DEADLINE_SEC = 60.0
 
 
 @dataclass(frozen=True)
@@ -153,10 +162,24 @@ def reachable_points(center: Point, seconds: float, radius_m: float) -> list[Poi
     if len(grid) > MAX_GRID_POINTS:
         # Разрежаем сетку, а не молча обрезаем список: обрезанная сетка дала бы
         # зону в форме сектора — правдоподобную и неверную.
+        #
+        # Сетка двумерная: точек в ней ~ (radius/step)², то есть квадратично от
+        # шага. `grid[::factor]` берёт каждую factor-ю точку ПЛОСКОГО списка —
+        # это линейное прореживание, а нужно квадратичное. При мелком шаге
+        # (< ~170 м на радиусе 3.5 км×1.5) исходная сетка в разы больше
+        # MAX_GRID_POINTS, factor линейно её не догоняет, и итоговый запрос
+        # всё ещё превышает `--max-table-size` OSRM (по умолчанию 4000).
+        # Пересчитываем сетку с шагом, увеличенным в factor раз по каждой оси
+        # — площадь ячейки растёт как factor², итоговое число точек уже
+        # укладывается в лимит.
         factor = math.ceil(math.sqrt(len(grid) / MAX_GRID_POINTS))
-        grid = grid[::factor]
+        grid = _grid(center, radius_m, step * factor)
 
-    coords = ";".join(f"{p.lng},{p.lat}" for p in [center, *grid])
+    # Полная точность float (до ~17 значащих цифр) на координатах раздувает GET
+    # URL матрицы (до ~18 КБ на MAX_GRID_POINTS точек) без пользы: OSRM всё
+    # равно привязывает точку к ближайшему узлу графа. 6 знаков после запятой
+    # — это ~11 см, с большим запасом точнее шага сетки.
+    coords = ";".join(f"{p.lng:.6f},{p.lat:.6f}" for p in [center, *grid])
     try:
         r = httpx.get(
             f"{_base_url()}/table/v1/driving/{coords}",
@@ -200,7 +223,16 @@ def calibration(samples: list[tuple[Point, Point, float]]) -> dict:
     """
     ratios: list[float] = []
     outliers = 0
+    attempted = 0
+    truncated = False
+    deadline = time.monotonic() + CALIBRATION_DEADLINE_SEC
     for origin, dest, actual_sec in samples:
+        if time.monotonic() >= deadline:
+            # Завис или тормозит OSRM — не ждём оставшиеся выезды по 20 с
+            # каждый, отдаём то, что успели посчитать, и честно помечаем это.
+            truncated = True
+            break
+        attempted += 1
         r = route(origin, dest)
         if r is None or r.duration_s <= 0 or actual_sec <= 0:
             continue
@@ -217,19 +249,23 @@ def calibration(samples: list[tuple[Point, Point, float]]) -> dict:
     if not ratios:
         return {
             "samples": 0,
+            "attempted": attempted,
             "suggested_factor": None,
             "median_ratio": None,
             "outliers": outliers,
+            "truncated": truncated,
         }
     ratios.sort()
     mid = len(ratios) // 2
     median = ratios[mid] if len(ratios) % 2 else (ratios[mid - 1] + ratios[mid]) / 2
     return {
         "samples": used,
+        "attempted": attempted,
         "median_ratio": round(median, 2),
         "suggested_factor": round(median, 2),
         "min_ratio": round(ratios[0], 2),
         "max_ratio": round(ratios[-1], 2),
         "outliers": outliers,
+        "truncated": truncated,
         "current_factor": settings.routing_time_factor,
     }

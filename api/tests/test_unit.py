@@ -251,3 +251,107 @@ def test_calibration_without_samples_suggests_nothing(monkeypatch):
     out = R.calibration([(R.Point(71.4, 51.1), R.Point(71.5, 51.2), 300.0)])
     assert out["samples"] == 0
     assert out["suggested_factor"] is None
+
+
+def test_calibration_stops_at_deadline(monkeypatch):
+    """До 200 выездов последовательно, по /route на каждый: при зависшем OSRM
+    (REQUEST_TIMEOUT_SEC=20 на запрос) это была бы синхронная ручка на добрый
+    час. Общий бюджет времени обязан остановить перебор раньше и честно
+    пометить результат неполным, а не тихо досчитать всё до конца."""
+    import time
+
+    monkeypatch.setattr(R.settings, "routing_url", "http://osrm:5000")
+    monkeypatch.setattr(R, "CALIBRATION_DEADLINE_SEC", 0.05)
+
+    def _slow_route(a, b):
+        time.sleep(0.03)
+        return R.RouteResult(distance_m=1000, duration_s=300, geometry=None)
+
+    monkeypatch.setattr(R, "route", _slow_route)
+    p = R.Point(71.4, 51.1)
+    samples = [(p, p, 300.0)] * 10  # при 0.03с/выезд весь список занял бы 0.3с
+    out = R.calibration(samples)
+    assert out["truncated"] is True
+    assert out["attempted"] < len(samples)
+
+
+def test_calibration_not_truncated_within_deadline(monkeypatch):
+    monkeypatch.setattr(R.settings, "routing_url", "http://osrm:5000")
+    monkeypatch.setattr(
+        R, "route", lambda a, b: R.RouteResult(distance_m=1000, duration_s=300, geometry=None)
+    )
+    p = R.Point(71.4, 51.1)
+    out = R.calibration([(p, p, 300.0), (p, p, 300.0)])
+    assert out["truncated"] is False
+    assert out["attempted"] == 2
+
+
+# --- дорожная маршрутизация: сетка для матрицы /table ------------------------
+#
+# reachable_points шлёт матрицу времён в OSRM одним GET-запросом. Раньше при
+# сетке гуще MAX_GRID_POINTS прореживание (`grid[::factor]`) резало ПЛОСКИЙ
+# список, а сетка двумерная — число точек растёт квадратично от шага, так что
+# линейное прореживание не успевало за мелким шагом и запрос всё ещё превышал
+# лимит точек (и `--max-table-size` OSRM). Ниже проверяется, что итоговый
+# запрос всегда укладывается в потолок, а координаты не раздувают URL.
+
+
+class _FakeTableResp:
+    def __init__(self, n: int):
+        self._n = n
+
+    def raise_for_status(self) -> None:
+        pass
+
+    def json(self) -> dict:
+        # Все точки «достижимы» (duration=0) — тест смотрит на форму запроса,
+        # не на итоговую зону.
+        return {"code": "Ok", "durations": [[0.0] * self._n]}
+
+
+def _coords_from_table_url(url: str) -> list[str]:
+    # .../table/v1/driving/<coords> — координаты после последнего '/'.
+    return url.rsplit("/", 1)[-1].split(";")
+
+
+def test_reachable_points_thins_grid_quadratically(monkeypatch):
+    monkeypatch.setattr(R.settings, "routing_url", "http://osrm:5000")
+    monkeypatch.setattr(R.settings, "routing_grid_step_m", 100)  # мелкий шаг
+
+    captured: dict = {}
+
+    def _fake_get(url, params=None, timeout=None):
+        coords = _coords_from_table_url(url)
+        captured["n"] = len(coords)
+        return _FakeTableResp(len(coords))
+
+    monkeypatch.setattr(R.httpx, "get", _fake_get)
+
+    # Тот же радиус сетки, что rebuild_coverage берёт для реального норматива
+    # (полуторный от coverage_radius_m=3500) — на шаге 100 м сырая сетка в разы
+    # больше MAX_GRID_POINTS, прореживание обязано сработать.
+    points = R.reachable_points(R.Point(71.43, 51.13), seconds=600, radius_m=5250)
+
+    assert points is not None
+    assert captured["n"] <= R.MAX_GRID_POINTS + 1  # +1 — сам центр
+
+
+def test_reachable_points_rounds_coordinates(monkeypatch):
+    monkeypatch.setattr(R.settings, "routing_url", "http://osrm:5000")
+
+    captured: dict = {}
+
+    def _fake_get(url, params=None, timeout=None):
+        coords = _coords_from_table_url(url)
+        captured["coords"] = coords
+        return _FakeTableResp(len(coords))
+
+    monkeypatch.setattr(R.httpx, "get", _fake_get)
+
+    R.reachable_points(R.Point(71.123456789, 51.987654321), seconds=600, radius_m=500)
+
+    for pair in captured["coords"]:
+        lng_s, lat_s = pair.split(",")
+        for s in (lng_s, lat_s):
+            frac = s.split(".")[1] if "." in s else ""
+            assert len(frac) <= 6, f"координата не округлена: {s}"

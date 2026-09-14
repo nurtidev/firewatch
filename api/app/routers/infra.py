@@ -94,13 +94,38 @@ def _normative_seconds() -> int:
 
 
 def _has_isochrones(db: Session) -> bool:
-    """Есть ли рассчитанные зоны по дорогам под текущий норматив."""
+    """Есть ли рассчитанные зоны по дорогам под текущий норматив (хотя бы одна)."""
     return bool(
         db.execute(
             text("SELECT 1 FROM station_isochrones WHERE seconds = :s LIMIT 1"),
             {"s": _normative_seconds()},
         ).scalar()
     )
+
+
+def _stations_missing_isochrones(db: Session, seconds: int) -> list[dict]:
+    """Части без текущей изохроны — новые, или у которых пересчёт не удался.
+
+    Их зона не должна тихо превращаться в «слепую»: вызывающий обязан
+    подставить для них буфер и честно поднять `approximate`.
+    """
+    return db.execute(
+        text(
+            """
+            SELECT s.id, s.name, ST_Y(s.geom) AS lat, ST_X(s.geom) AS lng
+              FROM fire_stations s
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM station_isochrones i
+                  WHERE i.station_id = s.id AND i.seconds = :sec
+             )
+            """
+        ),
+        {"sec": seconds},
+    ).mappings().all()
+
+
+def _stations_total(db: Session) -> int:
+    return db.execute(text("SELECT count(*) FROM fire_stations")).scalar() or 0
 
 
 @router.get("/coverage")
@@ -117,6 +142,11 @@ def coverage(db: Session = Depends(get_db)) -> dict:
       железную дорогу и закрытые кварталы, то есть систематически завышает
       покрытие. На таком слое нельзя строить вывод «район прикрыт», и ответ
       об этом говорит прямо.
+
+    Смешанный случай — у части частей изохрона есть, у части нет (новая
+    часть, или последний пересчёт для неё не удался) — тоже помечается
+    `approximate: true`, а недостающие части рисуются буфером поверх слоя
+    изохрон; `stations_missing_isochrones` называет их число.
     """
     seconds = _normative_seconds()
     if _has_isochrones(db):
@@ -142,7 +172,29 @@ def coverage(db: Session = Depends(get_db)) -> dict:
                 "source": r["source"],
             },
         )
-        fc["approximate"] = False
+
+        # Часть без текущей изохроны (новая, или пересчёт для неё не удался)
+        # не должна пропадать с карты и не должна тихо читаться как «зона
+        # недостижима»: подставляем для неё прямолинейный буфер и признаём
+        # покрытие приблизительным в целом.
+        missing = _stations_missing_isochrones(db, seconds)
+        if missing:
+            buffer_rows = db.execute(
+                text(
+                    "SELECT name, "
+                    "ST_AsGeoJSON(ST_Buffer(geom::geography, :r)::geometry) AS geom "
+                    "FROM fire_stations WHERE id = ANY(:ids)"
+                ),
+                {"r": settings.coverage_radius_m, "ids": [s["id"] for s in missing]},
+            ).mappings().all()
+            fc["features"].extend(
+                _fc(buffer_rows, "geom", lambda r: {"name": r["name"], "source": "buffer"})[
+                    "features"
+                ]
+            )
+
+        fc["approximate"] = bool(missing)
+        fc["stations_missing_isochrones"] = len(missing)
         fc["normative_sec"] = seconds
         # Роутер считает по свободному потоку: заторы, гололёд и разъезд во
         # дворе в это время не входят. Зона по дорогам точнее круга по форме
@@ -163,6 +215,7 @@ def coverage(db: Session = Depends(get_db)) -> dict:
     ).mappings().all()
     fc = _fc(rows, "geom", lambda r: {"name": r["name"], "source": "buffer"})
     fc["approximate"] = True  # straight-line buffer, not a road isochrone
+    fc["stations_missing_isochrones"] = _stations_total(db)
     fc["normative_sec"] = seconds
     return fc
 
@@ -272,6 +325,19 @@ def rebuild_coverage(
         )
         if not points:
             failed.append(st["name"])
+            # Не оставляем прошлую изохрону висеть как будто актуальную:
+            # /coverage, /blind-zones и /stats отличают «зона посчитана» от
+            # «нет строки» и сами подставляют буфер для второго случая —
+            # это тот же честный фолбэк, что и для новой части, у которой
+            # изохроны никогда не было. Простое удаление (а не новый флаг
+            # is_stale в схеме) переиспользует этот путь, а не добавляет
+            # второй источник правды о свежести данных.
+            db.execute(
+                text(
+                    "DELETE FROM station_isochrones WHERE station_id = :sid AND seconds = :sec"
+                ),
+                {"sid": st["id"], "sec": seconds},
+            )
             continue
 
         wkt = "MULTIPOINT(" + ",".join(f"{p.lng} {p.lat}" for p in points) + ")"
@@ -324,19 +390,31 @@ def rebuild_coverage(
     return {"built": built, "failed": failed, "seconds": seconds}
 
 
-# Здание вне норматива. Два варианта одного вопроса «доедут ли за 10 минут»:
-# по дорогам (изохрона) и по прямой (буфер). Пороги совпадать не обязаны —
-# и не совпадают: по дорогам вне норматива всегда больше зданий.
-_BLIND_BY_ISOCHRONE = """
+# Здание вне норматива, если оно не попадает ни в одну изохрону, И не
+# попадает в буфер ни одной части, у которой изохроны нет (новая часть, или
+# пересчёт для неё не удался). Вторая часть условия — это и есть «буферный
+# фолбэк только для недостающих частей»: часть с посчитанной изохроной здесь
+# не участвует, так что уже покрытая по дорогам территория буфером не
+# перекрывается и не подменяется более грубой оценкой.
+#
+# Формула автоматически схлопывается до прежних частных случаев: если
+# изохрон вообще нет, первое условие истинно всегда и здание слепо ровно
+# тогда, когда оно вне буфера любой части (старое поведение без роутера);
+# если изохроны есть у всех частей, второе условие истинно всегда (нет
+# «недостающих» частей) и здание слепо ровно тогда, когда оно вне всех
+# изохрон (старое поведение с полным роутером).
+_BLIND_ZONE_CLAUSE = """
     NOT EXISTS (
         SELECT 1 FROM station_isochrones i
         WHERE i.seconds = :sec AND ST_Intersects(i.geom, b.geom)
     )
-"""
-_BLIND_BY_BUFFER = """
-    NOT EXISTS (
+    AND NOT EXISTS (
         SELECT 1 FROM fire_stations s
         WHERE ST_DWithin(b.geom::geography, s.geom::geography, :r)
+          AND NOT EXISTS (
+              SELECT 1 FROM station_isochrones i2
+              WHERE i2.station_id = s.id AND i2.seconds = :sec
+          )
     )
 """
 
@@ -345,14 +423,14 @@ _BLIND_BY_BUFFER = """
 def blind_zones(db: Session = Depends(get_db)) -> dict:
     """Здания, до которых караул не успевает за норматив.
 
-    Считается по дорожным изохронам, если они рассчитаны; иначе — по прямой,
-    и тогда список заведомо неполон (по дорогам недостижимых всегда больше).
+    Считается по дорожным изохронам там, где они рассчитаны; для частей без
+    текущей изохроны (новых или с неудавшимся пересчётом) — по прямолинейному
+    буферу, а не «здание недостижимо», раз мы просто не знаем зону этой
+    части. Если изохрон нет вообще ни у одной части, это совпадает с прежним
+    поведением на чистом буфере.
     """
-    road = _has_isochrones(db)
-    clause = _BLIND_BY_ISOCHRONE if road else _BLIND_BY_BUFFER
-    params = (
-        {"sec": _normative_seconds()} if road else {"r": settings.coverage_radius_m}
-    )
+    seconds = _normative_seconds()
+    missing = _stations_missing_isochrones(db, seconds)
     rows = db.execute(
         text(
             f"""
@@ -360,28 +438,27 @@ def blind_zones(db: Session = Depends(get_db)) -> dict:
                    ST_AsGeoJSON(ST_Centroid(b.geom)) AS geom
             FROM buildings b
             LEFT JOIN risk_scores r ON r.building_id = b.id
-            WHERE {clause}
+            WHERE {_BLIND_ZONE_CLAUSE}
             LIMIT 4000
             """
         ),
-        params,
+        {"sec": seconds, "r": settings.coverage_radius_m},
     ).mappings().all()
     fc = _fc(
         rows,
         "geom",
         lambda r: {"id": r["id"], "address": r["address"], "score": r["score"]},
     )
-    fc["approximate"] = not road
+    fc["approximate"] = bool(missing)
+    fc["stations_missing_isochrones"] = len(missing)
     return fc
 
 
 @router.get("/stats")
 def stats(db: Session = Depends(get_db)) -> dict:
+    seconds = _normative_seconds()
+    missing = _stations_missing_isochrones(db, seconds)
     road = _has_isochrones(db)
-    clause = _BLIND_BY_ISOCHRONE if road else _BLIND_BY_BUFFER
-    params = (
-        {"sec": _normative_seconds()} if road else {"r": settings.coverage_radius_m}
-    )
     row = db.execute(
         text(
             f"""
@@ -390,10 +467,10 @@ def stats(db: Session = Depends(get_db)) -> dict:
                 (SELECT count(*) FROM hydrants) AS hydrants,
                 (SELECT count(*) FROM hydrants WHERE status = 'broken') AS broken,
                 (SELECT count(*) FROM buildings) AS total_buildings,
-                (SELECT count(*) FROM buildings b WHERE {clause}) AS blind
+                (SELECT count(*) FROM buildings b WHERE {_BLIND_ZONE_CLAUSE}) AS blind
             """
         ),
-        params,
+        {"sec": seconds, "r": settings.coverage_radius_m},
     ).mappings().first()
 
     total = row["total_buildings"] or 1
@@ -413,9 +490,11 @@ def stats(db: Session = Depends(get_db)) -> dict:
         "blind_pct": round(100.0 * row["blind"] / total, 1),
         "coverage_radius_m": settings.coverage_radius_m,
         "normative_min": settings.arrival_normative_min,
-        # Без изохрон покрытие считается по прямой и завышено: реальная
-        # достижимость по дорогам всегда хуже круга. См. /coverage.
-        "approximate": not road,
+        # Приблизительно, если изохрон нет вообще (круг завышает покрытие —
+        # см. /coverage) ИЛИ они есть не у всех частей: тогда часть слепых
+        # зданий на самом деле лишь «не посчитаны», а не «недостижимы».
+        "approximate": (not road) or bool(missing),
+        "stations_missing_isochrones": len(missing),
         "coverage_source": "osrm" if road else "buffer",
         "coverage_computed_at": computed_at.isoformat() if computed_at else None,
         # Оба источника завышают покрытие, но по-разному: круг — потому что
