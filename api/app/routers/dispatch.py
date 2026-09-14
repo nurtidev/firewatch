@@ -16,6 +16,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.audit import audit, client_ip
@@ -1470,6 +1471,14 @@ class PositionCreate(BaseModel):
     lng: float | None = Field(None, ge=-180, le=180)
     note: str | None = Field(None, max_length=500)
     vehicle_id: int | None = None
+    # Идентификатор, выданный устройством (миграция 0021). Нужен позициям,
+    # поставленным без связи: по нему повтор доставки узнаётся как тот же
+    # ствол, а не как второй, и по нему же клиент находит свою позицию в
+    # ответе, чтобы дальше двигать её уже по серверному id.
+    client_uid: str | None = Field(None, min_length=1, max_length=64)
+    # Время постановки по часам устройства. Отличается от created_at только
+    # там, где связь пропадала: «ствол подан в 14:32, запись в 14:51».
+    placed_at: datetime | None = None
     # Расстановка внутри здания. Координаты — доля от габарита плана (0..1),
     # а не пиксели: план рисуется в разном масштабе (планшет, десктоп,
     # экспорт в донесение), и пиксельная координата «поехала» бы при первом
@@ -1548,6 +1557,7 @@ def _deployment(db: Session, callout_id: int) -> list[dict]:
             """
             SELECT p.id, p.kind, p.phase, p.sector, p.note, p.vehicle_id,
                    p.floor, p.plan_x, p.plan_y, p.heading,
+                   p.client_uid, p.placed_at,
                    v.callsign AS vehicle_callsign,
                    ST_Y(p.geom) AS lat, ST_X(p.geom) AS lng,
                    p.created_by, p.created_at
@@ -1574,6 +1584,8 @@ def _deployment(db: Session, callout_id: int) -> list[dict]:
             "vehicle_callsign": r["vehicle_callsign"],
             "lat": r["lat"],
             "lng": r["lng"],
+            "client_uid": r["client_uid"],
+            "placed_at": _iso(r["placed_at"]),
             "created_by": r["created_by"],
             "created_at": _iso(r["created_at"]),
         }
@@ -1597,19 +1609,16 @@ def get_deployment(
     }
 
 
-@router.post("/{callout_id}/deployment")
-def add_position(
-    callout_id: int,
-    body: PositionCreate,
-    request: Request,
-    db: Session = Depends(get_db),
-    user: dict = Depends(OPS_ROLES),
-) -> list[dict]:
-    """Поставить позицию в план развёртывания."""
-    row = _fetch_callout(db, callout_id)
-    if row["status"] != "active":
-        raise HTTPException(409, "Выезд закрыт — расстановка не меняется")
+def _insert_position(
+    db: Session, callout_id: int, body: PositionCreate, username: str | None
+) -> int | None:
+    """Вставить позицию. None — такой client_uid на выезде уже есть.
 
+    Доставка очереди расстановки — at-least-once: POST мог закоммититься и не
+    донести ответ (в поле это обычный случай, а не редкость). Повтор с тем же
+    client_uid обязан быть безвредным, иначе после каждого разрыва связи на
+    плане появлялся бы второй ствол в той же точке.
+    """
     if body.vehicle_id is not None:
         exists = db.execute(
             text("SELECT 1 FROM station_vehicles WHERE id = :id"), {"id": body.vehicle_id}
@@ -1622,14 +1631,18 @@ def add_position(
         if body.lat is not None
         else "NULL"
     )
-    new_id = db.execute(
+    return db.execute(
         text(
             f"""
             INSERT INTO deployment_positions
                 (callout_id, kind, phase, sector, geom, note, vehicle_id,
-                 floor, plan_x, plan_y, heading, created_by)
+                 floor, plan_x, plan_y, heading, client_uid, placed_at, created_by)
             VALUES (:cid, :kind, :phase, :sector, {geom}, :note, :vid,
-                    :floor, :plan_x, :plan_y, :heading, :by)
+                    :floor, :plan_x, :plan_y, :heading, :uid, :placed_at, :by)
+            -- Предикат обязателен: индекс частичный (позиции с пульта
+            -- client_uid не имеют, и их NULL'ы не конфликтуют между собой).
+            ON CONFLICT (callout_id, client_uid) WHERE client_uid IS NOT NULL
+                DO NOTHING
             RETURNING id
             """
         ),
@@ -1646,9 +1659,27 @@ def add_position(
             "plan_x": body.plan_x,
             "plan_y": body.plan_y,
             "heading": body.heading,
-            "by": user.get("username"),
+            "uid": body.client_uid,
+            "placed_at": body.placed_at,
+            "by": username,
         },
     ).scalar()
+
+
+@router.post("/{callout_id}/deployment")
+def add_position(
+    callout_id: int,
+    body: PositionCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(OPS_ROLES),
+) -> list[dict]:
+    """Поставить позицию в план развёртывания."""
+    row = _fetch_callout(db, callout_id)
+    if row["status"] != "active":
+        raise HTTPException(409, "Выезд закрыт — расстановка не меняется")
+
+    new_id = _insert_position(db, callout_id, body, user.get("username"))
     db.commit()
 
     audit(
@@ -1663,6 +1694,50 @@ def add_position(
                 "kind": body.kind, "phase": body.phase},
     )
     return _deployment(db, callout_id)
+
+
+def _update_position_row(
+    db: Session, callout_id: int, position_id: int, body: "PositionPatch"
+) -> bool:
+    """Применить правку к позиции. False — позиции на этом выезде нет.
+
+    «Нет» здесь не ошибка клиента: пока РТП был без связи, диспетчер мог
+    снять эту позицию с пульта. Решение, что с этим делать, принимает
+    вызывающий: одиночный PATCH отвечает 404, синхронизация очереди —
+    откладывает позицию в отвергнутые и продолжает с остальными.
+    """
+    exists = db.execute(
+        text("SELECT 1 FROM deployment_positions WHERE id = :pid AND callout_id = :cid"),
+        {"pid": position_id, "cid": callout_id},
+    ).scalar()
+    if not exists:
+        return False
+
+    # `id` приходит в теле только у батча синхронизации — это адрес строки,
+    # а не изменяемое поле.
+    patch = body.model_dump(exclude_unset=True)
+    patch.pop("id", None)
+    sets: list[str] = []
+    params: dict = {"pid": position_id}
+
+    # Географическая точка собирается из пары координат, остальное — как есть.
+    lat, lng = patch.pop("lat", None), patch.pop("lng", None)
+    if "lat" in body.model_fields_set:
+        if lat is None:
+            sets.append("geom = NULL")
+        else:
+            sets.append("geom = ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)")
+            params.update(lat=lat, lng=lng)
+    for key, value in patch.items():
+        sets.append(f"{key} = :{key}")
+        params[key] = value
+
+    if sets:
+        db.execute(
+            text(f"UPDATE deployment_positions SET {', '.join(sets)} WHERE id = :pid"),
+            params,
+        )
+    return True
 
 
 @router.patch("/{callout_id}/deployment/{position_id}")
@@ -1684,39 +1759,9 @@ def update_position(
     if row["status"] != "active":
         raise HTTPException(409, "Выезд закрыт — расстановка не меняется")
 
-    exists = db.execute(
-        text(
-            "SELECT 1 FROM deployment_positions WHERE id = :pid AND callout_id = :cid"
-        ),
-        {"pid": position_id, "cid": callout_id},
-    ).scalar()
-    if not exists:
+    if not _update_position_row(db, callout_id, position_id, body):
         raise HTTPException(404, "Позиция не найдена")
-
-    patch = body.model_dump(exclude_unset=True)
-    sets: list[str] = []
-    params: dict = {"pid": position_id}
-
-    # Географическая точка собирается из пары координат, остальное — как есть.
-    lat, lng = patch.pop("lat", None), patch.pop("lng", None)
-    if "lat" in body.model_fields_set:
-        if lat is None:
-            sets.append("geom = NULL")
-        else:
-            sets.append("geom = ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)")
-            params.update(lat=lat, lng=lng)
-    for key, value in patch.items():
-        sets.append(f"{key} = :{key}")
-        params[key] = value
-
-    if sets:
-        db.execute(
-            text(
-                f"UPDATE deployment_positions SET {', '.join(sets)} WHERE id = :pid"
-            ),
-            params,
-        )
-        db.commit()
+    db.commit()
 
     audit(
         action="callout.deployment_moved",
@@ -1763,6 +1808,232 @@ def delete_position(
         detail={"callout_id": callout_id, "position_id": position_id},
     )
     return _deployment(db, callout_id)
+
+
+class SyncCreate(PositionCreate):
+    """Постановка позиции из очереди устройства.
+
+    Отличие от обычной — client_uid обязателен: без него повторную доставку
+    той же позиции не отличить от второго ствола, поставленного рядом.
+    """
+
+    client_uid: str = Field(min_length=1, max_length=64)
+
+
+class SyncPatch(PositionPatch):
+    """Правка позиции из очереди: та же, что и одиночная, плюс адрес строки."""
+
+    id: int
+
+    @model_validator(mode="after")
+    def _beside_id(self) -> "SyncPatch":
+        if not (self.model_fields_set - {"id"}):
+            raise ValueError("укажите хотя бы одно поле кроме id")
+        return self
+
+
+# Потолок батча. Расстановка на крупном пожаре — это десятки позиций; двести
+# с запасом покрывают долгий перерыв связи и при этом не дают одному запросу
+# занять плохой канал на минуту.
+SYNC_MAX_ITEMS = 200
+
+
+class DeploymentSync(BaseModel):
+    """Очередь расстановки, накопленная устройством без связи.
+
+    Клиент присылает не журнал жестов, а конечное состояние: позиция,
+    поставленная и пять раз подвинутая без связи, приходит одним `create` с
+    итоговыми координатами. Поэтому здесь нет ни порядка операций, ни правок
+    для ещё не созданных позиций — только три независимых списка.
+    """
+
+    creates: list[SyncCreate] = Field(default_factory=list)
+    patches: list[SyncPatch] = Field(default_factory=list)
+    deletes: list[int] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _bounded(self) -> "DeploymentSync":
+        total = len(self.creates) + len(self.patches) + len(self.deletes)
+        if total == 0:
+            raise ValueError("пустая синхронизация")
+        if total > SYNC_MAX_ITEMS:
+            raise ValueError(f"за один раз не больше {SYNC_MAX_ITEMS} операций")
+        return self
+
+
+@router.post("/{callout_id}/deployment/sync")
+def sync_deployment(
+    callout_id: int,
+    body: DeploymentSync,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(OPS_ROLES),
+) -> dict:
+    """Принять расстановку, накопленную устройством без связи.
+
+    Один запрос вместо N поштучных — не ради экономии трафика: связь на
+    пожаре появляется на секунды, и очередь из пятнадцати запросов успевает
+    уйти наполовину, оставив расстановку в состоянии, которого не было ни на
+    плане РТП, ни в замысле.
+
+    Каждая позиция применяется в своём savepoint: одна отвергнутая (её сняли
+    с пульта, пока связи не было) не должна утянуть за собой остальные.
+    Клиент получает поимённый разбор — что принято, что нет и почему, — и
+    показывает отвергнутое РТП, а не молча теряет.
+
+    Закрытый выезд отвергается целиком, ответом 409: силами закрытого выезда
+    уже не распоряжаются, и разбирать такую очередь по одной позиции незачем.
+    """
+    row = _fetch_callout(db, callout_id)
+    if row["status"] != "active":
+        raise HTTPException(409, "Выезд закрыт — расстановка не меняется")
+
+    username = user.get("username")
+    role = user.get("role")
+    ip = client_ip(request)
+    path = f"/dispatch/{callout_id}/deployment/sync"
+    applied: list[str] = []
+    rejected: list[dict] = []
+    # Аудит пишется своим соединением, поэтому события копятся и уходят после
+    # коммита: запись о позиции, которую откатили, хуже отсутствия записи.
+    events: list[tuple[str, dict]] = []
+
+    for item in body.creates:
+        try:
+            with db.begin_nested():
+                new_id = _insert_position(db, callout_id, item, username)
+        except HTTPException as err:
+            rejected.append({"key": item.client_uid, "reason": str(err.detail)})
+            continue
+        except SQLAlchemyError:
+            rejected.append({"key": item.client_uid, "reason": "Позиция не записана"})
+            continue
+        applied.append(item.client_uid)
+        # new_id is None — эту позицию уже приняли в прошлый раз, и запись о
+        # ней в журнале есть; второй раз она бы выглядела как второй ствол.
+        if new_id is not None:
+            events.append((
+                "callout.deployment_added",
+                {"callout_id": callout_id, "position_id": new_id, "kind": item.kind,
+                 "phase": item.phase, "via": "sync",
+                 "placed_at": _iso(item.placed_at)},
+            ))
+
+    for patch in body.patches:
+        key = f"srv:{patch.id}"
+        try:
+            with db.begin_nested():
+                found = _update_position_row(db, callout_id, patch.id, patch)
+        except SQLAlchemyError:
+            rejected.append({"key": key, "reason": "Правка не применена"})
+            continue
+        if not found:
+            rejected.append({"key": key, "reason": "Позиция снята — правка не применена"})
+            continue
+        applied.append(key)
+        events.append((
+            "callout.deployment_moved",
+            {"callout_id": callout_id, "position_id": patch.id, "via": "sync",
+             "fields": sorted(patch.model_fields_set - {"id"})},
+        ))
+
+    for position_id in body.deletes:
+        key = f"srv:{position_id}"
+        try:
+            with db.begin_nested():
+                deleted = db.execute(
+                    text(
+                        "DELETE FROM deployment_positions "
+                        "WHERE id = :pid AND callout_id = :cid RETURNING id"
+                    ),
+                    {"pid": position_id, "cid": callout_id},
+                ).scalar()
+        except SQLAlchemyError:
+            rejected.append({"key": key, "reason": "Позиция не снята"})
+            continue
+        # Позиции уже нет — цель снятия достигнута, повторять нечего.
+        applied.append(key)
+        if deleted is not None:
+            events.append((
+                "callout.deployment_removed",
+                {"callout_id": callout_id, "position_id": position_id, "via": "sync"},
+            ))
+
+    db.commit()
+
+    for action, detail in events:
+        audit(
+            action=action,
+            username=username,
+            role=role,
+            method="POST",
+            path=path,
+            status_code=200,
+            ip=ip,
+            detail=detail,
+        )
+    # Сводка отдельной записью: по ней в разборе видно, сколько времени
+    # расстановка велась вслепую и что из неё не дошло.
+    placed = [c.placed_at for c in body.creates if c.placed_at is not None]
+    audit(
+        action="callout.deployment_synced",
+        username=username,
+        role=role,
+        method="POST",
+        path=path,
+        status_code=200,
+        ip=ip,
+        detail={
+            "callout_id": callout_id,
+            "applied": len(applied),
+            "rejected": len(rejected),
+            "oldest_placed_at": _iso(min(placed)) if placed else None,
+        },
+    )
+
+    return {
+        "positions": _deployment(db, callout_id),
+        "applied": applied,
+        "rejected": rejected,
+    }
+
+
+@router.post("/{callout_id}/report/export")
+def export_report(
+    callout_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(VIEW_ROLES),
+) -> dict:
+    """Отметить выгрузку донесения о пожаре в журнале.
+
+    Сам документ собирается на клиенте: схема расстановки рисуется той же
+    геометрией плана, что и на планшете РТП, и печатается через браузер —
+    вектором, а не скриншотом. Сервер в этом не участвует, но знать о факте
+    выгрузки обязан: донесение уходит в дело, и «кто и когда его выгрузил»
+    разбирают наравне с содержанием.
+
+    Выезд не обязан быть закрытым: штабу схема нужна по ходу тушения, и такой
+    документ печатается с пометкой «предварительно». Отметка в журнале
+    сохраняет этот статус — по ней видно, что выгружали незавершённое.
+    """
+    row = _fetch_callout(db, callout_id)
+
+    audit(
+        action="callout.report_exported",
+        username=user.get("username"),
+        role=user.get("role"),
+        method="POST",
+        path=f"/dispatch/{callout_id}/report/export",
+        status_code=200,
+        ip=client_ip(request),
+        detail={
+            "callout_id": callout_id,
+            "callout_status": row["status"],
+            "preliminary": row["status"] == "active",
+        },
+    )
+    return {"ok": True, "preliminary": row["status"] == "active"}
 
 
 @router.get("/live")

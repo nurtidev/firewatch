@@ -9,8 +9,19 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Flame, CloudFog, BellRing, CircleHelp } from "lucide-react";
+import {
+  Flame,
+  CloudFog,
+  BellRing,
+  CircleHelp,
+  ShieldHalf,
+  Truck,
+  Minus,
+  Radio,
+  Users,
+} from "lucide-react";
 import { apiFetch } from "./auth";
+import { cachedAtOf } from "./sw";
 import { intlLocale, type Locale } from "./i18n";
 import { SEVERITY, type SeverityMeta } from "./risk";
 import type { ReportCategory, ReportStatus } from "./reports";
@@ -75,6 +86,11 @@ export const TIMELINE_STEP_LABEL: Record<TimelineStep, string> = {
   localized_at: "Локализация",
   extinguished_at: "Ликвидация",
 };
+
+/** Норматив прибытия в городе — 10 минут (Закон «О гражданской защите»).
+ *  Показывается как сравнение, а не как оценка работы караула: причина
+ *  превышения (перекрытый проезд, пробка) видна не в цифре, а в донесениях. */
+export const RESPONSE_NORM_SEC = 600;
 
 export type Callout = {
   id: number;
@@ -279,18 +295,84 @@ export const POSITION_KINDS = [
 ] as const;
 export type PositionKind = (typeof POSITION_KINDS)[number];
 
-/** Стволы на тушение и на защиту разделены не для красоты: методика даёт для
- *  них разные величины (Qт и Qз), и сверять факт с расчётом можно только
- *  раздельно. */
-export const POSITION_KIND_META: Record<PositionKind, { label: string; short: string }> = {
-  barrel_ext: { label: "Ствол на тушение", short: "Ств. туш." },
-  barrel_def: { label: "Ствол на защиту", short: "Ств. защ." },
-  vehicle: { label: "Позиция машины", short: "Машина" },
-  checkpoint: { label: "Рубеж локализации", short: "Рубеж" },
-  hq: { label: "Штаб пожаротушения", short: "Штаб" },
-  ladder: { label: "Автолестница", short: "АЛ" },
-  other: { label: "Прочее", short: "Проч." },
+/**
+ * Стволы на тушение и на защиту разделены не для красоты: методика даёт для
+ * них разные величины (Qт и Qз), и сверять факт с расчётом можно только
+ * раздельно.
+ *
+ * Иконка и цвет живут здесь, а не в компоненте схемы: одна и та же позиция
+ * рисуется на боевом планшете и в донесении о пожаре, и разойтись они не
+ * имеют права — по донесению потом разбирают выезд.
+ *
+ * `directional` — есть ли у позиции направление работы: у ствола есть, у
+ * штаба и рубежа нет, и предлагать поворот там значило бы спрашивать о том,
+ * чего не существует.
+ */
+export const POSITION_KIND_META: Record<
+  PositionKind,
+  { label: string; short: string; icon: LucideIcon; cssVar: string; directional: boolean }
+> = {
+  barrel_ext: {
+    label: "Ствол на тушение",
+    short: "Ств. туш.",
+    icon: Flame,
+    cssVar: SEVERITY.critical.cssVar,
+    directional: true,
+  },
+  barrel_def: {
+    label: "Ствол на защиту",
+    short: "Ств. защ.",
+    icon: ShieldHalf,
+    cssVar: SEVERITY.elevated.cssVar,
+    directional: true,
+  },
+  vehicle: {
+    label: "Позиция машины",
+    short: "Машина",
+    icon: Truck,
+    cssVar: SEVERITY.info.cssVar,
+    directional: false,
+  },
+  checkpoint: {
+    label: "Рубеж локализации",
+    short: "Рубеж",
+    icon: Minus,
+    cssVar: SEVERITY.high.cssVar,
+    directional: false,
+  },
+  hq: {
+    label: "Штаб пожаротушения",
+    short: "Штаб",
+    icon: Radio,
+    cssVar: SEVERITY.normal.cssVar,
+    directional: false,
+  },
+  ladder: {
+    label: "Автолестница",
+    short: "АЛ",
+    icon: Users,
+    cssVar: SEVERITY.info.cssVar,
+    directional: true,
+  },
+  other: {
+    label: "Прочее",
+    short: "Проч.",
+    icon: CircleHelp,
+    cssVar: SEVERITY.info.cssVar,
+    directional: false,
+  },
 };
+
+/** Порядок инструментов палитры и легенды донесения. `other` ставится не
+ *  пальцем по плану, а из формы с описанием — в палитре его нет. */
+export const POSITION_TOOL_KINDS: PositionKind[] = [
+  "barrel_ext",
+  "barrel_def",
+  "checkpoint",
+  "vehicle",
+  "ladder",
+  "hq",
+];
 
 export const POSITION_PHASES = ["localization", "extinguishing"] as const;
 export type PositionPhase = (typeof POSITION_PHASES)[number];
@@ -321,6 +403,13 @@ export type DeploymentPosition = {
    *  null ≠ 0: у штаба и рубежа направления нет, а ствол без heading — это
    *  ствол, направление которому ещё не задали. */
   heading: number | null;
+  /** Идентификатор, выданный устройством при постановке (см. deploymentQueue).
+   *  По нему позиция, поставленная без связи, узнаётся в ответе сервера как
+   *  своя — иначе после синхронизации она выглядела бы как чужая новая. */
+  client_uid: string | null;
+  /** Когда позицию поставили (часы устройства). Отличается от created_at
+   *  только там, где связь пропадала: «подан в 14:32, записан в 14:51». */
+  placed_at: string | null;
   created_by: string;
   created_at: string | null;
 };
@@ -336,7 +425,71 @@ export type PositionInput = {
   plan_x?: number | null;
   plan_y?: number | null;
   heading?: number | null;
+  client_uid?: string;
+  placed_at?: string;
 };
+
+/** Правка позиции в очереди синхронизации: адрес строки плюс изменённые поля. */
+export type PositionPatchInput = Partial<Omit<PositionInput, "kind" | "client_uid">> & {
+  id: number;
+};
+
+/** Очередь расстановки, накопленная устройством: конечное состояние, а не
+ *  журнал жестов (позиция, поставленная и пять раз подвинутая без связи,
+ *  уходит одним `create` с итоговыми координатами). */
+export type DeploymentSyncBody = {
+  creates: (PositionInput & { client_uid: string })[];
+  patches: PositionPatchInput[];
+  deletes: number[];
+};
+
+export type DeploymentSyncResult = {
+  positions: DeploymentPosition[];
+  /** Ключи принятых операций: client_uid для постановки, `srv:<id>` для правки и снятия. */
+  applied: string[];
+  /** Отвергнутое сервером — с причиной, которую показывают РТП, а не глотают. */
+  rejected: { key: string; reason: string }[];
+};
+
+/** Ошибка синхронизации, различающая «связи нет» и «сервер отказал».
+ *  Первое — повод оставить очередь и повторить, второе — повод показать
+ *  причину: молчаливый ретрай отказа никогда не закончится. */
+export class SyncError extends Error {
+  constructor(
+    message: string,
+    /** HTTP-статус; 0 — до сервера не дошло. */
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "SyncError";
+  }
+}
+
+/** Отправить накопленную очередь расстановки одним запросом.
+ *
+ *  Один запрос вместо N поштучных — потому что связь на пожаре появляется на
+ *  секунды: очередь из пятнадцати запросов успевает уйти наполовину и
+ *  оставляет расстановку в состоянии, которого не было ни на плане, ни в
+ *  замысле РТП. */
+export async function syncDeployment(
+  calloutId: number,
+  body: DeploymentSyncBody,
+): Promise<DeploymentSyncResult> {
+  let r: Response;
+  try {
+    r = await apiFetch(`/dispatch/${calloutId}/deployment/sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new SyncError("Связи нет — расстановка ждёт отправки", 0);
+  }
+  if (!r.ok) {
+    throw new SyncError(await errorText(r, "Не удалось отправить расстановку"), r.status);
+  }
+  return r.json();
+}
 
 export async function addPosition(
   calloutId: number,
@@ -351,33 +504,10 @@ export async function addPosition(
   return r.json();
 }
 
-/** Правка позиции: перетаскивание, поворот, смена участка или этажа.
- *  Двигать маркер — это менять координаты, а не удалять и создавать заново:
- *  иначе каждая корректировка попадала бы в историю выезда как новая позиция. */
-export async function patchPosition(
-  calloutId: number,
-  positionId: number,
-  patch: Partial<Omit<PositionInput, "kind">>,
-): Promise<DeploymentPosition[]> {
-  const r = await apiFetch(`/dispatch/${calloutId}/deployment/${positionId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(patch),
-  });
-  if (!r.ok) throw new Error(await errorText(r, "Не удалось переместить позицию"));
-  return r.json();
-}
-
-export async function deletePosition(
-  calloutId: number,
-  positionId: number,
-): Promise<DeploymentPosition[]> {
-  const r = await apiFetch(`/dispatch/${calloutId}/deployment/${positionId}`, {
-    method: "DELETE",
-  });
-  if (!r.ok) throw new Error(await errorText(r, "Не удалось снять позицию"));
-  return r.json();
-}
+/* Перемещение, поворот и снятие позиции идут не отсюда, а через очередь
+ * (`lib/deploymentQueue.ts`): на схеме эти жесты делают в поле, где связь
+ * пропадает посреди работы. Поштучные PATCH/DELETE на сервере остаются —
+ * ими пользуются интеграции и тесты, — но в интерфейсе путь записи один. */
 
 export type CalloutPackData = {
   callout: Callout;
@@ -460,6 +590,8 @@ export function useCalloutPack(selectedId: number | null, pollMs?: number) {
   const [pack, setPackState] = useState<CalloutPackData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Непусто — пакет отдан офлайн-кэшем; строка ISO — когда снят снимок. */
+  const [cachedAt, setCachedAt] = useState<string | null>(null);
   // Tracks the id the in-flight (or most recent) request/seed was for — a
   // response only applies if it still matches this.
   const requestedRef = useRef<number | null>(null);
@@ -469,10 +601,18 @@ export function useCalloutPack(selectedId: number | null, pollMs?: number) {
     setLoading(true);
     setError(null);
     apiFetch(`/dispatch/${id}/pack`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("pack"))))
-      .then((d: CalloutPackData) => {
+      .then(async (r) => {
+        if (!r.ok) throw new Error("pack");
+        // Отметку снимка читаем до тела: пакет мог прийти из офлайн-кэша
+        // (Service Worker), и распоряжаться силами по снимку часовой
+        // давности, считая его живым, нельзя.
+        const stamp = cachedAtOf(r);
+        return { data: (await r.json()) as CalloutPackData, stamp };
+      })
+      .then(({ data, stamp }) => {
         if (requestedRef.current !== id) return; // stale — selection moved on
-        setPackState(d);
+        setPackState(data);
+        setCachedAt(stamp);
       })
       .catch(() => {
         if (requestedRef.current !== id) return;
@@ -490,6 +630,7 @@ export function useCalloutPack(selectedId: number | null, pollMs?: number) {
       requestedRef.current = null;
       setPackState(null);
       setError(null);
+      setCachedAt(null);
       setLoading(false);
       return;
     }
@@ -506,12 +647,14 @@ export function useCalloutPack(selectedId: number | null, pollMs?: number) {
     requestedRef.current = next.callout.id;
     setPackState(next);
     setError(null);
+    setCachedAt(null);
   }, []);
 
   return {
     pack,
     loading,
     error,
+    cachedAt,
     reload: () => {
       if (selectedId != null) load(selectedId);
     },

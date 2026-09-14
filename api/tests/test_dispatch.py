@@ -138,6 +138,118 @@ def test_patch_callout_forbidden_for_responder(client):
     assert resp.status_code == 403
 
 
+# --- POST /dispatch/{id}/deployment/sync: validation -------------------------
+#
+# Очередь расстановки приходит с устройства, которое работало без связи, —
+# то есть с наименее проверяемой стороны системы. Всё, что здесь отвергается,
+# отвергается до базы.
+
+_SYNC = "/dispatch/1/deployment/sync"
+
+
+def test_sync_rejects_empty_batch(client):
+    # Пустая синхронизация — это лишний запрос с боевого планшета по плохому
+    # каналу, а не «ничего не изменилось».
+    resp = client.post(_SYNC, json={"creates": [], "patches": [], "deletes": []})
+    assert resp.status_code == 422
+
+
+def test_sync_create_requires_client_uid(client):
+    # Без client_uid повтор доставки не отличить от второго ствола рядом.
+    resp = client.post(
+        _SYNC,
+        json={"creates": [{"kind": "barrel_ext", "plan_x": 0.4, "plan_y": 0.3, "floor": "5"}]},
+    )
+    assert resp.status_code == 422
+
+
+def test_sync_create_rejects_half_plan_coords(client):
+    resp = client.post(
+        _SYNC,
+        json={"creates": [{"client_uid": "u1", "kind": "barrel_ext", "plan_x": 0.4}]},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.parametrize("bad", [-0.01, 1.01])
+def test_sync_create_rejects_plan_coords_out_of_range(client, bad):
+    # 0..1 — доля от габарита плана; всё вне диапазона рисуется за краем.
+    resp = client.post(
+        _SYNC,
+        json={
+            "creates": [
+                {"client_uid": "u1", "kind": "barrel_ext", "plan_x": bad, "plan_y": 0.5}
+            ]
+        },
+    )
+    assert resp.status_code == 422
+
+
+def test_sync_patch_requires_a_field_beside_id(client):
+    # Один id — это не правка, а холостая запись в историю выезда.
+    resp = client.post(_SYNC, json={"patches": [{"id": 7}]})
+    assert resp.status_code == 422
+
+
+def test_sync_patch_rejects_half_plan_coords(client):
+    resp = client.post(_SYNC, json={"patches": [{"id": 7, "plan_x": 0.2}]})
+    assert resp.status_code == 422
+
+
+def test_sync_rejects_oversized_batch(client):
+    over = D.SYNC_MAX_ITEMS + 1
+    resp = client.post(_SYNC, json={"deletes": list(range(1, over + 1))})
+    assert resp.status_code == 422
+
+
+def test_sync_valid_batch_passes_validation(client):
+    resp = client.post(
+        _SYNC,
+        json={
+            "creates": [
+                {
+                    "client_uid": "1754500000-ab12cd",
+                    "kind": "barrel_ext",
+                    "phase": "localization",
+                    "floor": "5",
+                    "plan_x": 0.42,
+                    "plan_y": 0.31,
+                    "heading": 90,
+                    "placed_at": "2026-08-06T09:32:00+00:00",
+                }
+            ],
+            "patches": [{"id": 12, "plan_x": 0.7, "plan_y": 0.2}],
+            "deletes": [14],
+        },
+    )
+    assert resp.status_code not in (401, 403, 422)
+
+
+def test_sync_forbidden_for_oversight_role(client):
+    # Расстановкой распоряжаются РТП и диспетчер; надзор смотрит.
+    _ROLE["value"] = "supervisor"
+    resp = client.post(_SYNC, json={"deletes": [1]})
+    assert resp.status_code == 403
+
+
+# --- POST /dispatch/{id}/report/export: доступ -------------------------------
+
+
+def test_report_export_allowed_for_oversight(client):
+    # Донесение читают и надзорные роли — выгрузка идёт под теми же правами,
+    # что и просмотр выезда.
+    _ROLE["value"] = "supervisor"
+    resp = client.post("/dispatch/1/report/export")
+    assert resp.status_code not in (401, 403, 422)
+
+
+def test_report_export_forbidden_for_owner(client):
+    # Владелец объекта видит свой портал, но не боевые документы ДЧС.
+    _ROLE["value"] = "owner"
+    resp = client.post("/dispatch/1/report/export")
+    assert resp.status_code == 403
+
+
 # --- нормализация адреса ----------------------------------------------------
 #
 # Диспетчер печатает с русской раскладки, где нет казахских букв. Свёртка должна

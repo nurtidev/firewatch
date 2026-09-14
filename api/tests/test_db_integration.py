@@ -189,6 +189,282 @@ def test_queued_report_replay_does_not_duplicate(client):
     assert a.json()["id"] != b.json()["id"]
 
 
+# --- очередь расстановки: доставка «хотя бы один раз» ------------------------
+#
+# Позиции, поставленные на плане без связи, копятся на устройстве и уходят
+# батчем. Дальше проверяется то, ради чего очередь вообще устроена именно так:
+# повтор не двоит расстановку, одна отвергнутая позиция не утягивает остальные,
+# а время постановки не подменяется временем синхронизации.
+
+
+def _open_callout(client, headers) -> int:
+    """Активный выезд в точке полигона тестовых зданий."""
+    r = client.post(
+        "/dispatch",
+        json={"lat": 51.0005, "lng": 71.0005, "callout_type": "fire"},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    return r.json()["callout"]["id"]
+
+
+def test_deployment_sync_replay_does_not_duplicate(client):
+    """Батч, доставленный дважды, даёт одну расстановку, а не две.
+
+    Связь на пожаре рвётся посреди ответа: устройство не знает, дошёл ли
+    запрос, и повторяет его. Без идемпотентности по client_uid каждый такой
+    разрыв оставлял бы на плане второй ствол в той же точке — и сверка «подано
+    3 из 4» врала бы в сторону, из-за которой сил не запросят.
+    """
+    h = _login(client, "dispatcher", "dispatcher123")
+    callout_id = _open_callout(client, h)
+    body = {
+        "creates": [
+            {
+                "client_uid": "test-deploy-0001",
+                "kind": "barrel_ext",
+                "phase": "localization",
+                "floor": "5",
+                "plan_x": 0.42,
+                "plan_y": 0.31,
+                "heading": 90,
+                "placed_at": "2026-08-06T09:32:00+00:00",
+            }
+        ]
+    }
+
+    first = client.post(f"/dispatch/{callout_id}/deployment/sync", json=body, headers=h)
+    assert first.status_code == 200, first.text
+    assert first.json()["applied"] == ["test-deploy-0001"]
+    assert first.json()["rejected"] == []
+
+    replay = client.post(f"/dispatch/{callout_id}/deployment/sync", json=body, headers=h)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["applied"] == ["test-deploy-0001"]
+
+    positions = client.get(f"/dispatch/{callout_id}/deployment", headers=h).json()["positions"]
+    mine = [p for p in positions if p["client_uid"] == "test-deploy-0001"]
+    assert len(mine) == 1
+    # Время постановки — по часам устройства, не по моменту, когда связь
+    # вернулась: по нему разбирают ход тушения.
+    assert mine[0]["placed_at"].startswith("2026-08-06T09:32")
+    assert mine[0]["placed_at"] != mine[0]["created_at"]
+    assert mine[0]["heading"] == 90
+
+
+def test_deployment_sync_applies_rest_when_one_item_is_rejected(client):
+    """Позиция, снятая с пульта, не отменяет остальную очередь.
+
+    Пока РТП работал без связи, диспетчер мог снять позицию. Её правка уже
+    ни к чему не приложится — но остальные позиции того же батча обязаны
+    записаться, иначе одна разошедшаяся строка стоила бы всей расстановки.
+    """
+    h = _login(client, "dispatcher", "dispatcher123")
+    callout_id = _open_callout(client, h)
+
+    r = client.post(
+        f"/dispatch/{callout_id}/deployment/sync",
+        json={
+            "creates": [
+                {
+                    "client_uid": "test-deploy-0002",
+                    "kind": "barrel_def",
+                    "floor": "3",
+                    "plan_x": 0.2,
+                    "plan_y": 0.8,
+                }
+            ],
+            # id, которого на этом выезде нет и не было.
+            "patches": [{"id": 10_000_000, "plan_x": 0.5, "plan_y": 0.5}],
+        },
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["applied"] == ["test-deploy-0002"]
+    assert [x["key"] for x in data["rejected"]] == ["srv:10000000"]
+    assert data["rejected"][0]["reason"]
+    assert any(p["client_uid"] == "test-deploy-0002" for p in data["positions"])
+
+
+def test_deployment_sync_moves_then_drops_position(client):
+    """Правка и снятие по серверному id — то, чем становится очередь после
+    первой удачной синхронизации."""
+    h = _login(client, "dispatcher", "dispatcher123")
+    callout_id = _open_callout(client, h)
+
+    created = client.post(
+        f"/dispatch/{callout_id}/deployment/sync",
+        json={
+            "creates": [
+                {
+                    "client_uid": "test-deploy-0003",
+                    "kind": "barrel_ext",
+                    "floor": "2",
+                    "plan_x": 0.1,
+                    "plan_y": 0.1,
+                }
+            ]
+        },
+        headers=h,
+    ).json()
+    pos_id = next(
+        p["id"] for p in created["positions"] if p["client_uid"] == "test-deploy-0003"
+    )
+
+    moved = client.post(
+        f"/dispatch/{callout_id}/deployment/sync",
+        json={"patches": [{"id": pos_id, "plan_x": 0.9, "plan_y": 0.4, "heading": 180}]},
+        headers=h,
+    ).json()
+    assert moved["rejected"] == []
+    after = next(p for p in moved["positions"] if p["id"] == pos_id)
+    assert (after["plan_x"], after["plan_y"], after["heading"]) == (0.9, 0.4, 180)
+
+    dropped = client.post(
+        f"/dispatch/{callout_id}/deployment/sync",
+        json={"deletes": [pos_id]},
+        headers=h,
+    ).json()
+    assert dropped["applied"] == [f"srv:{pos_id}"]
+    assert all(p["id"] != pos_id for p in dropped["positions"])
+
+    # Повторное снятие того же id — уже снято, повторять нечего: очередь на
+    # устройстве не должна застрять на «позиции нет».
+    again = client.post(
+        f"/dispatch/{callout_id}/deployment/sync",
+        json={"deletes": [pos_id]},
+        headers=h,
+    ).json()
+    assert again["applied"] == [f"srv:{pos_id}"]
+    assert again["rejected"] == []
+
+
+def test_deployment_sync_on_closed_callout_is_refused_whole(client):
+    """Выезд закрыли, пока связи не было — очередь отвергается целиком.
+
+    Силами закрытого выезда уже не распоряжаются, и разбирать такую очередь по
+    одной позиции незачем: устройство показывает её РТП списком, чтобы он
+    перенёс расстановку в донесение руками.
+    """
+    h = _login(client, "dispatcher", "dispatcher123")
+    callout_id = _open_callout(client, h)
+    closed = client.post(
+        f"/dispatch/{callout_id}/close", json={"close_note": "ликвидирован"}, headers=h
+    )
+    assert closed.status_code == 200, closed.text
+
+    r = client.post(
+        f"/dispatch/{callout_id}/deployment/sync",
+        json={
+            "creates": [
+                {
+                    "client_uid": "test-deploy-0004",
+                    "kind": "hq",
+                    "floor": "1",
+                    "plan_x": 0.5,
+                    "plan_y": 0.5,
+                }
+            ]
+        },
+        headers=h,
+    )
+    assert r.status_code == 409
+
+
+def test_deployment_sync_is_audited_per_position(client):
+    """Каждая позиция — отдельное действие в журнале, плюс сводка по батчу.
+
+    Аудит здесь не формальность: расстановка — это распоряжение силами, и
+    «кто поставил ствол на пятом этаже» разбирают поимённо. Пометка `via:sync`
+    отличает позицию, доехавшую из очереди, от поставленной с пульта.
+    """
+    from app.db import engine
+
+    h = _login(client, "dispatcher", "dispatcher123")
+    callout_id = _open_callout(client, h)
+    client.post(
+        f"/dispatch/{callout_id}/deployment/sync",
+        json={
+            "creates": [
+                {
+                    "client_uid": "test-deploy-0005",
+                    "kind": "ladder",
+                    "floor": "1",
+                    "plan_x": 0.3,
+                    "plan_y": 0.6,
+                    "placed_at": "2026-08-06T09:40:00+00:00",
+                }
+            ]
+        },
+        headers=h,
+    )
+
+    with engine.connect() as conn:
+        added = conn.execute(
+            text(
+                "SELECT count(*) FROM audit_log "
+                "WHERE action = 'callout.deployment_added' "
+                "  AND detail->>'via' = 'sync' "
+                "  AND (detail->>'callout_id')::bigint = :c"
+            ),
+            {"c": callout_id},
+        ).scalar()
+        summary = conn.execute(
+            text(
+                "SELECT detail FROM audit_log "
+                "WHERE action = 'callout.deployment_synced' "
+                "  AND (detail->>'callout_id')::bigint = :c "
+                "ORDER BY id DESC LIMIT 1"
+            ),
+            {"c": callout_id},
+        ).scalar()
+    assert added == 1
+    assert summary["applied"] == 1 and summary["rejected"] == 0
+    assert summary["oldest_placed_at"].startswith("2026-08-06T09:40")
+
+
+def test_report_export_is_audited_with_preliminary_flag(client):
+    """Выгрузка донесения попадает в журнал, и незакрытый выезд помечен.
+
+    Донесение уходит в дело. По журналу должно быть видно не только «кто и
+    когда выгрузил», но и что именно: документ по идущему пожару — это
+    предварительная версия, и через месяц отличить её от итоговой можно
+    только по этой отметке.
+    """
+    from app.db import engine
+
+    h = _login(client, "dispatcher", "dispatcher123")
+    callout_id = _open_callout(client, h)
+
+    active = client.post(f"/dispatch/{callout_id}/report/export", headers=h)
+    assert active.status_code == 200, active.text
+    assert active.json()["preliminary"] is True
+
+    client.post(f"/dispatch/{callout_id}/close", json={"close_note": "e2e"}, headers=h)
+    final = client.post(f"/dispatch/{callout_id}/report/export", headers=h)
+    assert final.status_code == 200, final.text
+    assert final.json()["preliminary"] is False
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT detail->>'preliminary' AS prelim FROM audit_log "
+                "WHERE action = 'callout.report_exported' "
+                "  AND (detail->>'callout_id')::bigint = :c "
+                "ORDER BY id"
+            ),
+            {"c": callout_id},
+        ).scalars().all()
+    assert rows == ["true", "false"]
+
+
+def test_report_export_unknown_callout_is_404(client):
+    h = _login(client, "dispatcher", "dispatcher123")
+    r = client.post("/dispatch/10000000/report/export", headers=h)
+    assert r.status_code == 404
+
+
 def test_login_is_audited(client):
     from app.db import engine
 

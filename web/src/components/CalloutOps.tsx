@@ -14,7 +14,7 @@
  * Отметка ставится «сейчас» одним нажатием — в кабине и на месте пожара никто
  * не набирает время руками. Ошибочную отметку можно снять тем же нажатием.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Clock,
   Truck,
@@ -26,6 +26,10 @@ import {
   X,
   Plus,
   AlertTriangle,
+  CloudOff,
+  CloudUpload,
+  WifiOff,
+  FileText,
   Loader2,
 } from "lucide-react";
 import {
@@ -54,6 +58,7 @@ import {
   VEHICLE_STATUS_META,
   RESOURCE_ITEMS,
   RESOURCE_META,
+  RESPONSE_NORM_SEC,
   formatClock,
   formatDuration,
   patchTimeline,
@@ -66,20 +71,29 @@ import {
   POSITION_PHASES,
   POSITION_PHASE_LABEL,
   addPosition,
-  deletePosition,
-  patchPosition,
   type CalloutPackData,
+  type DeploymentPosition,
   type TimelineStep,
   type ResourceItem,
   type Vehicle,
   type PositionKind,
   type PositionPhase,
 } from "@/lib/dispatch";
-
-/** Норматив прибытия в городе — 10 минут (Закон «О гражданской защите»).
- *  Показывается как сравнение, а не как оценка работы караула: причина
- *  превышения (перекрытый проезд, пробка) видна не здесь, а в донесениях. */
-const RESPONSE_NORM_SEC = 600;
+import {
+  clearRejected,
+  flushDeployment,
+  mergePositions,
+  pendingCount,
+  pendingFor,
+  queueCreate,
+  queueDelete,
+  queueUpdate,
+  rejectedFor,
+  type Pending,
+  type PositionFields,
+  type RejectedEntry,
+} from "@/lib/deploymentQueue";
+import { isOnline } from "@/lib/offline";
 
 export default function CalloutOps({
   pack,
@@ -142,12 +156,24 @@ export default function CalloutOps({
             <Clock className="mr-1.5 inline h-3.5 w-3.5" aria-hidden />
             {t("Хронология выезда")}
           </SectionLabel>
-          {timeline.response_sec != null && (
-            <StatusChip
-              severity={overNorm ? SEVERITY.critical : SEVERITY.normal}
-              label={`${t("Прибытие")}: ${formatDuration(timeline.response_sec)}`}
-            />
-          )}
+          <div className="flex items-center gap-2">
+            {timeline.response_sec != null && (
+              <StatusChip
+                severity={overNorm ? SEVERITY.critical : SEVERITY.normal}
+                label={`${t("Прибытие")}: ${formatDuration(timeline.response_sec)}`}
+              />
+            )}
+            {/* Донесение открывается в отдельной вкладке: боевой пакет на
+                планшете закрывать нельзя — по нему продолжают работать. */}
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => window.open(`/callout/report?id=${callout.id}`, "_blank")}
+            >
+              <FileText className="h-4 w-4" aria-hidden />
+              {t("Донесение")}
+            </Button>
+          </div>
         </div>
 
         <p className="mt-1 text-xs text-faint">
@@ -259,7 +285,13 @@ export default function CalloutOps({
       />
 
       {/* ─────────────── План развёртывания ─────────────── */}
-      <DeploymentSection pack={pack} editable={editable} busy={busy} onRun={run} />
+      <DeploymentSection
+        pack={pack}
+        editable={editable}
+        busy={busy}
+        onRun={run}
+        onChanged={onChanged}
+      />
 
       {/* ─────────────── Расход средств ─────────────── */}
       <ResourcesSection pack={pack} editable={documentEditable} busy={busy} onRun={run} />
@@ -405,16 +437,108 @@ function VehiclesSection({
 
 /* ─────────────────────── План развёртывания ─────────────────────── */
 
+/**
+ * Очередь расстановки: единственный путь, которым позиции уходят на сервер.
+ *
+ * Онлайн и оффлайн здесь не две ветки, а одна: жест кладёт намерение в
+ * очередь и тут же пытается её отправить. Со связью оверлей живёт
+ * миллисекунды, без связи — до её возвращения. Разделять пути было бы
+ * опаснее, чем кажется: самая частая беда поля — не «offline», а связь,
+ * которая есть по флагу и не работает по факту, и она попадала бы ровно в ту
+ * ветку, которую никто не проверял на демо.
+ */
+function useDeploymentQueue(calloutId: number, onChanged: () => void) {
+  const [pending, setPending] = useState<Pending[]>([]);
+  const [rejected, setRejected] = useState<RejectedEntry[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  const [retryReason, setRetryReason] = useState<string | null>(null);
+  // Расстановка из ответа синхронизации: держит принятую позицию на плане в
+  // те доли секунды, пока едет свежий боевой пакет.
+  const [synced, setSynced] = useState<DeploymentPosition[] | null>(null);
+
+  const refresh = useCallback(() => {
+    setPending(pendingFor(calloutId));
+    setRejected(rejectedFor(calloutId));
+  }, [calloutId]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const flush = useCallback(async () => {
+    if (pendingCount(calloutId) === 0) return;
+    setSyncing(true);
+    try {
+      const out = await flushDeployment(calloutId);
+      setRetryReason(out.retryReason ?? null);
+      if (out.positions) setSynced(out.positions);
+      if (out.applied > 0 || out.rejected > 0) onChanged();
+    } finally {
+      setSyncing(false);
+      refresh();
+    }
+  }, [calloutId, onChanged, refresh]);
+
+  // Очередь уходит сама: при открытии выезда и как только вернулась связь.
+  // Кнопка «Отправить» существует для случая, когда navigator.onLine врёт.
+  const [online, setOnline] = useState(true);
+  useEffect(() => {
+    const onOnline = () => {
+      setOnline(true);
+      void flush();
+    };
+    const onOffline = () => setOnline(false);
+    setOnline(isOnline());
+    void flush();
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, [flush]);
+
+  /** Записать жест в очередь и сразу попробовать отправить. */
+  const apply = useCallback(
+    (fn: () => void) => {
+      fn();
+      refresh();
+      void flush();
+    },
+    [flush, refresh],
+  );
+
+  const dismissRejected = useCallback(() => {
+    clearRejected(calloutId);
+    refresh();
+  }, [calloutId, refresh]);
+
+  return {
+    pending,
+    rejected,
+    syncing,
+    retryReason,
+    synced,
+    setSynced,
+    online,
+    flush,
+    apply,
+    dismissRejected,
+  };
+}
+
 function DeploymentSection({
   pack,
   editable,
   busy,
   onRun,
+  onChanged,
 }: {
   pack: CalloutPackData;
   editable: boolean;
   busy: string | null;
   onRun: (key: string, fn: () => Promise<unknown>) => Promise<void>;
+  onChanged: () => void;
 }) {
   const t = useT();
   const [adding, setAdding] = useState(false);
@@ -452,7 +576,23 @@ function DeploymentSection({
     [objectName, activeFloor],
   );
 
-  const positions = pack.deployment ?? [];
+  const calloutId = pack.callout.id;
+  const queue = useDeploymentQueue(calloutId, onChanged);
+  const { setSynced, online } = queue;
+  // Свежий боевой пакет главнее ответа синхронизации — он приходит позже и
+  // видит в том числе то, что сделали с пульта.
+  const serverPositions = pack.deployment ?? [];
+  useEffect(() => {
+    setSynced(null);
+  }, [serverPositions, setSynced]);
+
+  // Единственный источник для отрисовки: то, что на сервере, плюс то, что
+  // ещё не уехало. Иначе РТП без связи видел бы «0 из 4 стволов», расставив
+  // четыре, и пошёл бы расставлять их заново.
+  const positions = useMemo(
+    () => mergePositions(queue.synced ?? serverPositions, queue.pending),
+    [queue.synced, serverPositions, queue.pending],
+  );
   const hint = pack.forces_hint;
 
   // Сверка факта с методикой — то же сравнение, что у наряда техники.
@@ -463,6 +603,9 @@ function DeploymentSection({
     { k: "barrel_def", need: hint?.barrels_def ?? null },
   ];
 
+  // Позиция из формы — работа за столом: у неё есть участок, но нет места на
+  // плане, и ставят её с пульта, где связь есть. Через очередь идёт то, что
+  // ставят пальцем на схеме — то есть на пожаре.
   const submit = () =>
     onRun("add-position", () =>
       addPosition(pack.callout.id, {
@@ -474,6 +617,16 @@ function DeploymentSection({
       setSector("");
       setAdding(false);
     });
+
+  const move = (key: string, fields: PositionFields) => {
+    const pos = positions.find((p) => p.key === key);
+    queue.apply(() => queueUpdate(calloutId, key, pos?.serverId ?? null, fields));
+  };
+
+  const remove = (key: string) => {
+    const pos = positions.find((p) => p.key === key);
+    queue.apply(() => queueDelete(calloutId, key, pos?.serverId ?? null));
+  };
 
   return (
     <Card className="p-4">
@@ -554,6 +707,72 @@ function DeploymentSection({
         </div>
       )}
 
+      {/* Состояние очереди — над обоими режимами: без связи расстановка не
+          теряется, но на пульте её пока не видят, и молчать об этом нельзя —
+          от этого зависит, доложит РТП по радио или положится на схему.
+          Кнопка нужна там, где navigator.onLine врёт: Wi-Fi точки есть,
+          интернета за ней нет — в подземном паркинге это обычное дело. */}
+      {editable && !online && (
+        <Banner tone="warning" icon={WifiOff} className="mt-3">
+          {queue.pending.length > 0
+            ? t("Связи нет. Расстановка сохранена на устройстве ({n}) и уйдёт на пульт, когда связь появится.")
+                .replace("{n}", String(queue.pending.length))
+            : t("Связи нет. Расставляйте — позиции сохранятся на устройстве и уйдут при связи.")}
+        </Banner>
+      )}
+      {editable && online && queue.pending.length > 0 && (
+        <Banner tone="info" icon={CloudUpload} className="mt-3">
+          <span className="flex flex-wrap items-center gap-2">
+            <span>
+              {t("Позиций ждёт отправки: {n}").replace("{n}", String(queue.pending.length))}
+              {queue.retryReason ? ` — ${queue.retryReason}` : ""}
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => void queue.flush()}
+              disabled={queue.syncing}
+            >
+              {queue.syncing ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <CloudUpload className="h-4 w-4" aria-hidden />
+              )}
+              {t("Отправить")}
+            </Button>
+          </span>
+        </Banner>
+      )}
+
+      {/* Отвергнутое сервером. Само не исчезает: расстановка, которую не
+          приняли (выезд закрыли, пока связи не было), — это то, что РТП
+          должен перенести в донесение руками, а не обнаружить пропажу через
+          неделю на разборе. */}
+      {queue.rejected.length > 0 && (
+        <Banner
+          tone="critical"
+          icon={CloudOff}
+          className="mt-3"
+          title={t("Не принято сервером: {n}").replace("{n}", String(queue.rejected.length))}
+        >
+          <ul className="space-y-0.5">
+            {queue.rejected.slice(0, 6).map((r) => (
+              <li key={r.key}>
+                {t(r.label)} — {r.reason}
+              </li>
+            ))}
+            {queue.rejected.length > 6 && (
+              <li className="text-faint">
+                {t("и ещё {n}").replace("{n}", String(queue.rejected.length - 6))}
+              </li>
+            )}
+          </ul>
+          <Button size="sm" variant="secondary" className="mt-2" onClick={queue.dismissRejected}>
+            {t("Понятно")}
+          </Button>
+        </Banner>
+      )}
+
       {mode === "plan" ? (
         plan ? (
           <div className="mt-3 space-y-3">
@@ -589,8 +808,8 @@ function DeploymentSection({
               phase={phase}
               editable={editable}
               onAdd={(k, x, y) =>
-                onRun("add-position", () =>
-                  addPosition(pack.callout.id, {
+                queue.apply(() =>
+                  queueCreate(calloutId, {
                     kind: k,
                     phase,
                     floor: activeFloor,
@@ -599,17 +818,9 @@ function DeploymentSection({
                   }),
                 )
               }
-              onMove={(id, x, y) =>
-                onRun(`move-${id}`, () =>
-                  patchPosition(pack.callout.id, id, { plan_x: x, plan_y: y }),
-                )
-              }
-              onRotate={(id, heading) =>
-                onRun(`rot-${id}`, () => patchPosition(pack.callout.id, id, { heading }))
-              }
-              onRemove={(id) =>
-                onRun(`del-pos-${id}`, () => deletePosition(pack.callout.id, id))
-              }
+              onMove={(key, x, y) => move(key, { plan_x: x, plan_y: y })}
+              onRotate={(key, heading) => move(key, { heading })}
+              onRemove={remove}
             >
               <FloorPlan2D plan={plan} />
             </DeploymentPlan>
@@ -635,19 +846,27 @@ function DeploymentSection({
               <ul className="mt-1.5 space-y-2">
                 {inPhase.map((p) => (
                   <li
-                    key={p.id}
+                    key={p.key}
                     className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface-2 px-3 py-2"
                   >
                     <div className="flex min-w-0 items-center gap-2.5">
                       <Badge>{t(POSITION_KIND_META[p.kind].short)}</Badge>
                       <span className="truncate text-sm text-fg">
-                        {p.sector || t("участок не указан")}
+                        {p.sector || p.floor || t("участок не указан")}
                       </span>
                       {p.note && (
                         <span className="truncate text-xs text-faint">{p.note}</span>
                       )}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
+                      {/* То же различие, что и на схеме: позиция есть, но на
+                          пульте её пока не видят. */}
+                      {p.pending && (
+                        <span className="flex items-center gap-1 text-2xs text-muted">
+                          <CloudOff className="h-3 w-3" aria-hidden />
+                          {t("ждёт отправки")}
+                        </span>
+                      )}
                       {p.lat != null && (
                         <span className="tabular text-2xs text-faint">
                           {p.lat.toFixed(4)}, {p.lng?.toFixed(4)}
@@ -657,19 +876,10 @@ function DeploymentSection({
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() =>
-                            onRun(`del-pos-${p.id}`, () =>
-                              deletePosition(pack.callout.id, p.id),
-                            )
-                          }
-                          disabled={busy === `del-pos-${p.id}`}
+                          onClick={() => remove(p.key)}
                           aria-label={`${t("Снять позицию")}: ${t(POSITION_KIND_META[p.kind].label)}`}
                         >
-                          {busy === `del-pos-${p.id}` ? (
-                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                          ) : (
-                            <X className="h-4 w-4" aria-hidden />
-                          )}
+                          <X className="h-4 w-4" aria-hidden />
                         </Button>
                       )}
                     </div>
