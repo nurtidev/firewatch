@@ -59,6 +59,10 @@ RESOURCES_BY_TYPE = {
     "other": [("fuel", 7), ("hose", 1)],
 }
 
+# Позиции номенклатуры, которые считают штуками (RESOURCE_META: «шт»).
+# Вода в м³ и ГСМ в литрах дробные — рукава и стволы нет.
+COUNTED_ITEMS = {"hose", "barrel", "ladder", "scba"}
+
 # Расстановка по типу вызова: боевые участки и позиции.
 DEPLOYMENT_BY_TYPE = {
     "fire": [
@@ -181,13 +185,23 @@ def main() -> None:
             for key, qty in RESOURCES_BY_TYPE[ctype]:
                 # Разброс ±30% от базовой величины, детерминированный.
                 factor = 0.7 + (pick(f"r{i}{key}", 7) / 10.0)
+                spent = qty * factor
+                # Штучное считают штуками. Дробная величина уместна для воды и
+                # ГСМ, но «подано 0,8 ствола» в донесении о пожаре читается не
+                # как разброс демо-данных, а как ошибка системы — и первым это
+                # видит тот, кому мы показываем продукт.
+                value = (
+                    max(1, round(spent))
+                    if key in COUNTED_ITEMS
+                    else round(spent, 1)
+                )
                 conn.execute(
                     text(
                         "INSERT INTO callout_resources "
                         "(callout_id, item_key, qty, recorded_by, recorded_at) "
                         f"VALUES (:cid, :k, :q, 'responder', {at(extinguish)})"
                     ),
-                    {"cid": callout_id, "k": key, "q": round(qty * factor, 1)},
+                    {"cid": callout_id, "k": key, "q": value},
                 )
 
             for kind, phase, sector in DEPLOYMENT_BY_TYPE[ctype]:
