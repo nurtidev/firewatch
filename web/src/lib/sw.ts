@@ -10,49 +10,103 @@
  * Обновление не применяется само. Новый воркер встаёт в очередь, приложение
  * предлагает перезагрузиться — потому что перезагрузить боевой экран посреди
  * выезда значит прервать РТП ради версии, которая подождёт до конца смены.
+ * Перезагрузка происходит только в той вкладке, где человек сам нажал
+ * «Обновить»; остальные получают ненавязчивую подсказку.
  */
 
-/** Кэш данных ДЧС очищается при смене учётной записи: планшет в части общий. */
-export function clearApiCache(): void {
-  navigator.serviceWorker?.controller?.postMessage({ type: "CLEAR_API_CACHE" });
+/** Префикс кэшей данных API в воркере (см. public/sw.js). */
+const API_CACHE_PREFIX = "fw-api-";
+
+/**
+ * Стереть офлайн-кэш данных ДЧС — при входе и при выходе.
+ *
+ * Планшет в части общий, а кэш ключуется адресом запроса, а не токеном: без
+ * очистки заступивший караул увидел бы маршрут и боевой пакет прошлой смены
+ * как свои. Одного сообщения воркеру мало: после жёсткой перезагрузки
+ * страница воркером не управляется, `controller` пуст, и сообщение уходит в
+ * никуда. Cache Storage доступен окну напрямую — чистим отсюда; воркеру
+ * сообщаем, чтобы он не дописал в кэш ответ, начатый до смены учётной записи.
+ */
+export async function clearApiCache(): Promise<void> {
+  try {
+    navigator.serviceWorker?.controller?.postMessage({ type: "CLEAR_API_CACHE" });
+  } catch {
+    /* воркера нет — чистим сами */
+  }
+  if (typeof caches === "undefined") return;
+  try {
+    const keys = await caches.keys();
+    await Promise.all(
+      keys.filter((k) => k.startsWith(API_CACHE_PREFIX)).map((k) => caches.delete(k)),
+    );
+  } catch {
+    // Cache Storage недоступен (приватный режим, небезопасный контекст) —
+    // значит, и кэша, который надо стирать, нет.
+  }
 }
 
-/** Есть ли обновление, ждущее перезагрузки. */
-export type UpdateHandler = (apply: () => void) => void;
+export type SwUpdate =
+  /** Новая версия скачана и ждёт. `apply` — применить и перезагрузить эту вкладку. */
+  | { kind: "waiting"; apply: () => void }
+  /** Новую версию уже применили в другой вкладке: код на этом экране старый,
+   *  перезагрузиться — когда человеку удобно. */
+  | { kind: "activated"; reload: () => void };
 
-export function registerServiceWorker(onUpdate: UpdateHandler): () => void {
+export function registerServiceWorker(onUpdate: (update: SwUpdate) => void): () => void {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return () => {};
   if (process.env.NODE_ENV !== "production") return () => {};
 
+  const sw = navigator.serviceWorker;
   let disposed = false;
   let reloading = false;
+  // Какой воркер управлял страницей до события. null — при загрузке воркера
+  // не было (первая установка или жёсткая перезагрузка): его clients.claim()
+  // — не обновление, и перезагружать ради него нечего.
+  let controller = sw.controller;
+  // Обновление попросили именно в этой вкладке. Только тогда перезагрузка
+  // уместна: человек нажал «Обновить» здесь и её ждёт.
+  let requestedHere = false;
 
   const apply = (waiting: ServiceWorker) => () => {
+    requestedHere = true;
     waiting.postMessage({ type: "SKIP_WAITING" });
   };
 
-  const onControllerChange = () => {
-    // Новый воркер взял управление — перезагружаемся ровно один раз.
+  const reload = () => {
     if (reloading) return;
     reloading = true;
     window.location.reload();
   };
 
-  navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
+  const onControllerChange = () => {
+    const previous = controller;
+    controller = sw.controller;
+    if (previous == null) return; // первая установка взяла страницу — не обновление
+    if (requestedHere) {
+      reload();
+      return;
+    }
+    // Обновление применили в другой вкладке. Перезагружать эту самовольно
+    // нельзя: здесь может быть диспетчер посреди регистрации вызова.
+    if (!disposed) onUpdate({ kind: "activated", reload });
+  };
 
-  navigator.serviceWorker
-    .register("/sw.js", { scope: "/" })
+  sw.addEventListener("controllerchange", onControllerChange);
+
+  sw.register("/sw.js", { scope: "/" })
     .then((reg) => {
       if (disposed) return;
-      if (reg.waiting) onUpdate(apply(reg.waiting));
+      // Ждущий воркер при странице без управляющего (жёсткая перезагрузка)
+      // не повод предлагать обновление: код на экране и так свежий.
+      if (reg.waiting && sw.controller) onUpdate({ kind: "waiting", apply: apply(reg.waiting) });
       reg.addEventListener("updatefound", () => {
         const installing = reg.installing;
         if (!installing) return;
         installing.addEventListener("statechange", () => {
           // `controller` пуст при самой первой установке — это не обновление,
           // а первый запуск, и предлагать перезагрузку там незачем.
-          if (installing.state === "installed" && navigator.serviceWorker.controller) {
-            onUpdate(apply(installing));
+          if (installing.state === "installed" && sw.controller && !disposed) {
+            onUpdate({ kind: "waiting", apply: apply(installing) });
           }
         });
       });
@@ -64,7 +118,7 @@ export function registerServiceWorker(onUpdate: UpdateHandler): () => void {
 
   return () => {
     disposed = true;
-    navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
+    sw.removeEventListener("controllerchange", onControllerChange);
   };
 }
 

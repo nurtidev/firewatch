@@ -72,13 +72,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(d.detail || "Ошибка входа");
     }
     const data = await res.json();
-    localStorage.setItem("fw_token", data.token);
-    localStorage.setItem("fw_user", JSON.stringify(data.user));
     // Планшет в части общий, а офлайн-кэш ключуется по адресу запроса, а не по
     // токену: без очистки заступивший караул увидел бы боевой пакет прошлой
     // смены как свой. Чистим на обоих концах — вход тоже, потому что выход
-    // могли не сделать (сел аккумулятор, забрали планшет).
-    clearApiCache();
+    // могли не сделать (сел аккумулятор, забрали планшет). До записи нового
+    // токена: первые ответы уже новой учётной записи под очистку не попадут.
+    await clearApiCache();
+    localStorage.setItem("fw_token", data.token);
+    localStorage.setItem("fw_user", JSON.stringify(data.user));
     setUser(data.user);
     return data.user as User;
   }, []);
@@ -86,7 +87,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     localStorage.removeItem("fw_token");
     localStorage.removeItem("fw_user");
-    clearApiCache();
+    // Очередь расстановки не трогаем: она привязана к учётной записи, другому
+    // пользователю не видна и уйдёт, когда владелец войдёт снова.
+    void clearApiCache();
     setUser(null);
   }, []);
 
