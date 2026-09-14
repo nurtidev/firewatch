@@ -1,23 +1,13 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import maplibregl, { type StyleSpecification } from "maplibre-gl";
+import maplibregl from "maplibre-gl";
 import { apiFetch } from "@/lib/auth";
+import { OSM_STYLE as STYLE } from "@/lib/mapStyle";
 
+// Kept as its own local constant (not the shared ASTANA_CENTER, which differs
+// by ~0.01°) — this is a pure STYLE-only extraction, no visual change.
 const CENTER: [number, number] = [71.42, 51.13];
-
-const STYLE: StyleSpecification = {
-  version: 8,
-  sources: {
-    osm: {
-      type: "raster",
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-      tileSize: 256,
-      attribution: "© OpenStreetMap",
-    },
-  },
-  layers: [{ id: "osm", type: "raster", source: "osm" }],
-};
 
 async function geojson(path: string) {
   try {

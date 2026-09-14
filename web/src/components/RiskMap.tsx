@@ -1,30 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import maplibregl, { type StyleSpecification } from "maplibre-gl";
+import maplibregl from "maplibre-gl";
 import { Box, Square } from "lucide-react";
 import { apiFetch } from "@/lib/auth";
+import { OSM_STYLE as STYLE, ASTANA_CENTER as CENTER } from "@/lib/mapStyle";
 import { CATEGORY_META, CATEGORY_MAP_COLOR, STATUS_META, type ReportCategory, type ReportStatus } from "@/lib/reports";
 
 export type MapFilters = {
   type?: string;
   district?: string;
   risk?: string;
-};
-
-const CENTER: [number, number] = [71.43, 51.13];
-
-const STYLE: StyleSpecification = {
-  version: 8,
-  sources: {
-    osm: {
-      type: "raster",
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-      tileSize: 256,
-      attribution: "© OpenStreetMap",
-    },
-  },
-  layers: [{ id: "osm", type: "raster", source: "osm" }],
 };
 
 // Risk gradient mirrors the severity scale (lib/risk + @theme tokens) so the
