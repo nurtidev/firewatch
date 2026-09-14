@@ -8,7 +8,7 @@
  */
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Siren } from "lucide-react";
+import { ArrowLeft, Siren, WifiOff } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import CalloutPack from "@/components/CalloutPack";
 import CalloutOps from "@/components/CalloutOps";
@@ -16,7 +16,7 @@ import CalloutRow from "@/components/CalloutRow";
 import { PageHeader, Button, Skeleton, EmptyState, Banner } from "@/components/ui";
 import { useT } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth";
-import { useCalloutList, useCalloutPack } from "@/lib/dispatch";
+import { formatClock, useCalloutList, useCalloutPack } from "@/lib/dispatch";
 
 const POLL_MS = 15000;
 
@@ -49,6 +49,7 @@ function CalloutPageInner() {
     pack,
     loading: packLoading,
     error: packError,
+    cachedAt,
     reload: reloadPack,
   } = useCalloutPack(selectedId, POLL_MS);
 
@@ -127,6 +128,16 @@ function CalloutPageInner() {
             {packError && !pack && <Banner tone="critical">{packError}</Banner>}
             {pack && (
               <div className="space-y-5">
+                {/* Пакет отдан офлайн-кэшем: гидрант мог сломаться, а проезд
+                    перекрыть уже после того, как снимок был снят. Молчать об
+                    этом нельзя — по пакету распоряжаются силами. */}
+                {cachedAt != null && (
+                  <Banner tone="warning" icon={WifiOff}>
+                    {t("Связи нет — показан сохранённый боевой пакет")}
+                    {cachedAt ? ` ${t("от")} ${formatClock(cachedAt)}` : ""}.{" "}
+                    {t("Обстановка могла измениться.")}
+                  </Banner>
+                )}
                 <CalloutPack pack={pack} canMarkHydrant large />
                 <CalloutOps pack={pack} onChanged={reloadPack} canEdit={canEdit} large />
               </div>

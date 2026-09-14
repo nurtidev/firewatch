@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
+import ServiceWorkerBoot from "@/components/ServiceWorkerBoot";
 import { ThemeProvider, THEME_INIT_SCRIPT } from "@/lib/theme";
 import { LocaleProvider, LOCALE_INIT_SCRIPT } from "@/lib/i18n";
 
@@ -62,7 +63,12 @@ export default function RootLayout({
       <body>
         <ThemeProvider>
           <LocaleProvider>
-            <AuthProvider>{children}</AuthProvider>
+            <AuthProvider>
+              {children}
+              {/* Офлайн-оболочка: без воркера установленное приложение
+                  остаётся вкладкой и в подвале не открывается вовсе. */}
+              <ServiceWorkerBoot />
+            </AuthProvider>
           </LocaleProvider>
         </ThemeProvider>
       </body>

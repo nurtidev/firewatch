@@ -7,6 +7,7 @@ import {
   useEffect,
   useState,
 } from "react";
+import { clearApiCache } from "./sw";
 
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
@@ -73,6 +74,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const data = await res.json();
     localStorage.setItem("fw_token", data.token);
     localStorage.setItem("fw_user", JSON.stringify(data.user));
+    // Планшет в части общий, а офлайн-кэш ключуется по адресу запроса, а не по
+    // токену: без очистки заступивший караул увидел бы боевой пакет прошлой
+    // смены как свой. Чистим на обоих концах — вход тоже, потому что выход
+    // могли не сделать (сел аккумулятор, забрали планшет).
+    clearApiCache();
     setUser(data.user);
     return data.user as User;
   }, []);
@@ -80,6 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     localStorage.removeItem("fw_token");
     localStorage.removeItem("fw_user");
+    clearApiCache();
     setUser(null);
   }, []);
 
