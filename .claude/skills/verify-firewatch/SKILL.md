@@ -42,8 +42,9 @@ api http://localhost:8001, ml http://localhost:8002, db :5432 (PostGIS).
 docker compose exec api python -m scripts.init_db          # alembic upgrade head
 docker compose exec api python -m scripts.import_osm       # здания (Overpass, нужен интернет)
 docker compose exec api python -m scripts.import_infra     # ПЧ + гидранты (НЕ идемпотентен, см. ниже)
-docker compose exec api python -m scripts.seed_users       # демо-пользователи
-docker compose exec api python -m scripts.seed_ops         # районы, инспекции, связь с учётками
+docker compose exec api python -m scripts.seed_users       # демо-пользователи (+ akimat)
+docker compose exec api python -m scripts.seed_ops         # инспекции, связь с учётками; внутри — seed_districts
+docker compose exec api python -m scripts.seed_districts   # районы OSM → districts, перепривязка зданий/донесений/карточек (идемпотентен)
 docker compose exec api python -m scripts.compute_risk     # риск-скоры (дергает ml)
 docker compose exec api python -m scripts.seed_hayvill     # ПТП Хайвилл + предписания и заявка owner
 docker compose exec api python -m scripts.seed_extra_objects  # Аланда, Евразия
@@ -69,8 +70,10 @@ docker compose exec api python -m scripts.seed_field_reports  # донесени
 > прогонять `seed_hayvill`/`seed_extra_objects`, которые создают объектные
 > гидранты.
 
-Демо-учётки: `inspector/inspector123` (район Сарыаркинский), `supervisor/supervisor123` (Есильский),
-`minister/minister123` (leadership, весь город), `admin/admin123`.
+Демо-учётки: `inspector/inspector123` и `supervisor/supervisor123` (оба — Есильский район, там ЖК «Хайвилл»),
+`minister/minister123` (leadership, весь город), `admin/admin123`, `akimat/akimat123` (городской трек:
+только `/city*`, здания и инфраструктура, без ПДн). Районы — настоящие границы OSM (`seed_districts`),
+не хеш osm_id: цифры по районам сверяются с городом (сумма по районам == итог).
 
 ## 3. Смоук-чек-лист (браузер)
 
@@ -87,6 +90,7 @@ Health first: `curl -s localhost:8001/health` и `curl -s localhost:8002/health`
 | `/control` | supervisor | прогресс маршрутов виден. Под inspector — 403 + EmptyState «Доступ ограничен» (это НОРМА, не баг) |
 | `/forces` | supervisor | пресет считает: для Евразии сходится с эталоном (Qф 11.1, 2+1 ствола, ранг №2) |
 | `/chat`, `/model`, `/audit` | по ролям nav.ts | отвечает/рендерится; chat требует ANTHROPIC_API_KEY |
+| `/city*` | akimat | вход ведёт в городской трек; настоящие имена районов; в `/city/summary` сумма по районам == итог города, `demo_data: true`; `/reports`, `/cards`, `/chat` дают 403-UI; в карточке здания нет сводки ПТП |
 
 Ролевой инвариант: бейдж риска, маркер карты и строка таблицы одного объекта показывают
 одинаковый severity (единый источник `web/src/lib/risk.ts`).
@@ -94,9 +98,9 @@ Health first: `curl -s localhost:8001/health` и `curl -s localhost:8002/health`
 ## 4. Тесты
 
 ```bash
-# api: unit всегда; db/e2e — под гейтом
+# api: unit всегда; db/e2e — под гейтом и ТОЛЬКО на базе с «test» в имени (см. раздел 2)
 cd api && FW_RUN_DB_TESTS=1 \
-  DATABASE_URL=postgresql+psycopg://firewatch:firewatch@localhost:5432/firewatch pytest -q
+  DATABASE_URL=postgresql+psycopg://firewatch:firewatch@localhost:5432/fw_test pytest -q
 cd ml && pytest -q
 cd web && npm run build     # у web нет тестов — build ловит типы
 ```

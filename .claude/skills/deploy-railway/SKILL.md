@@ -35,8 +35,13 @@ Volume **api-volume** `4157b3d5-2267-4dd1-9cea-7fffba7fc58a` смонтиров�
 
 ## Что происходит при деплое api
 
-- `preDeployCommand` = `sh -c 'alembic upgrade head && (seed_hayvill||true) && (seed_extra_objects||true)'` —
-  миграции + идемпотентные сиды структурных ПТП-карточек прогоняются при каждом деплое.
+- `preDeployCommand` = `sh -c 'alembic upgrade head && seed_districts && (seed_hayvill||true) && (seed_extra_objects||true)'` —
+  миграции, районы OSM (перепривязка `buildings/field_reports/operational_cards.district`; без `|| true` —
+  упавшая перепривязка блокирует деплой, транзакция откатывается целиком) и идемпотентные сиды
+  структурных ПТП-карточек прогоняются при каждом деплое.
+- `seed_users` в preDeploy НЕ входит (он сбрасывает пароли демо-учёток) — новых демо-пользователей
+  (например, `akimat`) и смену района демо-инспектора применять ручным прогоном
+  `python -m scripts.seed_users` с доступом к прод-БД, либо завести учётку через «Пользователи».
 - После деплоя ml существующие `risk_scores` в БД НЕ пересчитываются сами — нужно вручную запустить
   `compute_risk` с доступом к прод-БД (изнутри api-контейнера или локально через TCP proxy).
 - Прод-БД можно наполнять локальными скриптами, переопределив `DATABASE_URL` на TCP proxy.
