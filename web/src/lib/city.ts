@@ -1,17 +1,18 @@
 /**
- * Typed client for the city track's `/city/*` API (section C of the Phase 2
- * contract — new backend router, implemented in parallel and not necessarily
- * deployed yet). Every response mirrors the exact JSON shape the backend
- * returns; nothing here recomputes risk bands or coverage — those come
- * straight from the API (single source: api RISK_BANDS / lib/risk.ts on the
- * frontend).
+ * Typed client for the city track's `/city/*` API (see api/app/routers/city.py
+ * for the actual implementation — this mirrors its response shape exactly).
+ * Nothing here recomputes risk bands or coverage — those come straight from
+ * the API (single source: api RISK_BANDS / lib/risk.ts on the frontend).
  *
  * Mirrors the shape of lib/portal.ts (types + small shared metadata next to
  * them) rather than a full request-wrapper layer — there isn't one elsewhere
  * in the app to match (pages call `apiFetch` directly, see app/portal/page.tsx,
  * app/dashboard/page.tsx). `cityFetch` below is the one addition: it turns a
- * non-2xx response into a typed `CityApiError` so pages can special-case 404
- * ("the /city/* router isn't deployed yet") from every other failure.
+ * non-2xx response into a typed `CityApiError` so pages can special-case 404.
+ * The 404 handling stays even though the router is deployed now — web and api
+ * ship on separate release cadences (see deploy-railway), so a web build can
+ * still land before the matching api build, and the same 404 path also covers
+ * an akimat account whose api hasn't been redeployed yet after an incident.
  */
 import type { LucideIcon } from "lucide-react";
 import { Route, CircleDot, Shuffle } from "lucide-react";
@@ -104,7 +105,11 @@ export type CityBands = {
  *  never compare this one against the normative, it excludes turnout time). */
 export type CityMetrics = {
   buildings_total: number;
-  avg_score: number;
+  /** Null when the district/city has zero SCORED buildings (city.py:157 —
+   *  `acc["scored"]` is 0) — distinct from a real low score. Render as "нет
+   *  данных" with no ScoreBadge, never `Math.round(null)` (→ 0, a false
+   *  "critical is fine" reading) or `scoreBand(null)` (→ "Низкий"). */
+  avg_score: number | null;
   bands: CityBands;
   attention_buildings: number;
   blind_zone_buildings: number;
@@ -117,11 +122,6 @@ export type CityMetrics = {
   callouts_90d: number;
   median_response_min: number | null;
   median_travel_min: number | null;
-  /** Informational; not surfaced everywhere. Buildings not resolved to any
-   *  district (fell outside every polygon and wasn't nearest-matched yet, or
-   *  similar) — present at the `city` level, tolerate its absence per
-   *  district. */
-  unassigned?: number;
 };
 
 export type CityDistrictSummary = CityMetrics & {
@@ -142,8 +142,21 @@ export type CitySummary = {
    *  value. Shown alongside coverage_source, not folded into its label. */
   approximate: boolean;
   method: string;
+  /** How `median_response_min` was computed — shown in "Методика" next to
+   *  `method` (city.py: RESPONSE_METHOD). Comparable against `normative_min`. */
+  response_method?: string;
+  /** How `median_travel_min` was computed (city.py: TRAVEL_METHOD) — pure
+   *  road time, excludes turnout; never compared against `normative_min`. */
+  travel_method?: string;
   city: CityMetrics;
   districts: CityDistrictSummary[];
+  /** Buildings and open prescriptions that exist city-wide but couldn't be
+   *  resolved to any district (city.py: assemble_summary's `unassigned` —
+   *  always present, a top-level sibling of `city`/`districts`, not a field
+   *  inside CityMetrics). When `buildings > 0`, district sums in the table
+   *  legitimately fall short of the city total by that many objects — show
+   *  a note, don't leave it looking like the numbers don't add up. */
+  unassigned: { buildings: number; open_prescriptions: number };
   /** Arrival normative in minutes (currently always 10) — the number
    *  `median_response_min` is judged against. Falls back to 10 (the
    *  citywide constant used elsewhere, e.g. InfraMap's `normative_min`) if
@@ -153,7 +166,6 @@ export type CitySummary = {
    *  UI yet — typed so a response that includes them doesn't need an `any`
    *  cast, and so a future screen can read them without touching this type
    *  again. */
-  arrival_method?: string;
   hydrant_radius_m?: number;
   callout_window_days?: number;
   /** OSM attribution string from the backend, if sent — the hardcoded
@@ -161,10 +173,12 @@ export type CitySummary = {
    *  the ODbL requirement on its own, so this is read opportunistically
    *  (not required for the attribution to be correct). */
   attribution?: string;
-  /** True when some fire-station arrival isochrones are stale (recomputed
-   *  less often than the rest of the coverage data) — an accuracy caveat on
-   *  `coverage_source`/`blind_zone_buildings`, not a hard error. */
-  stations_stale_isochrones?: boolean;
+  /** Count of fire stations whose arrival isochrone is stale/missing (city.py
+   *  `_envelope`: `len(...)`, NOT a boolean) — an accuracy caveat on
+   *  `coverage_source`/`blind_zone_buildings`, not a hard error. Render only
+   *  when > 0, with the count; `0 && …` would otherwise print a stray "0". */
+  stations_stale_isochrones?: number;
+  stations_missing_isochrones?: number;
 };
 
 export function getCitySummary(): Promise<CitySummary> {
@@ -229,7 +243,9 @@ export type CityPriorities = {
   station_gaps: StationGapCell[];
   /** Informational, tolerated but not required to be shown everywhere. */
   attribution?: string;
-  stations_stale_isochrones?: boolean;
+  /** Count, not a boolean — see CitySummary.stations_stale_isochrones. */
+  stations_stale_isochrones?: number;
+  stations_missing_isochrones?: number;
 };
 
 export function getCityPriorities(limit = 10): Promise<CityPriorities> {

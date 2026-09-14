@@ -25,6 +25,7 @@
 
 import json
 import math
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query
@@ -65,8 +66,24 @@ PRIORITIES_MAX = 50
 BAND_KEYS = (("critical", "critical"), ("high", "high"), ("elevated", "mid"), ("low", "low"))
 # «Высокий риск и выше» — объединение двух полос RISK_BANDS, а не своё число.
 HIGH_OR_ABOVE_SQL = f"(({RISK_BANDS['high']}) OR ({RISK_BANDS['critical']}))"
-# Нижняя граница полосы high — только для текста методики (SQL — RISK_BANDS).
-HIGH_MIN_SCORE = 40
+def _band_lower_bound(sql_clause: str) -> int:
+    """Первое число в SQL-условии полосы — её нижняя граница.
+
+    Работает и для "r.score BETWEEN 40 AND 59" (→ 40), и для "r.score >= 60"
+    (→ 60): у RISK_BANDS ("mid"/"high"/"critical") первое число в выражении
+    всегда и есть нижняя граница. Так HIGH_MIN_SCORE берётся из RISK_BANDS, а
+    не дублируется литералом, который мог бы разойтись при следующей правке
+    порогов (см. web/src/lib/risk.ts — тот же порог 40 там).
+    """
+    match = re.search(r"\d+", sql_clause)
+    if not match:
+        raise ValueError(f"cannot parse a lower bound out of: {sql_clause!r}")
+    return int(match.group())
+
+
+# Нижняя граница полосы high — из RISK_BANDS (единственный источник), только
+# для текста методики; SQL-запросы сами используют RISK_BANDS напрямую.
+HIGH_MIN_SCORE = _band_lower_bound(RISK_BANDS["high"])
 
 SUMMARY_METHOD = (
     f"Внимание = здания с оценкой ≥{HIGH_MIN_SCORE} в слепой зоне прибытия "

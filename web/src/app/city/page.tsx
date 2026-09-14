@@ -24,7 +24,14 @@ import {
   type CitySummary,
   type CityDistrictSummary,
 } from "@/lib/city";
-import { scoreSeverity, scoreBand, SEVERITY } from "@/lib/risk";
+import {
+  scoreSeverity,
+  scoreBand,
+  SEVERITY,
+  CRITICAL_MIN_SCORE,
+  HIGH_MIN_SCORE,
+  ELEVATED_MIN_SCORE,
+} from "@/lib/risk";
 import { intlLocale, useLocale, useT, type Locale } from "@/lib/i18n";
 import {
   PageHeader,
@@ -59,9 +66,9 @@ function formatComputedAt(iso: string, locale: Locale): string {
 // (lib/risk.ts) so the label text is single-sourced — never a second copy of
 // "Критический"/"Высокий"/… hardcoded here.
 const BAND_ORDER = [
-  { key: "critical" as const, sev: SEVERITY.critical, minScore: 60 },
-  { key: "high" as const, sev: SEVERITY.high, minScore: 40 },
-  { key: "elevated" as const, sev: SEVERITY.elevated, minScore: 20 },
+  { key: "critical" as const, sev: SEVERITY.critical, minScore: CRITICAL_MIN_SCORE },
+  { key: "high" as const, sev: SEVERITY.high, minScore: HIGH_MIN_SCORE },
+  { key: "elevated" as const, sev: SEVERITY.elevated, minScore: ELEVATED_MIN_SCORE },
   { key: "low" as const, sev: SEVERITY.normal, minScore: 0 },
 ];
 
@@ -294,7 +301,11 @@ export default function CityOverviewPage() {
                               <BandBar bands={d.bands} total={d.buildings_total} />
                             </td>
                             <td className="px-4 py-2.5">
-                              <ScoreBadge score={Math.round(d.avg_score)} severity={scoreSeverity(d.avg_score)} />
+                              {d.avg_score != null ? (
+                                <ScoreBadge score={Math.round(d.avg_score)} severity={scoreSeverity(d.avg_score)} />
+                              ) : (
+                                <span className="text-2xs text-faint">{t("нет данных")}</span>
+                              )}
                             </td>
                             <td className="tabular px-4 py-2.5 text-muted">{d.blind_pct}%</td>
                             <td className="tabular px-4 py-2.5 text-muted">{d.hydrants_broken}</td>
@@ -323,15 +334,26 @@ export default function CityOverviewPage() {
             {summary && (
               <Collapsible className="mt-6" title={t("Методика")}>
                 <p>{summary.method}</p>
+                {summary.response_method && <p className="mt-2">{summary.response_method}</p>}
+                {summary.travel_method && <p className="mt-2">{summary.travel_method}</p>}
                 <p className="mt-2">
                   {t(
                     "Исходные данные содержат немного пожарных частей на весь город — у отдельных районов их может не быть вовсе. Это ограничение исходных данных, а не факт реального отсутствия части.",
                   )}
                 </p>
-                {summary.stations_stale_isochrones && (
+                {!!summary.stations_stale_isochrones && summary.stations_stale_isochrones > 0 && (
                   <p className="mt-2 text-elevated">
+                    <span className="tabular">{summary.stations_stale_isochrones}</span>{" "}
                     {t(
-                      "Зоны прибытия отдельных частей рассчитаны по устаревшим изохронам — слепые зоны и покрытие могут не отражать текущую дорожную сеть.",
+                      "пожарных частей: зоны прибытия рассчитаны по устаревшим изохронам — слепые зоны и покрытие могут не отражать текущую дорожную сеть.",
+                    )}
+                  </p>
+                )}
+                {summary.unassigned.buildings > 0 && (
+                  <p className="mt-2">
+                    <span className="tabular">{summary.unassigned.buildings}</span>{" "}
+                    {t(
+                      "зданий не отнесены ни к одному району (вне контуров), поэтому сумма по районам меньше итога по городу на эту величину.",
                     )}
                   </p>
                 )}

@@ -159,7 +159,10 @@ function Report({
           rows={[
             [t("Зданий в базе"), n(summary.city.buildings_total)],
             [t("Требуют внимания"), n(summary.city.attention_buildings)],
-            [t("Средняя оценка уязвимости"), n(Math.round(summary.city.avg_score))],
+            [
+              t("Средняя оценка уязвимости"),
+              summary.city.avg_score != null ? n(Math.round(summary.city.avg_score)) : t("нет данных"),
+            ],
             [
               t("В слепой зоне прибытия"),
               `${n(summary.city.blind_zone_buildings)} (${summary.city.blind_pct}%)`,
@@ -210,7 +213,7 @@ function Report({
                 <td className="tabular py-1">{n(d.buildings_total)}</td>
                 <td className="tabular py-1">{n(d.attention_buildings)}</td>
                 <td className="tabular py-1">
-                  {Math.round(d.avg_score)} · {t(scoreBand(d.avg_score))}
+                  {d.avg_score != null ? `${Math.round(d.avg_score)} · ${t(scoreBand(d.avg_score))}` : t("нет данных")}
                 </td>
                 <td className="tabular py-1">{d.blind_pct}%</td>
                 <td className="tabular py-1">{n(d.hydrants_broken)}</td>
@@ -252,6 +255,12 @@ function Report({
 
       <Section title={t("5. Методика и ограничения")}>
         <p className="leading-relaxed text-muted">{summary.method}</p>
+        {summary.response_method && (
+          <p className="mt-1.5 leading-relaxed text-muted">{summary.response_method}</p>
+        )}
+        {summary.travel_method && (
+          <p className="mt-1.5 leading-relaxed text-muted">{summary.travel_method}</p>
+        )}
         <p className="mt-1.5 leading-relaxed text-muted">{priorities.method}</p>
         <div className="mt-2">
           <CoverageSourceNote source={summary.coverage_source} approximate={summary.approximate} />
@@ -261,10 +270,19 @@ function Report({
             "Исходные данные содержат немного пожарных частей на весь город — у отдельных районов их может не быть вовсе. Это ограничение исходных данных, а не факт реального отсутствия части.",
           )}
         </p>
-        {summary.stations_stale_isochrones && (
+        {!!summary.stations_stale_isochrones && summary.stations_stale_isochrones > 0 && (
           <p className="mt-2 leading-relaxed text-elevated">
+            {n(summary.stations_stale_isochrones)}{" "}
             {t(
-              "Зоны прибытия отдельных частей рассчитаны по устаревшим изохронам — слепые зоны и покрытие могут не отражать текущую дорожную сеть.",
+              "пожарных частей: зоны прибытия рассчитаны по устаревшим изохронам — слепые зоны и покрытие могут не отражать текущую дорожную сеть.",
+            )}
+          </p>
+        )}
+        {summary.unassigned.buildings > 0 && (
+          <p className="mt-2 leading-relaxed text-muted">
+            {n(summary.unassigned.buildings)}{" "}
+            {t(
+              "зданий не отнесены ни к одному району (вне контуров), поэтому сумма по районам меньше итога по городу на эту величину.",
             )}
           </p>
         )}
