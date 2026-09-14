@@ -7,6 +7,7 @@ import {
   Droplets,
   AlertTriangle,
   CheckCircle2,
+  Info,
   Eye,
   EyeOff,
   ChevronDown,
@@ -170,53 +171,65 @@ export default function InfraPage() {
                 прикрыт», обязан видеть, что именно он читает — включая
                 смешанный случай, когда это верно только для части города
                 (см. api/app/routers/infra.py::_resolve_coverage_source). */}
-            {stats && (
-              <p className="mt-1 flex items-start gap-1.5 text-2xs text-faint">
-                {stats.coverage_source === "osrm" ? (
-                  <CheckCircle2
-                    className="mt-px h-3 w-3 shrink-0 text-normal"
-                    aria-hidden
-                  />
-                ) : (
-                  <AlertTriangle
-                    className="mt-px h-3 w-3 shrink-0 text-high"
-                    aria-hidden
-                  />
-                )}
-                <span>
-                  {t("Зона:")}{" "}
-                  <span className="text-muted">
-                    {stats.coverage_source === "osrm" && t("по дорогам")}
-                    {stats.coverage_source === "buffer" &&
-                      t("по прямой (оценка сверху)")}
-                    {stats.coverage_source === "mixed" && (
-                      <>
-                        {t("частично по дорогам")}
-                        {(stats.stations_missing_isochrones ?? 0) > 0 && (
-                          <>
-                            {": "}
-                            <span className="tabular">
-                              {stats.stations_missing_isochrones}
-                            </span>{" "}
-                            {t("частей по прямой")}
-                          </>
-                        )}
-                      </>
+            {stats && (() => {
+              // missing===0 значит «по дорогам посчитаны все части» — это
+              // верно и для backend-значения "osrm" (stale===0), и для
+              // "mixed", у которого устарела часть уже посчитанных по
+              // дорогам частей (ни одной части-буфера при этом нет). Легенда
+              // читает эти два случая одинаково: «по дорогам», с отдельной
+              // пометкой про устаревшие расчёты, а не «частично по дорогам»
+              // — иначе честная зона по дорогам выглядела бы как прямая.
+              const missing = stats.stations_missing_isochrones ?? 0;
+              const stale = stats.stations_stale_isochrones ?? 0;
+              const isBuffer = stats.coverage_source === "buffer";
+              return (
+                <p className="mt-1 flex items-start gap-1.5 text-2xs text-faint">
+                  {isBuffer || missing > 0 ? (
+                    <AlertTriangle
+                      className="mt-px h-3 w-3 shrink-0 text-high"
+                      aria-hidden
+                    />
+                  ) : stats.traffic_unaccounted ? (
+                    // Роутер посчитал зону по дорогам для всех частей — но с
+                    // оговоркой «без учёта заторов» рядом. Зелёная галочка
+                    // здесь противоречила бы предупреждению того же цвета
+                    // ряда; нейтральная иконка честно говорит «по дорогам, и
+                    // вот важная деталь», не «всё идеально».
+                    <Info className="mt-px h-3 w-3 shrink-0 text-info" aria-hidden />
+                  ) : (
+                    <CheckCircle2
+                      className="mt-px h-3 w-3 shrink-0 text-normal"
+                      aria-hidden
+                    />
+                  )}
+                  <span>
+                    {t("Зона:")}{" "}
+                    <span className="text-muted">
+                      {isBuffer && t("по прямой (оценка сверху)")}
+                      {!isBuffer && missing === 0 && t("по дорогам")}
+                      {!isBuffer && missing > 0 && (
+                        <>
+                          {t("частично по дорогам")}
+                          {" · "}
+                          {t("по прямой:")}{" "}
+                          <span className="tabular">{missing}</span>
+                        </>
+                      )}
+                    </span>
+                    {!isBuffer && stale > 0 && (
+                      <span className="text-high">
+                        {" "}
+                        · {t("устаревших расчётов:")}{" "}
+                        <span className="tabular">{stale}</span>
+                      </span>
+                    )}
+                    {stats.traffic_unaccounted && (
+                      <span className="text-high"> · {t("без учёта заторов")}</span>
                     )}
                   </span>
-                  {(stats.stations_stale_isochrones ?? 0) > 0 && (
-                    <span className="text-high">
-                      {" "}
-                      · <span className="tabular">{stats.stations_stale_isochrones}</span>{" "}
-                      {t("устарели")}
-                    </span>
-                  )}
-                  {stats.traffic_unaccounted && (
-                    <span className="text-high"> · {t("без учёта заторов")}</span>
-                  )}
-                </span>
-              </p>
-            )}
+                </p>
+              );
+            })()}
 
             {/* Legend items */}
             <div
