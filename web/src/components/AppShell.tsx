@@ -214,11 +214,15 @@ export default function AppShell({
     groups = multiGroup ? buckets : buckets.map((g) => ({ items: g.items }));
   }
 
-  const NavLink = ({ item }: { item: NavItem }) => {
+  // A render helper, not an inline component: a component declared inside
+  // render gets a new identity every render, so React would remount every
+  // link (losing focus/hover) on each AppShell update.
+  const renderNavLink = (item: NavItem) => {
     const active = pathname === item.href || pathname.startsWith(item.href + "/");
     const Icon = ICONS[item.href] ?? LayoutDashboard;
     return (
       <Link
+        key={item.href}
         href={item.href}
         onClick={() => setDrawer(false)}
         title={item.hint ? t(item.hint) : undefined}
@@ -319,9 +323,7 @@ export default function AppShell({
               <SectionLabel className="mb-1 px-3">{t(group.heading)}</SectionLabel>
             )}
             <div className="space-y-0.5">
-              {group.items.map((item) => (
-                <NavLink key={item.href} item={item} />
-              ))}
+              {group.items.map(renderNavLink)}
             </div>
           </div>
         ))}
