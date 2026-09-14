@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Building2,
   AlertTriangle,
@@ -19,6 +19,7 @@ import CoverageSourceNote from "@/components/CoverageSourceNote";
 import {
   getCitySummary,
   isCityRouterMissing,
+  isCityForbidden,
   districtName,
   type CitySummary,
   type CityDistrictSummary,
@@ -67,9 +68,8 @@ const BAND_ORDER = [
 export default function CityOverviewPage() {
   const t = useT();
   const { locale } = useLocale();
-  const router = useRouter();
   const [summary, setSummary] = useState<CitySummary | null>(null);
-  const [error, setError] = useState<"missing" | "error" | null>(null);
+  const [error, setError] = useState<"missing" | "forbidden" | "error" | null>(null);
 
   const load = useCallback(() => {
     setError(null);
@@ -77,7 +77,7 @@ export default function CityOverviewPage() {
       .then(setSummary)
       .catch((e) => {
         setSummary(null);
-        setError(isCityRouterMissing(e) ? "missing" : "error");
+        setError(isCityRouterMissing(e) ? "missing" : isCityForbidden(e) ? "forbidden" : "error");
       });
   }, []);
 
@@ -133,6 +133,14 @@ export default function CityOverviewPage() {
               </Button>
             }
           />
+        ) : error === "forbidden" ? (
+          <EmptyState
+            className="mt-8"
+            tone="error"
+            icon={ServerCrash}
+            title={t("Нет доступа")}
+            description={t("У вашей роли нет доступа к этому разделу.")}
+          />
         ) : error === "error" ? (
           <EmptyState
             className="mt-8"
@@ -159,7 +167,7 @@ export default function CityOverviewPage() {
                 label={t("Требуют внимания")}
                 value={summary ? summary.city.attention_buildings.toLocaleString(intlLocale(locale)) : "—"}
                 icon={AlertTriangle}
-                severity={SEVERITY.high}
+                severity={summary && summary.city.attention_buildings > 0 ? SEVERITY.high : SEVERITY.normal}
                 loading={loading}
                 hint={
                   summary
@@ -175,7 +183,7 @@ export default function CityOverviewPage() {
                     : "—"
                 }
                 icon={EyeOff}
-                severity={SEVERITY.critical}
+                severity={summary && summary.city.blind_zone_buildings > 0 ? SEVERITY.critical : SEVERITY.normal}
                 loading={loading}
               />
               <MetricCard
@@ -190,17 +198,28 @@ export default function CityOverviewPage() {
                 loading={loading}
               />
               <MetricCard
-                label={t("Медианное прибытие")}
+                label={t("Время прибытия (медиана)")}
                 value={
                   summary
-                    ? summary.city.median_arrival_min != null
-                      ? summary.city.median_arrival_min
+                    ? summary.city.median_response_min != null
+                      ? summary.city.median_response_min
                       : t("нет данных")
                     : "—"
                 }
-                unit={summary?.city.median_arrival_min != null ? t("мин") : undefined}
+                unit={summary?.city.median_response_min != null ? t("мин") : undefined}
                 icon={Clock}
                 loading={loading}
+                hint={
+                  summary &&
+                  [
+                    `${t("норматив")} ${summary.normative_min ?? 10} ${t("мин")}`,
+                    summary.city.median_travel_min != null
+                      ? `${t("в пути")} ${summary.city.median_travel_min} ${t("мин")}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                }
               />
             </div>
 
@@ -242,17 +261,28 @@ export default function CityOverviewPage() {
                         {summary.districts.map((d: CityDistrictSummary) => (
                           <tr
                             key={d.name}
-                            onClick={() =>
-                              router.push(`/city/map?district=${encodeURIComponent(d.name)}`)
-                            }
-                            className="cursor-pointer border-b border-border/60 transition-colors last:border-0 hover:bg-surface-2/60"
+                            className="border-b border-border/60 transition-colors last:border-0 hover:bg-surface-2/40"
                           >
                             <td className="tabular px-4 py-2.5 text-faint">{d.rank}</td>
                             <td className="px-4 py-2.5 font-medium text-fg">
-                              <span className="inline-flex items-center gap-1">
+                              <Link
+                                href={`/city/map?district=${encodeURIComponent(d.name)}`}
+                                className="inline-flex items-center gap-1 rounded-sm hover:text-accent hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                              >
                                 {districtName(d, locale)}
                                 <ChevronRight className="h-3.5 w-3.5 text-faint" aria-hidden />
-                              </span>
+                              </Link>
+                              {d.stations_total === 0 && (
+                                <span
+                                  className="ml-1.5 inline-flex items-center"
+                                  title={t("Нет пожарной части в данных — ограничение исходных данных, не факт реального отсутствия")}
+                                >
+                                  <AlertTriangle className="h-3 w-3 text-elevated" aria-hidden />
+                                  <span className="sr-only">
+                                    {t("Нет пожарной части в данных")}
+                                  </span>
+                                </span>
+                              )}
                             </td>
                             <td className="tabular px-4 py-2.5 text-muted">
                               {d.buildings_total.toLocaleString(intlLocale(locale))}
@@ -293,6 +323,18 @@ export default function CityOverviewPage() {
             {summary && (
               <Collapsible className="mt-6" title={t("Методика")}>
                 <p>{summary.method}</p>
+                <p className="mt-2">
+                  {t(
+                    "Исходные данные содержат немного пожарных частей на весь город — у отдельных районов их может не быть вовсе. Это ограничение исходных данных, а не факт реального отсутствия части.",
+                  )}
+                </p>
+                {summary.stations_stale_isochrones && (
+                  <p className="mt-2 text-elevated">
+                    {t(
+                      "Зоны прибытия отдельных частей рассчитаны по устаревшим изохронам — слепые зоны и покрытие могут не отражать текущую дорожную сеть.",
+                    )}
+                  </p>
+                )}
               </Collapsible>
             )}
           </>
@@ -312,15 +354,23 @@ function BandBar({
   const t = useT();
   const safeTotal = Math.max(1, total);
   return (
-    <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-3" aria-hidden>
-      {BAND_ORDER.map(({ key, sev, minScore }) => (
-        <div
-          key={key}
-          className="h-full first:rounded-l-full last:rounded-r-full"
-          style={{ width: `${(100 * bands[key]) / safeTotal}%`, background: sev.cssVar }}
-          title={`${t(scoreBand(minScore))}: ${bands[key]}`}
-        />
-      ))}
-    </div>
+    <>
+      <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-3" aria-hidden>
+        {BAND_ORDER.map(({ key, sev, minScore }) => (
+          <div
+            key={key}
+            className="h-full first:rounded-l-full last:rounded-r-full"
+            style={{ width: `${(100 * bands[key]) / safeTotal}%`, background: sev.cssVar }}
+            title={`${t(scoreBand(minScore))}: ${bands[key]}`}
+          />
+        ))}
+      </div>
+      {/* The bar above is aria-hidden (a screen reader can't read a color
+          gradient) — this is the actual content for it, same numbers as the
+          per-segment `title` tooltips. */}
+      <span className="sr-only">
+        {BAND_ORDER.map(({ key, minScore }) => `${t(scoreBand(minScore))}: ${bands[key]}`).join(", ")}
+      </span>
+    </>
   );
 }

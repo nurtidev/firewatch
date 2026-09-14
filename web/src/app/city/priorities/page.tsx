@@ -15,8 +15,12 @@ import DemoBanner from "@/components/DemoBanner";
 import CoverageSourceNote from "@/components/CoverageSourceNote";
 import {
   getCityPriorities,
+  getCitySummary,
   isCityRouterMissing,
+  isCityForbidden,
+  localizedDistrictName,
   type CityPriorities,
+  type CityDistrictSummary,
   type HydrantGapCell,
   type StationGapCell,
 } from "@/lib/city";
@@ -38,7 +42,12 @@ export default function CityPrioritiesPage() {
   const t = useT();
   const { locale } = useLocale();
   const [data, setData] = useState<CityPriorities | null>(null);
-  const [error, setError] = useState<"missing" | "error" | null>(null);
+  const [error, setError] = useState<"missing" | "forbidden" | "error" | null>(null);
+  // Best-effort only: /city/priorities cells carry a bare Russian district
+  // name (no name_kk/name_en of their own — see localizedDistrictName in
+  // lib/city.ts); this list is what translates it for kk/en. Its own failure
+  // never blocks the page — the Russian name is still a correct fallback.
+  const [districts, setDistricts] = useState<CityDistrictSummary[] | null>(null);
 
   const load = useCallback(() => {
     setError(null);
@@ -46,8 +55,11 @@ export default function CityPrioritiesPage() {
       .then(setData)
       .catch((e) => {
         setData(null);
-        setError(isCityRouterMissing(e) ? "missing" : "error");
+        setError(isCityRouterMissing(e) ? "missing" : isCityForbidden(e) ? "forbidden" : "error");
       });
+    getCitySummary()
+      .then((s) => setDistricts(s.districts))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -86,6 +98,14 @@ export default function CityPrioritiesPage() {
               </Button>
             }
           />
+        ) : error === "forbidden" ? (
+          <EmptyState
+            className="mt-8"
+            tone="error"
+            icon={ServerCrash}
+            title={t("Нет доступа")}
+            description={t("У вашей роли нет доступа к этому разделу.")}
+          />
         ) : error === "error" ? (
           <EmptyState
             className="mt-8"
@@ -119,7 +139,7 @@ export default function CityPrioritiesPage() {
                 emptyText={t("Точек без гидранта в зоне охвата не найдено")}
               >
                 {data?.hydrant_gaps.map((c, i) => (
-                  <HydrantGapRow key={c.cell_id} rank={i + 1} cell={c} locale={locale} t={t} />
+                  <HydrantGapRow key={c.cell_id} rank={i + 1} cell={c} districts={districts} locale={locale} t={t} />
                 ))}
               </PriorityColumn>
 
@@ -131,7 +151,7 @@ export default function CityPrioritiesPage() {
                 emptyText={t("Слепых зон, требующих новой части, не найдено")}
               >
                 {data?.station_gaps.map((c, i) => (
-                  <StationGapRow key={c.cell_id} rank={i + 1} cell={c} locale={locale} t={t} />
+                  <StationGapRow key={c.cell_id} rank={i + 1} cell={c} districts={districts} locale={locale} t={t} />
                 ))}
               </PriorityColumn>
             </div>
@@ -183,11 +203,13 @@ function PriorityColumn({
 function HydrantGapRow({
   rank,
   cell,
+  districts,
   locale,
   t,
 }: {
   rank: number;
   cell: HydrantGapCell;
+  districts: CityDistrictSummary[] | null;
   locale: "ru" | "kk" | "en";
   t: (s: string) => string;
 }) {
@@ -197,7 +219,7 @@ function HydrantGapRow({
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 text-xs">
             <span className="tabular font-semibold text-faint">#{rank}</span>
-            <span className="font-medium text-fg">{cell.district}</span>
+            <span className="font-medium text-fg">{localizedDistrictName(cell.district, districts, locale)}</span>
           </div>
           <p className="mt-1 text-2xs text-muted">
             <span className="tabular">{cell.buildings.toLocaleString(intlLocale(locale))}</span>{" "}
@@ -227,11 +249,13 @@ function HydrantGapRow({
 function StationGapRow({
   rank,
   cell,
+  districts,
   locale,
   t,
 }: {
   rank: number;
   cell: StationGapCell;
+  districts: CityDistrictSummary[] | null;
   locale: "ru" | "kk" | "en";
   t: (s: string) => string;
 }) {
@@ -241,7 +265,7 @@ function StationGapRow({
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 text-xs">
             <span className="tabular font-semibold text-faint">#{rank}</span>
-            <span className="font-medium text-fg">{cell.district}</span>
+            <span className="font-medium text-fg">{localizedDistrictName(cell.district, districts, locale)}</span>
           </div>
           <p className="mt-1 text-2xs text-muted">
             <span className="tabular">{cell.blind_buildings.toLocaleString(intlLocale(locale))}</span>{" "}
@@ -257,6 +281,11 @@ function StationGapRow({
         </div>
         <ScoreBadge score={Math.round(cell.avg_score)} severity={scoreSeverity(cell.avg_score)} />
       </div>
+      {cell.sample_addresses.length > 0 && (
+        <p className="mt-2 truncate text-2xs text-faint" title={cell.sample_addresses.join(", ")}>
+          {cell.sample_addresses.join(" · ")}
+        </p>
+      )}
       <LinkButton
         href={`/city/map?lon=${cell.lon}&lat=${cell.lat}&z=15`}
         variant="secondary"
