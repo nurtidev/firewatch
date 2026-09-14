@@ -27,6 +27,12 @@ type Stats = {
   blind_zone_buildings: number;
   blind_pct: number;
   normative_min: number;
+  /** Чем посчитано покрытие: `osrm` — по дорогам, `buffer` — по прямой. */
+  coverage_source?: "osrm" | "buffer";
+  coverage_computed_at?: string | null;
+  /** Оценка сверху: расчёт не учитывает заторы (или вовсе идёт по прямой). */
+  traffic_unaccounted?: boolean;
+  approximate?: boolean;
 };
 
 // Legend rows: label + swatch color (cssVar from SEVERITY where possible, else
@@ -147,6 +153,25 @@ export default function InfraPage() {
                 {stats?.normative_min ?? 10} {t("мин")}
               </span>
             </p>
+
+            {/* Чем посчитана зона. Круг вокруг части и достижимость по
+                дорогам — разные утверждения, и оба завышают покрытие, но
+                по-разному: круг не знает реки и закрытых кварталов, изохрона
+                не знает заторов. Пользователь, который делает вывод «район
+                прикрыт», обязан видеть, что именно он читает. */}
+            {stats && (
+              <p className="mt-1 text-2xs text-faint">
+                {t("Зона:")}{" "}
+                <span className="text-muted">
+                  {stats.coverage_source === "osrm"
+                    ? t("по дорогам")
+                    : t("по прямой (оценка сверху)")}
+                </span>
+                {stats.traffic_unaccounted && (
+                  <span className="text-high"> · {t("без учёта заторов")}</span>
+                )}
+              </p>
+            )}
 
             {/* Legend items */}
             <div
