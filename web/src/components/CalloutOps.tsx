@@ -15,6 +15,7 @@
  * не набирает время руками. Ошибочную отметку можно снять тем же нажатием.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Clock,
   Truck,
@@ -31,6 +32,7 @@ import {
   WifiOff,
   FileText,
   KeyRound,
+  LogIn,
   Loader2,
   ShieldAlert,
 } from "lucide-react";
@@ -600,6 +602,7 @@ function DeploymentSection({
   onChanged: () => void;
 }) {
   const t = useT();
+  const router = useRouter();
   const [adding, setAdding] = useState(false);
   const [kind, setKind] = useState<PositionKind>("barrel_ext");
   const [phase, setPhase] = useState<PositionPhase>("localization");
@@ -797,9 +800,17 @@ function DeploymentSection({
           вход, а не повтор нажатия «Отправить». */}
       {editable && queue.authRequired && queue.pending.length > 0 && (
         <Banner tone="warning" icon={KeyRound} className="mt-3">
-          {t(
-            "Нужен повторный вход. Расстановка ({n}) сохранена на устройстве и уйдёт после входа под этой же учётной записью.",
-          ).replace("{n}", String(queue.pending.length))}
+          <span className="flex flex-wrap items-center gap-2">
+            <span>
+              {t(
+                "Нужен повторный вход. Расстановка ({n}) сохранена на устройстве и уйдёт после входа под этой же учётной записью.",
+              ).replace("{n}", String(queue.pending.length))}
+            </span>
+            <Button size="sm" variant="secondary" onClick={() => router.push("/login")}>
+              <LogIn className="h-4 w-4" aria-hidden />
+              {t("Войти заново")}
+            </Button>
+          </span>
         </Banner>
       )}
       {/* 403 — у учётной записи нет прав на расстановку в этом выезде.

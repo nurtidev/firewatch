@@ -107,19 +107,34 @@ export function authToken(): string | null {
   return localStorage.getItem("fw_token");
 }
 
-/** Fetch an API path with the bearer token attached; on 401 → login. */
+export type ApiFetchOpts = RequestInit & {
+  /** false — не уводить со страницы на 401 (см. вызов ниже). Токен из
+   *  localStorage всё равно снимается: он подтверждённо недействителен, и
+   *  оставленным он даёт тот же 401 любому другому запросу со страницы. */
+  authRedirect?: boolean;
+};
+
+/** Fetch an API path with the bearer token attached; on 401 → login.
+ *
+ *  `authRedirect: false` — для запросов, которые уходят в фоне и не должны
+ *  выдёргивать человека с экрана посреди работы (см. deploymentQueue.flush):
+ *  расстановку на пожаре синхронизирует очередь сама, без участия РТП, и её
+ *  401 не повод срывать его с плана — только показать баннер «нужен
+ *  повторный вход» и оставить действие на нём. Остальные вызовы (интерактивные,
+ *  по нажатию) уводят на /login как раньше — так безопаснее по умолчанию. */
 export async function apiFetch(
   path: string,
-  opts: RequestInit = {},
+  opts: ApiFetchOpts = {},
 ): Promise<Response> {
-  const headers = new Headers(opts.headers);
+  const { authRedirect = true, ...init } = opts;
+  const headers = new Headers(init.headers);
   const token = authToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(`${API_URL}${path}`, { ...opts, headers });
+  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
   if (res.status === 401 && typeof window !== "undefined") {
     localStorage.removeItem("fw_token");
     localStorage.removeItem("fw_user");
-    window.location.href = "/login";
+    if (authRedirect) window.location.href = "/login";
   }
   return res;
 }

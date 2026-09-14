@@ -483,7 +483,12 @@ export class SyncError extends Error {
  *  Один запрос вместо N поштучных — потому что связь на пожаре появляется на
  *  секунды: очередь из пятнадцати запросов успевает уйти наполовину и
  *  оставляет расстановку в состоянии, которого не было ни на плане, ни в
- *  замысле РТП. */
+ *  замысле РТП.
+ *
+ *  `authRedirect: false` — эта отправка уходит в фоне (см. deploymentQueue),
+ *  без нажатия РТП, и 401 здесь не повод срывать его с плана расстановки на
+ *  /login: вызывающий (runFlush) сам различает 401 через SyncError.status и
+ *  оставляет очередь на устройстве с баннером «нужен повторный вход». */
 export async function syncDeployment(
   calloutId: number,
   body: DeploymentSyncBody,
@@ -494,6 +499,7 @@ export async function syncDeployment(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...body, sent_at: sentAtNow() }),
+      authRedirect: false,
     });
   } catch {
     throw new SyncError("Связи нет — расстановка ждёт отправки", 0);
