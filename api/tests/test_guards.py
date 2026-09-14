@@ -75,6 +75,11 @@ ENDPOINTS = [
      {"supervisor", "leadership", "admin", "dispatcher", "responder"}),
     ("hydrant_status", "POST", "/infra/hydrants/1/status", {"status": "ok"},
      {"dispatcher", "responder", "supervisor", "admin"}),
+    # Пересчёт зон прибытия переписывает слой, на котором строятся выводы о
+    # покрытии города, — это админская операция, а не «обновить карту».
+    ("coverage_rebuild", "POST", "/infra/coverage/rebuild", None, {"admin"}),
+    ("routing_calibration", "GET", "/infra/routing/calibration", None,
+     {"supervisor", "leadership", "admin"}),
     ("cards_list", "GET", "/cards", None,
      {"inspector", "supervisor", "admin", "dispatcher", "responder"}),
     ("cards_review", "POST", "/cards/1/prescriptions/1/review", {"status": "approved"},

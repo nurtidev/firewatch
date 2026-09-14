@@ -25,6 +25,10 @@ services:
       ML_URL: ${ML_URL:-http://ml:8000}
       OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api/interpreter}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
+      # Пусто — зоны прибытия считаются прямолинейным буфером и помечаются
+      # `approximate: true`. С поднятым профилем routing (см. ниже) укажите
+      # FW_ROUTING_URL=http://osrm:5000 в .env.
+      FW_ROUTING_URL: ${FW_ROUTING_URL:-}
     ports:
       - "8001:8000"
     depends_on:
@@ -60,6 +64,25 @@ services:
       - "3001:3000"
     depends_on:
       - api
+
+  # Дорожный роутер для зон прибытия. Профиль `routing` — сервис не поднимается
+  # по умолчанию: он требует подготовленного графа (см. ops/osrm/README.md,
+  # ~1 ГБ данных) и нужен не всякой установке. Без него модуль работает на
+  # прямолинейном буфере и честно об этом говорит.
+  #   ops/osrm/prepare.sh          — один раз подготовить граф
+  #   docker compose --profile routing up -d osrm
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:latest
+    profiles: ["routing"]
+    # max-table-size: изохрона считается одной матрицей на сетку точек вокруг
+    # части; дефолтные 100 точек дали бы зону из десятка пикселей.
+    command: >
+      osrm-routed --algorithm mld --max-table-size 4000
+      /data/kazakhstan-latest.osrm
+    ports:
+      - "5001:5000"
+    volumes:
+      - ./ops/osrm/data:/data:ro
 
 volumes:
   pgdata:

@@ -87,6 +87,33 @@ class Settings(BaseSettings):
         180, validation_alias=AliasChoices("FW_TELEMATICS_STALE_SEC", "TELEMATICS_STALE_SEC")
     )
 
+    # Дорожная маршрутизация (OSRM). Пока URL пуст, зоны прибытия считаются
+    # прямолинейным буфером и честно помечаются `approximate: true` — река
+    # Есиль, железная дорога и закрытые кварталы в них не учтены. С поднятым
+    # роутером те же ручки отдают настоящую достижимость по дорогам.
+    #   FW_ROUTING_URL=http://osrm:5000
+    routing_url: str = Field(
+        "", validation_alias=AliasChoices("FW_ROUTING_URL", "ROUTING_URL")
+    )
+    # Шаг сетки для изохроны, метры. Мельче — точнее контур и дороже расчёт:
+    # число точек растёт квадратично, а матрица OSRM линейна по точкам.
+    routing_grid_step_m: int = Field(
+        400, validation_alias=AliasChoices("FW_ROUTING_GRID_STEP_M", "ROUTING_GRID_STEP_M")
+    )
+    # Поправка на реальную дорожную обстановку. OSRM считает по свободному
+    # потоку: ни заторов, ни гололёда, ни разъезда во дворе. Для карты это
+    # значит, что зона прибытия «по дорогам» — верхняя оценка, как и круг,
+    # только менее грубая. Множитель > 1 растягивает расчётное время хода и
+    # сжимает зону до правдоподобной.
+    #
+    # Значение по умолчанию 1.0 намеренно: подставлять сюда придуманный
+    # коэффициент значит выдавать догадку за расчёт. Калибруется по своим же
+    # данным — `GET /infra/routing/calibration` сравнивает фактические времена
+    # прибытия из закрытых выездов с расчётными и предлагает число.
+    routing_time_factor: float = Field(
+        1.0, validation_alias=AliasChoices("FW_ROUTING_TIME_FACTOR", "ROUTING_TIME_FACTOR")
+    )
+
     @property
     def is_production(self) -> bool:
         return self.env.strip().lower() in {"production", "prod"}

@@ -184,3 +184,70 @@ def test_visit_photo_rejects_unsafe_names(bad_id):
     with pytest.raises(HTTPException) as e:
         get_visit_photo(bad_id, request=None)  # type: ignore[arg-type]
     assert e.value.status_code == 404
+
+
+# --- дорожная маршрутизация: сетка изохроны и калибровка --------------------
+#
+# Роутер — внешний сервис, и здесь он не поднимается: проверяется то, что
+# считает наш код. Главное свойство — интеграция, которой нет, не должна
+# ничего ломать: без FW_ROUTING_URL модуль обязан молча возвращать «нет
+# данных», а вызывающий — откатываться на прямолинейный буфер.
+
+from app import routing as R  # noqa: E402
+
+
+def test_routing_disabled_without_url(monkeypatch):
+    monkeypatch.setattr(R.settings, "routing_url", "")
+    assert R.is_configured() is False
+    assert R.route(R.Point(71.4, 51.1), R.Point(71.5, 51.2)) is None
+    assert R.reachable_points(R.Point(71.4, 51.1), 600, 3000) is None
+    assert R.health() == {
+        "configured": False,
+        "ok": False,
+        "detail": "FW_ROUTING_URL не задан",
+    }
+
+
+def test_grid_stays_inside_radius():
+    center = R.Point(71.43, 51.13)
+    step, radius = 400, 2000
+    points = R._grid(center, radius_m=radius, step_m=step)
+    assert points, "сетка не должна быть пустой"
+
+    # Все точки — внутри круга (с допуском в один шаг: узлы сетки лежат по
+    # краю). Квадратная сетка без отсечения углов дала бы точки за радиусом,
+    # то есть матрицу, посчитанную впустую.
+    import math
+
+    for p in points:
+        dy = (p.lat - center.lat) * 111_320.0
+        dx = (p.lng - center.lng) * 111_320.0 * math.cos(math.radians(center.lat))
+        assert math.hypot(dx, dy) <= radius + step
+
+
+def test_calibration_drops_broken_marks(monkeypatch):
+    """Отметка, проставленная задним числом, не должна двигать коэффициент."""
+    monkeypatch.setattr(R.settings, "routing_url", "http://osrm:5000")
+    monkeypatch.setattr(
+        R, "route", lambda a, b: R.RouteResult(distance_m=5000, duration_s=300, geometry=None)
+    )
+    p = R.Point(71.4, 51.1)
+    samples = [
+        (p, p, 300.0),    # ровно по расчёту
+        (p, p, 450.0),    # в полтора раза дольше
+        (p, p, 360.0),
+        (p, p, 90_000.0),  # «ехали сутки» — испорченная отметка
+    ]
+    out = R.calibration(samples)
+    assert out["samples"] == 3
+    assert out["outliers"] == 1
+    assert out["median_ratio"] == 1.2
+    assert out["max_ratio"] == 1.5
+
+
+def test_calibration_without_samples_suggests_nothing(monkeypatch):
+    monkeypatch.setattr(R.settings, "routing_url", "http://osrm:5000")
+    monkeypatch.setattr(R, "route", lambda a, b: None)
+    out = R.calibration([(R.Point(71.4, 51.1), R.Point(71.5, 51.2), 300.0)])
+    assert out["samples"] == 0
+    assert out["suggested_factor"] is None
