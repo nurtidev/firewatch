@@ -42,7 +42,7 @@ api http://localhost:8001, ml http://localhost:8002, db :5432 (PostGIS).
 docker compose exec api python -m scripts.init_db          # alembic upgrade head
 docker compose exec api python -m scripts.import_osm       # здания (Overpass, нужен интернет)
 docker compose exec api python -m scripts.import_infra     # ПЧ + гидранты (НЕ идемпотентен, см. ниже)
-docker compose exec api python -m scripts.seed_users       # демо-пользователи (+ akimat)
+docker compose exec api python -m scripts.seed_users       # демо-пользователи (+ akimat); пароли существующих не трогает — сброс: --reset-demo-passwords
 docker compose exec api python -m scripts.seed_ops         # инспекции, связь с учётками; внутри — seed_districts
 docker compose exec api python -m scripts.seed_districts   # районы OSM → districts, перепривязка зданий/донесений/карточек (идемпотентен)
 docker compose exec api python -m scripts.compute_risk     # риск-скоры (дергает ml)

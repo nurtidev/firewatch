@@ -15,15 +15,23 @@ Demo credentials (pilot only — change before any real deployment):
 District scoping: inspector/supervisor see only their district; leadership/admin
 see the whole city (district = NULL).
 
+Пароли существующих учётных записей скрипт НЕ переписывает (только новым):
+сброс на демо — явно, `python -m scripts.seed_users --reset-demo-passwords`
+(локально). На проде скрипт не запускать никогда — см. скилл deploy-railway.
+
 Этот скрипт — только начальный набор для пилота/демо. Приём и отключение
 сотрудников делаются администратором через продукт (экран «Пользователи»,
 POST /auth/users, /auth/users/{username}/disable|enable) — правка списка ниже
 для этого больше не нужна и оставляет действие вне журнала аудита.
 """
 
+import os
+import sys
+
 from sqlalchemy import text
 
 from app.auth import hash_password
+from app.config import settings
 from app.db import engine
 
 # (username, password, name, role, district)
@@ -104,33 +112,64 @@ def sync_demo_registry(conn) -> int:
     ).rowcount
 
 
-def main() -> None:
+RESET_FLAG = "--reset-demo-passwords"
+RESET_ENV = "FW_RESET_DEMO_PASSWORDS"
+
+
+def main(reset_passwords: bool = False) -> None:
+    """Завести недостающие демо-учётки; пароли существующих НЕ трогаются.
+
+    Раньше upsert переписывал `password_hash` у всех демо-учёток, включая admin
+    и minister: один прогон на базе, где пароли уже сменены, возвращал
+    `admin123`/`minister123`, опубликованные в этом репозитории. Теперь пароль
+    ставится только новой учётной записи, а сброс паролей существующих —
+    явным флагом `--reset-demo-passwords` (или FW_RESET_DEMO_PASSWORDS=1), и
+    никогда в production-контуре (FW_ENV=production).
+
+    На проде этот скрипт не запускается вовсе — см. скилл deploy-railway.
+    """
+    if reset_passwords and settings.is_production:
+        raise SystemExit(
+            "Отказ: сброс демо-паролей в production-контуре (FW_ENV=production) запрещён"
+        )
+    created = kept = 0
     with engine.begin() as conn:
         for username, password, name, role, district in [*USERS, OWNER]:
+            existed = conn.execute(
+                text("SELECT 1 FROM users WHERE username = :u"), {"u": username}
+            ).scalar()
             conn.execute(
                 text(
                     """
                     INSERT INTO users (username, password_hash, name, role, district)
                     VALUES (:u, :p, :n, :r, :d)
                     ON CONFLICT (username) DO UPDATE
-                    SET password_hash = EXCLUDED.password_hash,
+                    SET password_hash = CASE WHEN :reset THEN EXCLUDED.password_hash
+                                             ELSE users.password_hash END,
                         name = EXCLUDED.name,
                         role = EXCLUDED.role,
                         district = EXCLUDED.district
-                    -- is_active намеренно не трогаем: сиды идемпотентно
-                    -- прогоняются при каждом деплое, и сброс признака вернул бы
+                    -- is_active намеренно не трогаем: сброс признака вернул бы
                     -- доступ учётной записи, отключённой администратором.
                     """
                 ),
                 {"u": username, "p": hash_password(password), "n": name, "r": role,
-                 "d": district},
+                 "d": district, "reset": reset_passwords},
             )
+            if existed and not reset_passwords:
+                kept += 1
+            elif not existed:
+                created += 1
         moved = sync_demo_registry(conn)
         if moved:
             print(f"inspectors: район {moved} строк(и) реестра выровнен по учётной записи")
         _seed_owner_link(conn)
-    print(f"seeded {len(USERS) + 1} users")
+    print(
+        f"seeded {len(USERS) + 1} users: создано {created}, "
+        + (f"пароли существующих сохранены у {kept} (сброс — {RESET_FLAG})"
+           if not reset_passwords else "пароли существующих СБРОШЕНЫ на демо")
+    )
 
 
 if __name__ == "__main__":
-    main()
+    main(reset_passwords=RESET_FLAG in sys.argv[1:] or os.getenv(RESET_ENV) == "1")

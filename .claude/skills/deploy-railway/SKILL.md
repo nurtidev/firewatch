@@ -39,9 +39,48 @@ Volume **api-volume** `4157b3d5-2267-4dd1-9cea-7fffba7fc58a` смонтиров�
   миграции, районы OSM (перепривязка `buildings/field_reports/operational_cards.district`; без `|| true` —
   упавшая перепривязка блокирует деплой, транзакция откатывается целиком) и идемпотентные сиды
   структурных ПТП-карточек прогоняются при каждом деплое.
-- `seed_users` в preDeploy НЕ входит (он сбрасывает пароли демо-учёток) — новых демо-пользователей
-  (например, `akimat`) и смену района демо-инспектора применять ручным прогоном
-  `python -m scripts.seed_users` с доступом к прод-БД, либо завести учётку через «Пользователи».
+- **`seed_users` на проде НЕ запускать никогда** (ни в preDeploy, ни вручную через TCP proxy). Демо-пароли
+  (`admin123`, `minister123`, …) лежат в публичном репозитории; скрипт хоть и не переписывает пароли
+  без `--reset-demo-passwords`, но меняет имя/роль/район учёток. Всё, что на проде касается
+  пользователей, — адресно (см. «Выкатка районов OSM и роли akimat» ниже).
+
+## Выкатка районов OSM и роли akimat (разовая, ветка feat/city-track-api)
+
+`seed_districts` в preDeploy перепривязывает ~80% зданий, а с ними — очереди донесений и видимость
+для всех inspector/supervisor. Порядок:
+
+1. **Бэкап** до деплоя (через TCP proxy): `pg_dump` прод-БД целиком, либо минимум
+   `COPY (SELECT id, district FROM buildings)`, то же для `field_reports` и `operational_cards`.
+2. **Сухой прогон на прод-данных** — транзакция с откатом, отчёт до/после по районам:
+   ```bash
+   DATABASE_URL=<прод через TCP proxy> python -c "
+   from app.db import engine; from scripts import seed_districts as s
+   conn = engine.connect(); tx = conn.begin()
+   try: st = s.run(conn); s.print_report(st)
+   finally: tx.rollback(); conn.close()"
+   ```
+   Миграция 0023 к этому моменту должна быть применена (иначе нет таблицы `districts`) — сухой прогон
+   делать сразу после `alembic upgrade head` на проде или на свежем дампе прода в одноразовой базе.
+   Прочитать отчёт: суммы, число «вне полигонов», сколько донесений сменят очередь.
+3. **Деплой в нерабочее время**: api (preDeploy: alembic → seed_districts → ПТП-сиды), затем web —
+   роль `akimat` в web должна быть задеплоена ДО того, как появится учётка акимата.
+4. **Лог preDeploy**: строка `зданий сменили район: N` совпадает с сухим прогоном; ошибок нет.
+5. **Демо-инспектор → Есильский** адресным SQL, не сидом:
+   ```sql
+   BEGIN;
+   UPDATE users SET district = 'Есильский' WHERE username = 'inspector';
+   UPDATE inspectors SET district = 'Есильский'
+    WHERE user_id = (SELECT id FROM users WHERE username = 'inspector');
+   COMMIT;
+   ```
+   Затем завершить его сессии: `POST /auth/revoke {"username": "inspector"}` под admin (район и так
+   берётся из БД на каждый запрос, revoke — чтобы фронт перечитал профиль при входе).
+6. **Учётка akimat** — только через экран «Пользователи» / `POST /auth/users` (роль `akimat`, без района)
+   с НЕдемо-паролем, после деплоя web. Не `akimat123`.
+7. **Смоук**: `/city/summary` — сумма по районам == итог города, `unassigned` нули; под akimat
+   `/reports`, `/cards`, `/chat` → 403; inspector и supervisor видят Хайвилл (`/cards`, `/buildings/search?q=Сарайшық`);
+   портал owner открывается, объект на месте.
+8. Откат данных при проблеме: восстановить `district` из бэкапа п.1 (схема 0023 отката не требует).
 - После деплоя ml существующие `risk_scores` в БД НЕ пересчитываются сами — нужно вручную запустить
   `compute_risk` с доступом к прод-БД (изнутри api-контейнера или локально через TCP proxy).
 - Прод-БД можно наполнять локальными скриптами, переопределив `DATABASE_URL` на TCP proxy.
