@@ -113,8 +113,9 @@ export const DEFAULT_ROUTE: Record<Role, string> = {
   inspector: "/routes",
   supervisor: "/dashboard",
   // Руководство теперь садится в трек «Город» — их рабочий экран это картина
-  // города, а не внутренняя сводка ДЧС (та осталась достижима, см. extraAccessRoles
-  // на /dashboard выше).
+  // города. /dashboard («Сводка ДЧС») остаётся в roles (сайдбар, не только
+  // deep link) — см. TRACK_LANDING ниже для того, куда leadership попадает
+  // при переключении обратно в трек «Пожарные».
   leadership: "/city",
   admin: "/dashboard",
   owner: "/portal",
@@ -207,4 +208,29 @@ export function trackOfPath(pathname: string): "fire" | "city" | "system" | null
  *  only, no fire items); inspector/dispatcher/responder/owner → false. */
 export function hasTrackSwitch(role: Role): boolean {
   return trackItems(role, "fire").length >= 2 && trackItems(role, "city").length >= 2;
+}
+
+/** Preferred landing hrefs per track, in priority order — used only when the
+ *  role's DEFAULT_ROUTE isn't itself in that track (see trackLandingHref).
+ *  Without this, switching to a track landed on `trackItems(role, track)[0]`
+ *  — the first NAV entry in ARRAY order, which is an accident of how NAV
+ *  happens to be listed, not a considered "this is where you land" choice:
+ *  leadership switching to "fire" landed on /vehicles (first fire item that
+ *  lists leadership in `roles`) instead of its actual fire-track home,
+ *  /dashboard. */
+const TRACK_LANDING: Record<"fire" | "city", string[]> = {
+  fire: ["/dashboard", "/dispatch", "/callout", "/routes"],
+  city: ["/city"],
+};
+
+/** Where a role should land when switching into `track` — the first
+ *  TRACK_LANDING href that role can actually see in that track, falling back
+ *  to the first visible item in NAV order if none of the preferences apply
+ *  (e.g. a future role with none of the preferred hrefs). */
+export function trackLandingHref(role: Role, track: "fire" | "city"): string | undefined {
+  const visible = trackItems(role, track);
+  for (const href of TRACK_LANDING[track]) {
+    if (visible.some((n) => n.href === href)) return href;
+  }
+  return visible[0]?.href;
 }

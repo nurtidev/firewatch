@@ -103,7 +103,7 @@ const API_CACHEABLE = [
 ];
 
 /** Никогда не кэшируем: доказательства с ПДн и потоковые ответы. */
-const API_NEVER = [/\/photo/, /^\/auth/, /^\/audit/, /^\/chat/, /^\/model/];
+const API_NEVER = [/\/photo/, /^\/auth/, /^\/audit/, /^\/chat/, /^\/model/, /^\/city\//];
 
 /**
  * Потолки записей. Прекэша здесь нет намеренно — он не вытесняется.

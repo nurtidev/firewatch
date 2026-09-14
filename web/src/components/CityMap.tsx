@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/auth";
 import { useLocale } from "@/lib/i18n";
 import {
   OSM_STYLE,
+  ASTANA_CENTER,
   RISK_SCORE_COLOR,
   MAP_FONT_REGULAR,
   MAP_FONT_BOLD,
@@ -22,8 +23,6 @@ import type {
   CityMapFocus,
   CityDataStatus,
 } from "@/lib/cityMapTypes";
-
-const CENTER: [number, number] = [71.43, 51.13];
 
 // Districts choropleth by attention share (attention_buildings / buildings_total,
 // computed client-side — the API returns the two counts, not a ratio). Not a
@@ -162,7 +161,7 @@ export default function CityMap({
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: OSM_STYLE,
-      center: CENTER,
+      center: ASTANA_CENTER,
       zoom: 10.5,
       // Custom attribution below (page-level, "© OpenStreetMap contributors"
       // — the ODbL-required wording for the district polygon data) replaces

@@ -17,7 +17,7 @@
 - `NEXT_PUBLIC_*` инлайнится в build-time (Docker build ARG) — пустое значение ломает fetch в браузере.
 - После правки `.env` — `docker compose up -d <svc>` (restart не перечитывает env); после правки кода api/ml — рестарт сервиса (uvicorn без --reload).
 - Тесты: `api/tests/` и `ml/tests/` через pytest; db/e2e-тесты api идут только с `FW_RUN_DB_TESTS=1` + `DATABASE_URL` на PostGIS. У web тестов нет — `npm run build` как проверка типов. CI-эталон: `.github/workflows/ci.yml`.
-- DB-тесты отказываются работать с базой без «test» в имени (после инцидента со сносом демо-данных). В CI база — `firewatch_test`. Локально — только выделенная тестовая база, никогда dev.
+- DB-тесты при `FW_RUN_DB_TESTS=1` отказываются работать с базой без «test» в имени (общий guard в `api/tests/conftest.py`, после инцидента со сносом демо-данных). В CI база — `firewatch_test`. Локально — только выделенная тестовая база, никогда dev.
 - Сиды пользователей (локально): `docker compose exec api python -m scripts.seed_users`. Существующие пароли не перезаписываются без `--reset-demo-passwords`; **на проде `seed_users` не запускать никогда**.
 - **Перед merge в main обязательно: `/verify` (скилл verify-firewatch) + `/code-review`.**
 
@@ -31,8 +31,10 @@
 2. **Severity — единственный источник: `web/src/lib/risk.ts`** (`SEVERITY`, `scoreSeverity`, `scoreBand`).
    Бейдж, маркер карты и строка таблицы одного объекта обязаны резолвиться через него (цвет зданий на картах —
    ступенчатое выражение по порогам, не градиент).
-   Пороги (≥60 critical, ≥40 high, ≥20 elevated) продублированы в api RISK_BANDS, chat SCHEMA_DOC,
-   легенде карты — при изменении синхронизировать все четыре места.
+   Пороги (≥60 critical, ≥40 high, ≥20 elevated) во фронте берутся только из `lib/risk.ts` (карты, фильтры `/city`);
+   на бэкенде — `RISK_BANDS` (city.py выводит из него), плюс chat SCHEMA_DOC — при изменении синхронизировать фронт,
+   `RISK_BANDS` и SCHEMA_DOC. Hex-цвета severity в `risk.ts` (для maplibre) сверяются с токенами `globals.css`
+   скриптом в CI.
 3. **Переиспользуй примитивы** из `components/ui/index.tsx` (Card, PageHeader, MetricCard, StatusChip,
    ScoreBadge, Button, Field, Tabs, EmptyState, …) — не пиши свои кнопки/карточки.
 4. Цвет — никогда не единственный сигнал (пара: иконка/лейбл, иконки — lucide-react).
@@ -51,8 +53,8 @@
 
 Переключатель трека — только у ролей с ≥2 пунктами в обоих треках (leadership, admin). Новая страница: сразу прописать
 `track`/`section`, `roles` (и `extraAccessRoles` для доступа без пункта меню) в `nav.ts`. Активный пункт, `trackOfPath`
-и guard AppShell берут **самый длинный** совпавший href. Печатные страницы без AppShell (`/callout/report`, `/city/report`)
-проверяют роль сами (`lib/useRoleGuard.ts`).
+и guard AppShell берут **самый длинный** совпавший href. Печатные страницы без AppShell guard'ом AppShell не защищены: `/city/report` проверяет роль через
+`lib/useRoleGuard.ts`, `/callout/report` — пока только бэкендом (подключить тот же хук — follow-up).
 
 Скоупинг:
 - inspector/supervisor — свой район. Район здания — **реальные границы OSM** (таблица `districts`, миграция 0023, сид
@@ -99,7 +101,7 @@ JWT в localStorage (`fw_token`); для `<img>/<iframe>` токен перед�
 - `startCommand` в railway.json всегда через `sh -c '... ${PORT}'` — без shell `${PORT}` остаётся литералом и сервис крашится.
 - api самомигрирующийся (preDeploy: alembic → `seed_districts` → идемпотентные сиды); uploads живут на volume `api-volume` (эфемерный FS стирается при деплое).
 - Изменения офлайн-синхронизации расстановки (`/dispatch/{id}/deployment/sync`, `deploymentQueue.ts`, `sw.js`): **сначала api, потом web** — старый API отвечает 422 на новые батчи, а 422 в очереди окончательный.
-- Service Worker: кэш данных `fw-api` без версии (обновление SW не стирает офлайн-пакеты), версионируются только precache/статика.
+- Service Worker: кэш данных `fw-api` без версии (обновление SW не стирает офлайн-пакеты), версионируются precache, статика и страницы (оболочки ссылаются на чанки своей сборки).
 
 ## Конвенции
 

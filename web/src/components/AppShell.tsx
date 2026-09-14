@@ -33,6 +33,7 @@ import {
   navForRole,
   trackItems,
   trackOfPath,
+  trackLandingHref,
   matchNavItem,
   hasTrackSwitch,
   TRACKS,
@@ -189,7 +190,7 @@ export default function AppShell({
     setStoredTrack(next);
     const defaultRoute = DEFAULT_ROUTE[user!.role];
     const target =
-      trackOfPath(defaultRoute) === next ? defaultRoute : trackItems(user!.role, next)[0]?.href;
+      trackOfPath(defaultRoute) === next ? defaultRoute : trackLandingHref(user!.role, next);
     if (target) router.push(target);
   }
 
