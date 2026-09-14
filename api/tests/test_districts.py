@@ -49,7 +49,9 @@ def test_district_of_uses_the_qualified_geometry_in_both_branches():
     sql = district_of("b.geom")
     assert sql.startswith("COALESCE(")
     assert "ST_Contains(d.geom, b.geom)" in sql
-    assert "d.geom <-> b.geom" in sql
+    # Ближайший район — в метрах (geography), а не планарно в градусах.
+    assert "ST_Distance(d.geom::geography, (b.geom)::geography)" in sql
+    assert "<->" not in sql
 
 
 def test_demo_inspector_registry_and_supervisor_share_a_district():

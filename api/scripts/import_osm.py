@@ -15,6 +15,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.db import engine
+from app.districts import district_of
 
 # west, south, east, north  (central Astana by default)
 DEFAULT_BBOX = "71.40,51.11,71.47,51.16"
@@ -128,13 +129,17 @@ def main() -> None:
             break
 
     print(f"inserting {len(rows)} buildings ...")
+    # Район — сразу при вставке, по полигону района (app/districts.py): иначе
+    # новые здания жили бы с NULL (невидимы скоупленным ролям) до ближайшего
+    # seed_districts. Пустая таблица districts даёт NULL — сид допишет.
+    district_sql = district_of("ST_PointOnSurface(ST_GeomFromText(:wkt, 4326))")
     insert = text(
-        """
+        f"""
         INSERT INTO buildings
-            (osm_id, address, building_type, osm_tag, year_built, floors, geom)
+            (osm_id, address, building_type, osm_tag, year_built, floors, geom, district)
         VALUES
             (:osm_id, :address, :building_type, :osm_tag, :year_built, :floors,
-             ST_GeomFromText(:wkt, 4326))
+             ST_GeomFromText(:wkt, 4326), {district_sql})
         ON CONFLICT (osm_id) DO NOTHING
         """
     )

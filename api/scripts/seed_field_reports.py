@@ -20,19 +20,24 @@ _PREFIX = "seed-fr-"
 # (район, категория, статус, дни назад, описание)
 # Формулировки — в духе реальной практики ГПК: то, что инспектор или караул
 # фиксирует с места, а не абстрактные «нарушение №1».
+#
+# Район — настоящий (полигон OSM, scripts/seed_districts.py). Большая часть
+# донесений — в Есильском: там демо-инспектор и демо-руководитель (seed_users),
+# и сюжет «инспектор фиксирует — руководитель разбирает» должен быть виден
+# обоим. В Сарыаркинском по настоящим границам всего 65 зданий из 4523.
 REPORTS = [
     (
-        "Сарыаркинский", "parking_barrier", "open", 1,
+        "Есильский", "parking_barrier", "open", 1,
         "Пожарный проезд у торца дома занят личным транспортом жильцов, "
         "проезд для автолестницы перекрыт полностью.",
     ),
     (
-        "Сарыаркинский", "blocked_exit", "in_progress", 3,
+        "Есильский", "blocked_exit", "in_progress", 3,
         "Эвакуационный выход из подъезда №2 заставлен строительными "
         "материалами после ремонта, дверь открывается наполовину.",
     ),
     (
-        "Сарыаркинский", "hydrant_defect", "resolved", 9,
+        "Есильский", "hydrant_defect", "resolved", 9,
         "Гидрант у детской площадки не даёт напор, колодец затоплен. "
         "Передано в водоканал, по факту устранения напор восстановлен.",
     ),
@@ -88,16 +93,23 @@ def main() -> None:
     created = updated = 0
     with engine.begin() as conn:
         for i, (district, category, status, days_ago, description) in enumerate(REPORTS):
+            # Шаг по списку зданий района — по модулю их числа: в маленьком
+            # районе фиксированный OFFSET выходил за край, и донесение
+            # молча пропускалось.
+            in_district = conn.execute(
+                text("SELECT count(*) FROM buildings WHERE district = :d"),
+                {"d": district},
+            ).scalar()
+            if not in_district:
+                print(f"skip: в районе {district} нет зданий (прогоните seed_districts)")
+                continue
             bid = conn.execute(
                 text(
                     "SELECT id FROM buildings WHERE district = :d "
                     "ORDER BY id OFFSET :o LIMIT 1"
                 ),
-                {"d": district, "o": i * 37},
+                {"d": district, "o": (i * 37) % in_district},
             ).scalar()
-            if not bid:
-                print(f"skip: в районе {district} нет зданий")
-                continue
 
             client_id = f"{_PREFIX}{i:03d}"
             existing = conn.execute(
@@ -107,12 +119,13 @@ def main() -> None:
 
             # Точка донесения — центроид здания: донесение подаётся с места,
             # где инспектор физически стоит.
+            # Район донесения — район здания, к которому оно привязано (у здания
+            # он из полигона), то же правило, что в seed_districts и reports.py.
             params = {
                 "b": bid,
                 "cat": category,
                 "st": status,
                 "descr": description,
-                "d": district,
                 "days": days_ago,
                 "c": client_id,
             }
@@ -120,7 +133,8 @@ def main() -> None:
                 conn.execute(
                     text(
                         "UPDATE field_reports SET building_id = :b, category = :cat, "
-                        "status = :st, description = :descr, district = :d, "
+                        "status = :st, description = :descr, "
+                        "district = (SELECT district FROM buildings WHERE id = :b), "
                         "geom = (SELECT ST_Centroid(geom) FROM buildings WHERE id = :b), "
                         "created_at = now() - make_interval(days => :days) "
                         "WHERE client_id = :c"
@@ -134,7 +148,8 @@ def main() -> None:
                         "INSERT INTO field_reports "
                         "(building_id, category, status, description, district, geom, "
                         " created_by, created_role, client_id, created_at) "
-                        "VALUES (:b, :cat, :st, :descr, :d, "
+                        "VALUES (:b, :cat, :st, :descr, "
+                        "        (SELECT district FROM buildings WHERE id = :b), "
                         "        (SELECT ST_Centroid(geom) FROM buildings WHERE id = :b), "
                         "        'inspector', 'inspector', :c, "
                         "        now() - make_interval(days => :days))"

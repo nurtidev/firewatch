@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.access import enforce_building_scope, has_citywide_data_access
 from app.audit import audit, client_ip
 from app.db import get_db
+from app.districts import district_of
 from app.routers.auth import current_user, require_roles
 from app.routers.routes import _PHOTO_NAME
 
@@ -148,9 +149,12 @@ def create_report(
             raise HTTPException(404, "Здание не найдено")
         district = building["district"]
     else:
-        # No linked building: fall back to the reporter's own district. Full
-        # access roles may have none (NULL) — that's expected, not an error.
-        district = user.get("district")
+        # Без здания район донесения — район его точки (полигон района, вне
+        # полигонов — ближайший; app/districts.py), а не район автора. Иначе
+        # донесение диспетчера/караула (у них района нет) не попадало ни в одну
+        # очередь, а при каждом деплое seed_districts молча переносил бы свежие
+        # донесения между очередями районов.
+        district = None
 
     params = {
         "category": body.category,
@@ -177,7 +181,10 @@ def create_report(
             VALUES
                 (:category, :description,
                  ST_SetSRID(ST_MakePoint(:lng, :lat), 4326),
-                 :building_id, :district, CAST(:photos AS JSONB),
+                 :building_id,
+                 COALESCE(CAST(:district AS TEXT),
+                          {district_of("ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)")}),
+                 CAST(:photos AS JSONB),
                  :created_by, :created_role, :client_id)
             ON CONFLICT (client_id) WHERE client_id IS NOT NULL DO NOTHING
             RETURNING {returning}
