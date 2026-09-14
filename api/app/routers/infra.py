@@ -128,19 +128,17 @@ def _stations_total(db: Session) -> int:
     return db.execute(text("SELECT count(*) FROM fire_stations")).scalar() or 0
 
 
-# Порог, на который изохрона части должна отстать от самой свежей в таблице,
-# чтобы считаться устаревшей, а не просто «пересчитана на пару секунд раньше
-# остальных в том же проходе». rebuild_coverage проходит по ВСЕМ частям одним
-# запросом — матрица на часть считается десятки миллисекунд (см. routing.py),
-# так что полностью успешный проход укладывается в секунды, даже для города с
-# несколькими десятками частей. Пятиминутный запас с большим отрывом отделяет
-# «тот же проход» от «эта часть не пересчиталась в последнем проходе, потому
-# что тогда для неё не ответил OSRM» — а перерасчёт запускается вручную и
-# редко (см. миграцию 0022), так что «устаревшая» изохрона обычно старше на
-# часы или дни, не на минуты.
-_STALE_AFTER = "interval '5 minutes'"
-
-
+# rebuild_coverage считает все части в одной транзакции и коммитит её одним
+# разом (см. rebuild_coverage) — `now()` внутри транзакции Postgres не
+# продвигается между вызовами, а возвращает момент её начала. Поэтому у ВСЕХ
+# частей, успешно пересчитавшихся в одном проходе, `computed_at` — буквально
+# одно и то же значение, без разброса в секунды и миллисекунды. Сравнение
+# `computed_at < max(computed_at)` уже разделяет «эта часть пересчиталась в
+# последнем проходе» (её `computed_at` равен максимуму, строгое неравенство
+# ложно) от «эта часть не пересчиталась — осталась на значении прошлого
+# прохода» (её `computed_at` меньше) без всякого допуска: два соседних прохода
+# запускаются вручную и редко (см. миграцию 0022), то есть отличаются на часы
+# или дни, а не на секунды, так что дополнительный запас здесь не нужен.
 def _stations_stale_isochrones(db: Session, seconds: int) -> list[dict]:
     """Части, чья изохрона заметно отстала от самой свежей в таблице.
 
@@ -153,14 +151,14 @@ def _stations_stale_isochrones(db: Session, seconds: int) -> list[dict]:
     """
     return db.execute(
         text(
-            f"""
+            """
             SELECT s.id, s.name
               FROM fire_stations s
               JOIN station_isochrones i
                 ON i.station_id = s.id AND i.seconds = :sec
              WHERE i.computed_at < (
                  SELECT max(computed_at) FROM station_isochrones WHERE seconds = :sec
-             ) - {_STALE_AFTER}
+             )
             """
         ),
         {"sec": seconds},
@@ -286,10 +284,15 @@ def coverage(db: Session = Depends(get_db)) -> dict:
         {"r": settings.coverage_radius_m},
     ).mappings().all()
     fc = _fc(rows, "geom", lambda r: {"name": r["name"], "source": "buffer"})
+    total = _stations_total(db)
     fc["approximate"] = True  # straight-line buffer, not a road isochrone
-    fc["stations_missing_isochrones"] = _stations_total(db)
+    fc["stations_missing_isochrones"] = total
     fc["stations_stale_isochrones"] = 0
-    fc["coverage_source"] = "buffer"
+    # Ни одной изохроны нет вообще — но источник значения всё равно берём из
+    # _resolve_coverage_source (single source of truth для /stats, /coverage
+    # и /blind-zones), а не хардкодим "buffer" здесь второй раз: при
+    # missing == total она и так всегда вернёт "buffer".
+    fc["coverage_source"] = _resolve_coverage_source(total, total, 0)
     fc["normative_sec"] = seconds
     return fc
 
@@ -472,6 +475,20 @@ def rebuild_coverage(
         # пустой транзакции с audit-записью выглядел бы как прошедший
         # пересчёт, хотя по факту не обновилась ни одна часть.
         db.rollback()
+        if failed:
+            # OSRM в целом жив (health-чек прошёл выше), но ЛИЧНО ни одна
+            # часть не пересчиталась — единичные сбои совпали для всех разом
+            # (например, роутер отвечает health, но реально перегружен).
+            # Молчаливые {"built": 0} 200 выглядели бы как «пересчитывать
+            # было нечего», хотя данные не тронуты именно из-за отказа —
+            # вызывающий обязан увидеть ошибку, а не спутать это с пустым
+            # городом без единой части.
+            raise HTTPException(
+                502,
+                f"Пересчёт не удался ни для одной из {len(failed)} частей: "
+                "OSRM не ответил ни на один запрос. Прежние зоны по дорогам "
+                "не изменены.",
+            )
         return {"built": 0, "failed": failed, "seconds": seconds}
 
     db.commit()
