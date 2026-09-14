@@ -27,8 +27,9 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Printer, ArrowLeft, Loader2 } from "lucide-react";
+import { Printer, ArrowLeft, Loader2, AlertTriangle } from "lucide-react";
 import DeploymentSheet, { type NumberedPosition } from "@/components/DeploymentSheet";
+import StaleDataBanner from "@/components/StaleDataBanner";
 import { Button, Skeleton, Banner } from "@/components/ui";
 import { apiFetch, useAuth } from "@/lib/auth";
 import { realPlanForFloor } from "@/lib/realgeom";
@@ -65,7 +66,10 @@ function ReportInner() {
   const { user } = useAuth();
 
   // Без поллинга: документ не должен меняться под руками, пока его печатают.
-  const { pack, loading, error } = useCalloutPack(calloutId);
+  // cachedAt ≠ null — пакет отдан офлайн-кэшем воркера (API молчало дольше
+  // 4 с). Официальный документ по такому снимку печатать можно — штабу он
+  // нужен и без связи, — но лист обязан сам говорить, что данные не живые.
+  const { pack, loading, error, cachedAt } = useCalloutPack(calloutId);
 
   return (
     <div className="fw-report-root light min-h-screen bg-bg text-fg">
@@ -83,8 +87,11 @@ function ReportInner() {
         {calloutId == null && (
           <Banner tone="critical">Выезд не указан — откройте донесение из боевого пакета.</Banner>
         )}
+        {pack && <StaleDataBanner cachedAt={cachedAt} kind="report" className="fw-no-print mb-3" />}
         {pack?.callout.status === "active" && <Watermark />}
-        {pack && <Report pack={pack} author={user?.name ?? user?.username ?? ""} />}
+        {pack && (
+          <Report pack={pack} cachedAt={cachedAt} author={user?.name ?? user?.username ?? ""} />
+        )}
       </div>
     </div>
   );
@@ -123,7 +130,15 @@ function PrintButton({ calloutId, disabled }: { calloutId: number; disabled: boo
 const dateRu = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" }) : "—";
 
-function Report({ pack, author }: { pack: CalloutPackData; author: string }) {
+function Report({
+  pack,
+  author,
+  cachedAt,
+}: {
+  pack: CalloutPackData;
+  author: string;
+  cachedAt: string | null;
+}) {
   const callout = pack.callout;
   const preliminary = callout.status === "active";
 
@@ -183,6 +198,7 @@ function Report({ pack, author }: { pack: CalloutPackData; author: string }) {
             {dateRu(callout.created_at)}
             {preliminary && " · предварительное, выезд не закрыт"}
           </p>
+          <SnapshotMark cachedAt={cachedAt} />
         </header>
 
         <Section title="1. Объект и вызов">
@@ -379,6 +395,7 @@ function Report({ pack, author }: { pack: CalloutPackData; author: string }) {
                 {pack.callout.address ?? "—"} · {sheet.floor} ·{" "}
                 {POSITION_PHASE_LABEL[sheet.phase]}
               </p>
+              <SnapshotMark cachedAt={cachedAt} align="left" />
             </header>
             <div className="mt-3">
               {plan ? (
@@ -399,6 +416,35 @@ function Report({ pack, author }: { pack: CalloutPackData; author: string }) {
 }
 
 /* ───────────────────────────── Мелочи листа ───────────────────────────── */
+
+/**
+ * Пометка на самом листе: данные взяты из сохранённого снимка, а не с
+ * сервера. Печатается на каждом листе — их подшивают по отдельности, и лист
+ * схемы без пометки выглядел бы подтверждённым. Текст документа русский, как
+ * и весь лист; значок рядом, чтобы пометка не держалась на одном цвете.
+ */
+function SnapshotMark({
+  cachedAt,
+  align = "center",
+}: {
+  cachedAt: string | null;
+  align?: "center" | "left";
+}) {
+  if (cachedAt == null) return null;
+  const when = cachedAt
+    ? `от ${dateRu(cachedAt)} ${formatClock(cachedAt)}`
+    : "без отметки времени";
+  return (
+    <p
+      className={`mt-1 flex items-center gap-1 text-2xs font-semibold text-critical ${
+        align === "center" ? "justify-center" : ""
+      }`}
+    >
+      <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+      <span className="tabular">Снимок данных {when}, не подтверждён сервером</span>
+    </p>
+  );
+}
 
 function Watermark() {
   return (

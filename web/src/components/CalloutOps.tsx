@@ -51,6 +51,7 @@ import { SEVERITY } from "@/lib/risk";
 import { apiFetch, useAuth } from "@/lib/auth";
 import FloorPlan2D from "@/components/FloorPlan2D";
 import DeploymentPlan from "@/components/DeploymentPlan";
+import StaleDataBanner from "@/components/StaleDataBanner";
 import { realPlanForFloor } from "@/lib/realgeom";
 import {
   TIMELINE_STEPS,
@@ -100,11 +101,16 @@ import { isOnline } from "@/lib/offline";
 
 export default function CalloutOps({
   pack,
+  cachedAt = null,
   onChanged,
   canEdit,
   large,
 }: {
   pack: CalloutPackData;
+  /** Пакет отдан офлайн-кэшем (см. useCalloutPack): расстановка с пульта на
+   *  схеме — снимок, и это должно быть видно рядом со схемой, а не только
+   *  вверху экрана. */
+  cachedAt?: string | null;
   onChanged: () => void;
   /** Диспетчер и РТП ставят отметки; надзорные роли смотрят только чтение. */
   canEdit: boolean;
@@ -290,6 +296,7 @@ export default function CalloutOps({
       {/* ─────────────── План развёртывания ─────────────── */}
       <DeploymentSection
         pack={pack}
+        cachedAt={cachedAt}
         editable={editable}
         busy={busy}
         onRun={run}
@@ -561,12 +568,14 @@ function rejectedLabel(r: RejectedEntry, t: (ru: string) => string): string {
 
 function DeploymentSection({
   pack,
+  cachedAt,
   editable,
   busy,
   onRun,
   onChanged,
 }: {
   pack: CalloutPackData;
+  cachedAt: string | null;
   editable: boolean;
   busy: string | null;
   onRun: (key: string, fn: () => Promise<unknown>) => Promise<void>;
@@ -747,6 +756,11 @@ function DeploymentSection({
         </div>
       )}
 
+      {/* Серверная часть расстановки пришла из офлайн-кэша: то, что поставили
+          или сняли с пульта после снимка, на схеме не видно. Своё
+          неотправленное РТП видит всегда — оно лежит на устройстве. */}
+      <StaleDataBanner cachedAt={cachedAt} kind="deployment" className="mt-3" />
+
       {/* Состояние очереди — над обоими режимами: без связи расстановка не
           теряется, но на пульте её пока не видят, и молчать об этом нельзя —
           от этого зависит, доложит РТП по радио или положится на схему.
@@ -775,7 +789,7 @@ function DeploymentSection({
           <span className="flex flex-wrap items-center gap-2">
             <span>
               {t("Позиций ждёт отправки: {n}").replace("{n}", String(queue.pending.length))}
-              {queue.retryReason ? ` — ${queue.retryReason}` : ""}
+              {queue.retryReason ? ` — ${t(queue.retryReason)}` : ""}
             </span>
             <Button
               size="sm"

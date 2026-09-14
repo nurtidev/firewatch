@@ -8,15 +8,16 @@
  */
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Siren, WifiOff } from "lucide-react";
+import { ArrowLeft, Siren } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import CalloutPack from "@/components/CalloutPack";
 import CalloutOps from "@/components/CalloutOps";
 import CalloutRow from "@/components/CalloutRow";
+import StaleDataBanner from "@/components/StaleDataBanner";
 import { PageHeader, Button, Skeleton, EmptyState, Banner } from "@/components/ui";
 import { useT } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth";
-import { formatClock, useCalloutList, useCalloutPack } from "@/lib/dispatch";
+import { useCalloutList, useCalloutPack } from "@/lib/dispatch";
 
 const POLL_MS = 15000;
 
@@ -42,7 +43,11 @@ function CalloutPageInner() {
   const idParam = searchParams.get("id");
   const selectedId = idParam ? Number(idParam) : null;
 
-  const { callouts, error: listError } = useCalloutList("active", POLL_MS);
+  const {
+    callouts,
+    error: listError,
+    cachedAt: listCachedAt,
+  } = useCalloutList("active", POLL_MS);
   const [autoSelected, setAutoSelected] = useState(false);
 
   const {
@@ -88,6 +93,7 @@ function CalloutPageInner() {
                 {listError}
               </Banner>
             )}
+            <StaleDataBanner className="mt-4" cachedAt={listCachedAt} kind="list" />
 
             {callouts === null && !listError ? (
               <div className="mt-5 space-y-3">
@@ -131,15 +137,15 @@ function CalloutPageInner() {
                 {/* Пакет отдан офлайн-кэшем: гидрант мог сломаться, а проезд
                     перекрыть уже после того, как снимок был снят. Молчать об
                     этом нельзя — по пакету распоряжаются силами. */}
-                {cachedAt != null && (
-                  <Banner tone="warning" icon={WifiOff}>
-                    {t("Связи нет — показан сохранённый боевой пакет")}
-                    {cachedAt ? ` ${t("от")} ${formatClock(cachedAt)}` : ""}.{" "}
-                    {t("Обстановка могла измениться.")}
-                  </Banner>
-                )}
+                <StaleDataBanner cachedAt={cachedAt} kind="pack" />
                 <CalloutPack pack={pack} canMarkHydrant large />
-                <CalloutOps pack={pack} onChanged={reloadPack} canEdit={canEdit} large />
+                <CalloutOps
+                  pack={pack}
+                  cachedAt={cachedAt}
+                  onChanged={reloadPack}
+                  canEdit={canEdit}
+                  large
+                />
               </div>
             )}
           </>

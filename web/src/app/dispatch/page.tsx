@@ -22,6 +22,7 @@ import {
 import AppShell from "@/components/AppShell";
 import CalloutPack from "@/components/CalloutPack";
 import CalloutRow from "@/components/CalloutRow";
+import StaleDataBanner from "@/components/StaleDataBanner";
 import { apiFetch } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { apiErrorText } from "@/lib/api-error";
@@ -64,11 +65,22 @@ type ListFilter = "active" | "closed" | "all";
 export default function DispatchPage() {
   const t = useT();
   const [tab, setTab] = useState<ListFilter>("active");
-  const { callouts, error: listError, reload: loadList } = useCalloutList(tab, 30000);
+  const {
+    callouts,
+    error: listError,
+    cachedAt: listCachedAt,
+    reload: loadList,
+  } = useCalloutList(tab, 30000);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const { pack, loading: packLoading, error: packError, reload: reloadPack, setPack } =
-    useCalloutPack(selectedId);
+  const {
+    pack,
+    loading: packLoading,
+    error: packError,
+    cachedAt: packCachedAt,
+    reload: reloadPack,
+    setPack,
+  } = useCalloutPack(selectedId);
 
   function handleCreated(created: CalloutPackData) {
     setPack(created);
@@ -135,6 +147,9 @@ export default function DispatchPage() {
                   {listError}
                 </Banner>
               )}
+              {/* Список из офлайн-кэша: вызов, пришедший после снимка, здесь
+                  не появится — диспетчер должен это видеть, а не угадывать. */}
+              <StaleDataBanner className="mb-2" cachedAt={listCachedAt} kind="list" />
 
               {callouts === null && !listError ? (
                 <div className="space-y-2">
@@ -185,6 +200,7 @@ export default function DispatchPage() {
             )}
             {!packLoading && !packError && pack && (
               <div className="fw-fade-in space-y-4">
+                <StaleDataBanner cachedAt={packCachedAt} kind="pack" />
                 {pack.callout.status === "active" && (
                   <CalloutActions
                     key={pack.callout.id}

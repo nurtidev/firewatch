@@ -568,12 +568,21 @@ export function relativeTimeRu(
 export function useCalloutList(status: string, pollMs: number) {
   const [callouts, setCallouts] = useState<Callout[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Непусто — список отдан офлайн-кэшем воркера; строка ISO — время снимка.
+   *  Диспетчер по такому списку не увидит вызов, пришедший после снимка, и
+   *  обязан знать, что смотрит на прошлое. */
+  const [cachedAt, setCachedAt] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     apiFetch(`/dispatch?status=${status}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("list"))))
-      .then((d: Callout[]) => {
-        setCallouts(d);
+      .then(async (r) => {
+        if (!r.ok) throw new Error("list");
+        const stamp = cachedAtOf(r);
+        return { data: (await r.json()) as Callout[], stamp };
+      })
+      .then(({ data, stamp }) => {
+        setCallouts(data);
+        setCachedAt(stamp);
         setError(null);
       })
       .catch(() => setError("Не удалось загрузить выезды. Проверьте связь."));
@@ -581,12 +590,13 @@ export function useCalloutList(status: string, pollMs: number) {
 
   useEffect(() => {
     setCallouts(null);
+    setCachedAt(null);
     reload();
     const t = setInterval(reload, pollMs);
     return () => clearInterval(t);
   }, [reload, pollMs]);
 
-  return { callouts, error, reload };
+  return { callouts, error, cachedAt, reload };
 }
 
 /** Боевой пакет for the selected callout, with a stale-response guard: if the
