@@ -111,7 +111,11 @@ export function authToken(): string | null {
 export type ApiFetchOpts = RequestInit & {
   /** false — не уводить со страницы на 401 (см. вызов ниже). Токен из
    *  localStorage всё равно снимается: он подтверждённо недействителен, и
-   *  оставленным он даёт тот же 401 любому другому запросу со страницы. */
+   *  оставленным он даёт тот же 401 любому другому запросу со страницы.
+   *  `fw_user` при этом остаётся: по нему очередь расстановки узнаёт своего
+   *  владельца — без него она «теряет» позиции РТП и не может показать
+   *  баннер «нужен повторный вход». Отправку и так останавливает отсутствие
+   *  токена; явный выход (logout) по-прежнему стирает оба ключа. */
   authRedirect?: boolean;
 };
 
@@ -134,8 +138,10 @@ export async function apiFetch(
   const res = await fetch(`${API_URL}${path}`, { ...init, headers });
   if (res.status === 401 && typeof window !== "undefined") {
     localStorage.removeItem("fw_token");
-    localStorage.removeItem("fw_user");
-    if (authRedirect) window.location.href = "/login";
+    if (authRedirect) {
+      localStorage.removeItem("fw_user");
+      window.location.href = "/login";
+    }
   }
   return res;
 }
