@@ -28,10 +28,13 @@
  *     очереди в приложении, у которых есть идемпотентность и разбор отказов.
  *
  * **Кэши разделены по тому, что можно вытеснять.** Прекэш (заглушка) не
- * вытесняется никогда. Статика вытесняется по давности использования, а не
- * записи — чанк, на который ссылается сохранённая страница, используется при
- * каждом её открытии и в хвост очереди на вытеснение не попадает. Страницы и
- * данные API — отдельными потолками, чтобы они не выдавливали статику.
+ * вытесняется никогда. Статика пишется один раз, при промахе, и вытесняется
+ * по давности записи — но чанки, которые воркер отдавал за время своей жизни,
+ * обрезка не трогает: при загрузке новой сборки уходят чанки прошлых, а не
+ * общие с ней. Перезаписывать чанк на каждом попадании ради порядка
+ * вытеснения нельзя: three.js и MapLibre — это мегабайты записи на каждый
+ * запуск. Страницы и данные API — отдельными потолками, чтобы они не
+ * выдавливали статику.
  *
  * **Ответ из кэша помечается.** К нему добавляется заголовок `X-FW-Cached`
  * с временем записи, и приложение показывает «снимок от 14:32». Молча отдать
@@ -157,28 +160,48 @@ async function withCachedMark(response) {
   });
 }
 
+/** Статика, отданная из кэша или положенная в него за время жизни воркера.
+ *  Это чанки открытых сейчас страниц — обрезка их не вытесняет. */
+const staticInUse = new Set();
+
 /** Вытесняем самые старые записи: Cache API отдаёт ключи в порядке вставки,
- *  а перезапись переносит ключ в конец. */
-async function trim(cacheName) {
+ *  а перезапись переносит ключ в конец. `keep` — URL, которые не трогаем. */
+async function trim(cacheName, keep) {
   const max = CACHE_LIMITS[cacheName];
   if (!max) return;
   const cache = await caches.open(cacheName);
   const keys = await cache.keys();
-  if (keys.length <= max) return;
-  await Promise.all(keys.slice(0, keys.length - max).map((k) => cache.delete(k)));
+  let excess = keys.length - max;
+  if (excess <= 0) return;
+  const doomed = [];
+  for (const key of keys) {
+    if (excess <= 0) break;
+    if (keep?.has(key.url)) continue;
+    doomed.push(key);
+    excess -= 1;
+  }
+  await Promise.all(doomed.map((k) => cache.delete(k)));
 }
 
-/** Кладём в кэш вместе со временем записи — иначе «снимок от» неоткуда взять. */
-async function putStamped(cacheName, request, response) {
+/**
+ * Кладём в кэш вместе со временем записи — иначе «снимок от» неоткуда взять.
+ *
+ * `stillValid` проверяется вплотную к `cache.put`, после всех await: пока
+ * читалось тело ответа, могла смениться учётная запись (CLEAR_API_CACHE), и
+ * ответ, запрошенный прошлым пользователем, не должен лечь в свежий кэш.
+ * Между проверкой и вызовом `put` нет ни одного await — сообщение воркеру
+ * вклиниться туда не может.
+ */
+async function putStamped(cacheName, request, response, stillValid = () => true) {
   const headers = new Headers(response.headers);
   headers.set("x-fw-cached-at", new Date().toISOString());
-  const copy = new Response(await response.clone().blob(), {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
+  const body = await response.clone().blob();
   const cache = await caches.open(cacheName);
-  await cache.put(request, copy);
+  if (!stillValid()) return;
+  await cache.put(
+    request,
+    new Response(body, { status: response.status, statusText: response.statusText, headers }),
+  );
   await trim(cacheName);
 }
 
@@ -265,17 +288,20 @@ async function cacheFirst(event, cacheName) {
   const { request } = event;
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
-  if (cached) {
-    // Перезапись переносит используемый чанк в конец порядка вытеснения: при
-    // обрезке уходят чанки прошлых сборок, а не те, на которые ссылается
-    // открываемая страница.
-    event.waitUntil(cache.put(request, cached.clone()).catch(() => undefined));
-    return cached;
-  }
+  staticInUse.add(request.url);
+  // Попадание ничего не пишет: содержимое по URL с хэшем сборки не меняется,
+  // а от вытеснения используемый чанк защищает staticInUse (см. trim).
+  if (cached) return cached;
   const fresh = await fetch(request);
   if (fresh.ok) {
-    await cache.put(request, fresh.clone());
-    await trim(cacheName);
+    // Запись — в фоне: страница получает чанк, не дожидаясь, пока мегабайты
+    // лягут на диск.
+    event.waitUntil(
+      cache
+        .put(request, fresh.clone())
+        .then(() => trim(cacheName, staticInUse))
+        .catch(() => undefined),
+    );
   }
   return fresh;
 }
@@ -320,7 +346,7 @@ async function apiNetworkFirst(request) {
     // 401/403 не кэшируем: иначе протухший токен закрепил бы отказ на
     // устройстве. Ответ, начатый до смены учётной записи, — тоже.
     if (fresh && fresh.ok && epoch === apiEpoch) {
-      await putStamped(API_CACHE, request, fresh);
+      await putStamped(API_CACHE, request, fresh, () => epoch === apiEpoch);
     }
     return fresh;
   } catch {
