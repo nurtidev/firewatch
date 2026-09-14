@@ -14,7 +14,7 @@ import type { MetadataRoute } from "next";
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "FireWatch — предиктивная пожарная безопасность",
+    name: "FireWatch — оценка пожарной уязвимости",
     short_name: "FireWatch",
     description:
       "Оценка риска зданий, планы тушения, инспекции и боевые выезды — МЧС РК",

@@ -6,6 +6,7 @@ import {
   Flame,
   Droplets,
   AlertTriangle,
+  CheckCircle2,
   Eye,
   EyeOff,
   ChevronDown,
@@ -27,12 +28,20 @@ type Stats = {
   blind_zone_buildings: number;
   blind_pct: number;
   normative_min: number;
-  /** Чем посчитано покрытие: `osrm` — по дорогам, `buffer` — по прямой. */
-  coverage_source?: "osrm" | "buffer";
+  /** Чем посчитано покрытие: `osrm` — все части по дорогам, `buffer` — ни
+   *  одной по дорогам, `mixed` — часть по дорогам, часть по прямой и/или
+   *  часть с устаревшей (не пересчитанной в последнем проходе) изохроной. */
+  coverage_source?: "osrm" | "buffer" | "mixed";
   coverage_computed_at?: string | null;
   /** Оценка сверху: расчёт не учитывает заторы (или вовсе идёт по прямой). */
   traffic_unaccounted?: boolean;
   approximate?: boolean;
+  /** Частей без изохроны вовсе — их зона на карте нарисована буфером. */
+  stations_missing_isochrones?: number;
+  /** Частей с изохроной, которая заметно отстала от последнего успешного
+   *  пересчёта (OSRM тогда не ответил именно для них) — зона на карте
+   *  настоящая, дорожная, но может не отражать последние изменения сети. */
+  stations_stale_isochrones?: number;
 };
 
 // Legend rows: label + swatch color (cssVar from SEVERITY where possible, else
@@ -158,18 +167,54 @@ export default function InfraPage() {
                 дорогам — разные утверждения, и оба завышают покрытие, но
                 по-разному: круг не знает реки и закрытых кварталов, изохрона
                 не знает заторов. Пользователь, который делает вывод «район
-                прикрыт», обязан видеть, что именно он читает. */}
+                прикрыт», обязан видеть, что именно он читает — включая
+                смешанный случай, когда это верно только для части города
+                (см. api/app/routers/infra.py::_resolve_coverage_source). */}
             {stats && (
-              <p className="mt-1 text-2xs text-faint">
-                {t("Зона:")}{" "}
-                <span className="text-muted">
-                  {stats.coverage_source === "osrm"
-                    ? t("по дорогам")
-                    : t("по прямой (оценка сверху)")}
-                </span>
-                {stats.traffic_unaccounted && (
-                  <span className="text-high"> · {t("без учёта заторов")}</span>
+              <p className="mt-1 flex items-start gap-1.5 text-2xs text-faint">
+                {stats.coverage_source === "osrm" ? (
+                  <CheckCircle2
+                    className="mt-px h-3 w-3 shrink-0 text-normal"
+                    aria-hidden
+                  />
+                ) : (
+                  <AlertTriangle
+                    className="mt-px h-3 w-3 shrink-0 text-high"
+                    aria-hidden
+                  />
                 )}
+                <span>
+                  {t("Зона:")}{" "}
+                  <span className="text-muted">
+                    {stats.coverage_source === "osrm" && t("по дорогам")}
+                    {stats.coverage_source === "buffer" &&
+                      t("по прямой (оценка сверху)")}
+                    {stats.coverage_source === "mixed" && (
+                      <>
+                        {t("частично по дорогам")}
+                        {(stats.stations_missing_isochrones ?? 0) > 0 && (
+                          <>
+                            {": "}
+                            <span className="tabular">
+                              {stats.stations_missing_isochrones}
+                            </span>{" "}
+                            {t("частей по прямой")}
+                          </>
+                        )}
+                      </>
+                    )}
+                  </span>
+                  {(stats.stations_stale_isochrones ?? 0) > 0 && (
+                    <span className="text-high">
+                      {" "}
+                      · <span className="tabular">{stats.stations_stale_isochrones}</span>{" "}
+                      {t("устарели")}
+                    </span>
+                  )}
+                  {stats.traffic_unaccounted && (
+                    <span className="text-high"> · {t("без учёта заторов")}</span>
+                  )}
+                </span>
               </p>
             )}
 

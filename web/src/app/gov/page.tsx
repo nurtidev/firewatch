@@ -171,12 +171,12 @@ export default function GovLanding() {
         <div className="relative mx-auto grid max-w-[1180px] grid-cols-1 items-center gap-12 lg:grid-cols-[1.02fr_.98fr] lg:gap-16 [&>div]:min-w-0">
           <div>
             <h1 className="text-[clamp(2.15rem,5vw,3.6rem)] font-extrabold leading-[1.05] tracking-tight">
-              {t("Прогноз пожарного риска")}{" "}
+              {t("Оценка пожарной уязвимости")}{" "}
               <span className="text-accent">{t("для всего города")}</span>
             </h1>
             <p className="mt-5 max-w-[540px] text-[clamp(1rem,2vw,1.2rem)] leading-relaxed text-muted">
               {t(
-                "FireWatch оценивает риск каждого из ~250 000 зданий и превращает прогноз в маршруты инспекций и карту «слепых зон» прибытия.",
+                "FireWatch оценивает риск каждого из ~250 000 зданий и превращает оценку в маршруты инспекций и карту «слепых зон» прибытия.",
               )}
             </p>
             <div className="mt-8 flex flex-wrap gap-3.5">
