@@ -1,12 +1,12 @@
 # FireWatch — правила проекта
 
-Предиктивная платформа пожарной безопасности для ДЧС РК (govtech, mission-critical).
+Платформа пожарной безопасности для ДЧС РК и акиматов (govtech, mission-critical).
 Пилот: Астана. Прод: https://www.firewatch.kz (Railway). Архитектура и роадмап: `docs/ARCHITECTURE.md`.
 
 ## Структура монорепо
 
 - `web/` — Next.js 15 + React 19 + Tailwind v4 (CSS-first, без tailwind.config и shadcn) + MapLibre GL + three.js
-- `api/` — FastAPI: auth (JWT), buildings, cards (ПТП), chat, forces, infra, routes, audit; Alembic-миграции
+- `api/` — FastAPI: auth (JWT), buildings, cards (ПТП), chat, city, dispatch, forces, infra, routes, audit; Alembic-миграции
 - `ml/` — FastAPI + XGBoost + SHAP (риск-модель; обучается на этапе Docker build, quality gate ROC-AUC ≥ 0.78)
 - `db/init/` — init-скрипты PostGIS
 - `docs/` — архитектура, `docs/commercial/` (КП, pricing, LOI), `docs/docs_tg/` (реальные ПТП ДЧС — исходники для Module 03)
@@ -17,7 +17,8 @@
 - `NEXT_PUBLIC_*` инлайнится в build-time (Docker build ARG) — пустое значение ломает fetch в браузере.
 - После правки `.env` — `docker compose up -d <svc>` (restart не перечитывает env); после правки кода api/ml — рестарт сервиса (uvicorn без --reload).
 - Тесты: `api/tests/` и `ml/tests/` через pytest; db/e2e-тесты api идут только с `FW_RUN_DB_TESTS=1` + `DATABASE_URL` на PostGIS. У web тестов нет — `npm run build` как проверка типов. CI-эталон: `.github/workflows/ci.yml`.
-- Сиды пользователей: `docker compose exec api python -m scripts.seed_users`.
+- DB-тесты отказываются работать с базой без «test» в имени (после инцидента со сносом демо-данных). В CI база — `firewatch_test`. Локально — только выделенная тестовая база, никогда dev.
+- Сиды пользователей (локально): `docker compose exec api python -m scripts.seed_users`. Существующие пароли не перезаписываются без `--reset-demo-passwords`; **на проде `seed_users` не запускать никогда**.
 - **Перед merge в main обязательно: `/verify` (скилл verify-firewatch) + `/code-review`.**
 
 ## Дизайн-система (жёсткие правила)
@@ -26,9 +27,10 @@
 `web/src/lib/risk.ts`, `web/src/lib/cn.ts`. Тёмная тема — дефолт (`:root`), светлая — класс `.light`.
 
 1. **Только токен-классы.** Никаких raw hex и палитр `neutral-*/red-*/orange-*` в JSX.
-   Исключение: paint-слои карт и свотчи легенд — через `severity.cssVar`.
+   Исключение: paint-слои карт и свотчи легенд — через `severity.cssVar` / `lib/mapStyle.ts`.
 2. **Severity — единственный источник: `web/src/lib/risk.ts`** (`SEVERITY`, `scoreSeverity`, `scoreBand`).
-   Бейдж, маркер карты и строка таблицы одного объекта обязаны резолвиться через него.
+   Бейдж, маркер карты и строка таблицы одного объекта обязаны резолвиться через него (цвет зданий на картах —
+   ступенчатое выражение по порогам, не градиент).
    Пороги (≥60 critical, ≥40 high, ≥20 elevated) продублированы в api RISK_BANDS, chat SCHEMA_DOC,
    легенде карты — при изменении синхронизировать все четыре места.
 3. **Переиспользуй примитивы** из `components/ui/index.tsx` (Card, PageHeader, MetricCard, StatusChip,
@@ -38,14 +40,48 @@
 6. Обёртка страницы: `<div className="mx-auto max-w-[1400px] p-5 sm:p-7 lg:p-8">`. Responsive: desktop + tablet (AppShell sidebar → drawer < lg).
 7. Новые цвета/размеры — сначала токен в `@theme`, потом использование.
 
-## Роли и доступ
+## Роли, треки и доступ
 
-Роли (`web/src/lib/auth.tsx`): `inspector | supervisor | leadership | admin`.
-Ролевой nav — `web/src/lib/nav.ts` (`navForRole`, `DEFAULT_ROUTE`) — при добавлении страницы прописать доступ там.
-Скоупинг: inspector/supervisor видят только свой район, leadership/admin — весь город.
-Тестовые пользователи (из seed_users): `inspector/inspector123`, `supervisor/supervisor123`,
-`minister/minister123` (leadership), `admin/admin123`.
+Роли (`web/src/lib/auth.tsx`): `inspector | supervisor | leadership | admin | owner | dispatcher | responder | akimat`.
+
+Продукт разложен на два ведущих трека (`track`/`section` в `web/src/lib/nav.ts`):
+- **«Пожарные»** (ДЧС): *Реагирование* — `/dispatch`, `/callout`, `/cards`, `/forces`, `/vehicles`; *Профилактика* — `/dashboard` («Сводка ДЧС»), `/routes`, `/control`, `/reports`, `/map`, `/infra`.
+- **«Город»** (акимат и руководство): `/city`, `/city/map`, `/city/priorities`, `/city/report`, `/chat`.
+- **«Система»**: `/model`, `/audit`, `/users`. `/portal` — вне треков (owner).
+
+Переключатель трека — только у ролей с ≥2 пунктами в обоих треках (leadership, admin). Новая страница: сразу прописать
+`track`/`section`, `roles` (и `extraAccessRoles` для доступа без пункта меню) в `nav.ts`. Активный пункт, `trackOfPath`
+и guard AppShell берут **самый длинный** совпавший href. Печатные страницы без AppShell (`/callout/report`, `/city/report`)
+проверяют роль сами (`lib/useRoleGuard.ts`).
+
+Скоупинг:
+- inspector/supervisor — свой район. Район здания — **реальные границы OSM** (таблица `districts`, миграция 0023, сид
+  `seed_districts` в preDeploy; вне полигонов — ближайший район по geography). Район нового объекта (донесение, здание)
+  считается по геометрии в момент записи (`api/app/districts.py::district_of`), не по району автора.
+  `field_reports.district` и `operational_cards.district` — денормализованные копии, пересчитываются сидом.
+- Район пользователя резолвится из БД на каждый запрос (как `station` у responder), а не из JWT.
+- leadership/admin/dispatcher/responder — весь город (`CITYWIDE_ROLES` в `api/app/access.py`).
+- **akimat** — только чтение городских агрегатов и зданий: `CITY_READ_ROLES` + флаг `allow_city_read` в
+  `enforce_building_scope` (передаёт только `buildings.py`). Без ПДн, донесений, карточек ПТП, чата, аудита, записи.
+  **Не добавлять akimat в `CITYWIDE_ROLES`** — вместе с ним откроются донесения с фото. `api/tests/test_guards.py`
+  обходит все маршруты OpenAPI: новый эндпоинт, открытый акимату, валит тест.
+
+Тестовые пользователи (из seed_users): `inspector/inspector123` и `supervisor/supervisor123` (оба Есильский),
+`minister/minister123` (leadership), `admin/admin123`, `owner/owner123`, `dispatcher/dispatcher123`,
+`responder/responder123`, `akimat/akimat123`. На проде учётки — через «Пользователи» с не-демо паролем,
+перенос района — точечным SQL + `/auth/revoke`.
 JWT в localStorage (`fw_token`); для `<img>/<iframe>` токен передаётся как `?token=` через `apiSrc()` — не забывать при новых файловых эндпоинтах.
+
+## Покрытие, городской трек, формулировки
+
+- Слепые зоны и `coverage_source` (`osrm | buffer | mixed` + `approximate`) — единственный источник `api/app/coverage.py`,
+  общий для `/infra/*` и `/city/*`. При сбое пересчёта изохрону части **не удалять** (круг завышает покрытие — ошибка в
+  опасную сторону): она остаётся «устаревшей»; при недоступном OSRM пересчёт не трогает данные.
+- `/city/*` — только агрегаты; `demo_data`, `method` и оговорки данных (мало частей в сидах) показываются, не прячутся.
+  Время прибытия: `median_response_min` (регистрация → прибытие, сравнимо с нормативом) и `median_travel_min` (выезд → прибытие) — не путать.
+- Терминология: слой риска — **«объяснимая оценка уязвимости»**, не «прогноз» и не «предиктивная модель» (до получения
+  реальной истории пожаров от ДЧС). Касается лендинга, метаданных `layout.tsx`, питчей.
+- Атрибуция «© OpenStreetMap contributors» (ODbL) обязательна на картах с районами и в городском отчёте.
 
 ## Module 03 (оцифровка ПТП) и forces
 
@@ -61,7 +97,9 @@ JWT в localStorage (`fw_token`); для `<img>/<iframe>` токен перед�
 Полный процесс и грабли — скилл `deploy-railway` (`.claude/skills/deploy-railway/SKILL.md`). Главное:
 - **Push в main НЕ деплоит.** Деплой вручную: `railway up -s <api|ml|web> --detach` или MCP `deployment_trigger(commitSha)` per service.
 - `startCommand` в railway.json всегда через `sh -c '... ${PORT}'` — без shell `${PORT}` остаётся литералом и сервис крашится.
-- api самомигрирующийся (preDeploy: alembic + идемпотентные сиды); uploads живут на volume `api-volume` (эфемерный FS стирается при деплое).
+- api самомигрирующийся (preDeploy: alembic → `seed_districts` → идемпотентные сиды); uploads живут на volume `api-volume` (эфемерный FS стирается при деплое).
+- Изменения офлайн-синхронизации расстановки (`/dispatch/{id}/deployment/sync`, `deploymentQueue.ts`, `sw.js`): **сначала api, потом web** — старый API отвечает 422 на новые батчи, а 422 в очереди окончательный.
+- Service Worker: кэш данных `fw-api` без версии (обновление SW не стирает офлайн-пакеты), версионируются только precache/статика.
 
 ## Конвенции
 
