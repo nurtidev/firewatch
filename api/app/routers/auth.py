@@ -137,8 +137,15 @@ def current_user(
     if payload is None:
         raise HTTPException(401, "Недействительный токен")
 
+    # Район берётся из БД на каждый запрос, а не из токена: после перевода
+    # сотрудника в другой район (или перепривязки районов) старый токен иначе
+    # ещё до 12 часов скоупил бы его по прежнему району, пока маршрут уже
+    # строится по реестру. Тот же принцип, что у части начальника караула
+    # (dispatch._user_station). Claim `district` в токене — справочный.
     row = db.execute(
-        text("SELECT sessions_revoked_at, is_active FROM users WHERE username = :u"),
+        text(
+            "SELECT sessions_revoked_at, is_active, district FROM users WHERE username = :u"
+        ),
         {"u": payload["sub"]},
     ).mappings().first()
     if row is None:
@@ -157,7 +164,7 @@ def current_user(
         "username": payload["sub"],
         "role": payload["role"],
         "name": payload["name"],
-        "district": payload.get("district"),
+        "district": row["district"],
     }
 
 

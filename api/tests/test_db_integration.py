@@ -149,6 +149,28 @@ def test_inspector_cannot_bypass_scope_via_filter(client):
     assert len(feats) == 0
 
 
+def test_district_change_applies_to_existing_token(client):
+    """Район — из БД на каждый запрос: перевод сотрудника действует сразу,
+    а не через 12 часов, когда истечёт токен со старым claim `district`."""
+    from app.db import engine
+
+    h = _login(client, "supervisor", "supervisor123")  # Есильский: 2 здания
+    assert len(client.get("/buildings", headers=h).json()["features"]) == 2
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE users SET district = 'Сарыаркинский' WHERE username = 'supervisor'")
+            )
+        # Тот же токен, без повторного входа.
+        assert len(client.get("/buildings", headers=h).json()["features"]) == 3
+        assert client.get("/auth/me", headers=h).json()["district"] == "Сарыаркинский"
+    finally:
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE users SET district = 'Есильский' WHERE username = 'supervisor'")
+            )
+
+
 def test_queued_report_replay_does_not_duplicate(client):
     """Офлайн-очередь донесений доставляет «хотя бы один раз».
 
