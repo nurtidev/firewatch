@@ -32,6 +32,7 @@ import {
   FileText,
   KeyRound,
   Loader2,
+  ShieldAlert,
 } from "lucide-react";
 import {
   Card,
@@ -467,6 +468,16 @@ function useDeploymentQueue(calloutId: number, onChanged: () => void) {
   const [syncing, setSyncing] = useState(false);
   const [retryReason, setRetryReason] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
+  // 403: прав на расстановку в этом выезде нет. Повтор даст тот же отказ,
+  // поэтому сама очередь больше не уходит — ни по жесту, ни по возврату
+  // связи — до смены учётной записи или ручного «Отправить». Ref, а не только
+  // состояние: жест и событие `online` читают его синхронно.
+  const [forbidden, setForbidden] = useState(false);
+  const forbiddenRef = useRef(false);
+  useEffect(() => {
+    forbiddenRef.current = false;
+    setForbidden(false);
+  }, [owner, calloutId]);
   // Расстановка из ответа синхронизации: держит принятую позицию на плане в
   // те доли секунды, пока едет свежий боевой пакет.
   const [synced, setSynced] = useState<DeploymentPosition[] | null>(null);
@@ -488,16 +499,22 @@ function useDeploymentQueue(calloutId: number, onChanged: () => void) {
     refresh();
   }, [refresh, owner]);
 
-  const flush = useCallback(async () => {
+  /** `manual` — человек нажал «Отправить»: только так уходит очередь после 403. */
+  const flush = useCallback(async (manual = false) => {
     if (pendingCount(calloutId) === 0) {
       setAuthRequired(false);
+      forbiddenRef.current = false;
+      setForbidden(false);
       return;
     }
+    if (!manual && forbiddenRef.current) return;
     setSyncing(true);
     try {
       const out = await flushDeployment(calloutId);
       setRetryReason(out.retryReason ?? null);
       setAuthRequired(Boolean(out.authRequired));
+      forbiddenRef.current = Boolean(out.forbidden);
+      setForbidden(Boolean(out.forbidden));
       if (out.positions) setSynced(out.positions);
       if (out.applied > 0 || out.rejected > 0) onChangedRef.current();
     } finally {
@@ -547,6 +564,7 @@ function useDeploymentQueue(calloutId: number, onChanged: () => void) {
     syncing,
     retryReason,
     authRequired,
+    forbidden,
     synced,
     setSynced,
     online,
@@ -774,9 +792,9 @@ function DeploymentSection({
             : t("Связи нет. Расставляйте — позиции сохранятся на устройстве и уйдут при связи.")}
         </Banner>
       )}
-      {/* 401/403 при отправке — не отказ расстановке: токен истёк за смену
-          без связи. Очередь цела, и человек должен знать, что для отправки
-          нужен вход, а не повтор нажатия «Отправить». */}
+      {/* 401 при отправке — не отказ расстановке: токен истёк за смену без
+          связи. Очередь цела, и человек должен знать, что для отправки нужен
+          вход, а не повтор нажатия «Отправить». */}
       {editable && queue.authRequired && queue.pending.length > 0 && (
         <Banner tone="warning" icon={KeyRound} className="mt-3">
           {t(
@@ -784,7 +802,45 @@ function DeploymentSection({
           ).replace("{n}", String(queue.pending.length))}
         </Banner>
       )}
-      {editable && online && !queue.authRequired && queue.pending.length > 0 && (
+      {/* 403 — у учётной записи нет прав на расстановку в этом выезде.
+          Повторный вход тут не поможет, а повтор отправки даст тот же отказ,
+          поэтому очередь сама не уходит. Кнопка — на случай, когда диспетчер
+          уже выдал права. */}
+      {editable && queue.forbidden && !queue.authRequired && queue.pending.length > 0 && (
+        <Banner
+          tone="warning"
+          icon={ShieldAlert}
+          className="mt-3"
+          title={t("Нет прав на расстановку в этом выезде — обратитесь к диспетчеру")}
+        >
+          <span className="flex flex-wrap items-center gap-2">
+            <span>
+              {t("Расстановка ({n}) сохранена на устройстве и не потеряется.").replace(
+                "{n}",
+                String(queue.pending.length),
+              )}
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => void queue.flush(true)}
+              disabled={queue.syncing}
+            >
+              {queue.syncing ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <CloudUpload className="h-4 w-4" aria-hidden />
+              )}
+              {t("Отправить")}
+            </Button>
+          </span>
+        </Banner>
+      )}
+      {editable &&
+        online &&
+        !queue.authRequired &&
+        !queue.forbidden &&
+        queue.pending.length > 0 && (
         <Banner tone="info" icon={CloudUpload} className="mt-3">
           <span className="flex flex-wrap items-center gap-2">
             <span>
@@ -794,7 +850,7 @@ function DeploymentSection({
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => void queue.flush()}
+              onClick={() => void queue.flush(true)}
               disabled={queue.syncing}
             >
               {queue.syncing ? (
