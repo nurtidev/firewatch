@@ -46,16 +46,25 @@
  * прервать РТП на пожаре ради версии, которая подождёт.
  */
 
-// v2: раздельные кэши (прекэш / статика / страницы / API). Смена версии
-// сносит кэши v1 при активации, в том числе общий кэш, где заглушка
-// вытеснялась первой.
+// Версия — только у оболочки приложения: прекэш (заглушка), статика сборки и
+// сохранённые страницы. Страницы версионируются вместе со статикой, потому что
+// ссылаются на её чанки: страница без своих чанков офлайн — белый экран вместо
+// честной заглушки. Смена версии сносит оболочку прошлой (в v1 был общий кэш,
+// где заглушка вытеснялась первой).
+//
+// Данные API — без версии. Это боевые пакеты, маршруты и карточки, снятые при
+// связи: обновление приложения прямо перед выездом не должно их стирать. Кэш
+// данных прошлых версий (`fw-api-v1`, `fw-api-v2`) при активации переносится в
+// `fw-api`, а не удаляется (см. adoptLegacyApiCaches).
 const VERSION = "v2";
 const PRECACHE = `fw-precache-${VERSION}`;
 const STATIC_CACHE = `fw-static-${VERSION}`;
 const PAGES_CACHE = `fw-pages-${VERSION}`;
-const API_CACHE = `fw-api-${VERSION}`;
+const API_CACHE = "fw-api";
+const LEGACY_API_PREFIX = "fw-api-";
 const CURRENT_CACHES = [PRECACHE, STATIC_CACHE, PAGES_CACHE, API_CACHE];
-const API_CACHE_PREFIX = "fw-api-";
+/** Кэш данных API — текущий или прошлой версии. */
+const isApiCache = (name) => name === API_CACHE || name.startsWith(LEGACY_API_PREFIX);
 const OFFLINE_URL = "/offline.html";
 
 /** Сколько API ждёт сеть, прежде чем отдать помеченный снимок. */
@@ -104,10 +113,16 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
+      try {
+        await adoptLegacyApiCaches();
+      } catch {
+        // Перенос не удался (квота). Кэш данных прошлой версии остаётся и
+        // читается как запасной (см. matchApi): стереть его — потерять снимки.
+      }
       const keys = await caches.keys();
       await Promise.all(
         keys
-          .filter((k) => k.startsWith("fw-") && !CURRENT_CACHES.includes(k))
+          .filter((k) => k.startsWith("fw-") && !CURRENT_CACHES.includes(k) && !isApiCache(k))
           .map((k) => caches.delete(k)),
       );
       // Первая установка берёт открытую страницу под управление сразу — иначе
@@ -131,9 +146,7 @@ self.addEventListener("message", (event) => {
       caches
         .keys()
         .then((keys) =>
-          Promise.all(
-            keys.filter((k) => k.startsWith(API_CACHE_PREFIX)).map((k) => caches.delete(k)),
-          ),
+          Promise.all(keys.filter((k) => isApiCache(k)).map((k) => caches.delete(k))),
         ),
     );
   }
@@ -145,6 +158,57 @@ function isApiCacheable(url) {
   const path = url.pathname + url.search;
   if (API_NEVER.some((re) => re.test(url.pathname))) return false;
   return API_CACHEABLE.some((re) => re.test(path));
+}
+
+/**
+ * Перенести кэш данных прошлой версии (`fw-api-v2`) в `fw-api`.
+ *
+ * Запись, которая уже есть под новым именем, не перезаписывается — она
+ * свежее. Отметка времени снимка (`x-fw-cached-at`) переносится вместе с
+ * ответом: «снимок от» остаётся честным.
+ *
+ * Смена учётной записи посреди переноса обрывает его и стирает перенесённое.
+ * Её видно двумя путями: эпоха выросла (сообщение пришло этому воркеру) или
+ * исходный кэш исчез (окно стёрло Cache Storage само — во время активации
+ * страницей ещё управляет прошлый воркер, и сообщение ушло ему). Проверка
+ * стоит и после каждой записи: окно могло стереть кэши между проверкой и
+ * `put`.
+ */
+async function adoptLegacyApiCaches() {
+  const epoch = apiEpoch;
+  const legacy = (await caches.keys()).filter((k) => k.startsWith(LEGACY_API_PREFIX));
+  if (!legacy.length) return;
+  const target = await caches.open(API_CACHE);
+  const cleared = async (name) => epoch !== apiEpoch || !(await caches.has(name));
+  for (const name of legacy) {
+    const source = await caches.open(name);
+    for (const request of await source.keys()) {
+      if (await target.match(request)) continue;
+      const response = await source.match(request);
+      if (!response) continue;
+      if (await cleared(name)) break;
+      await target.put(request, response);
+    }
+    if (await cleared(name)) {
+      await caches.delete(API_CACHE);
+      return;
+    }
+    await caches.delete(name);
+  }
+  await trim(API_CACHE);
+}
+
+/** Снимок ответа API: из текущего кэша, а если перенос при активации не
+ *  состоялся — из кэша прошлой версии. */
+async function matchApi(request) {
+  const current = await caches.open(API_CACHE);
+  const hit = await current.match(request);
+  if (hit) return hit;
+  for (const name of (await caches.keys()).filter((k) => k.startsWith(LEGACY_API_PREFIX))) {
+    const legacy = await (await caches.open(name)).match(request);
+    if (legacy) return legacy;
+  }
+  return undefined;
 }
 
 /** Копия ответа с отметкой «это сохранённая копия и вот когда она снята». */
@@ -350,8 +414,7 @@ async function apiNetworkFirst(request) {
     }
     return fresh;
   } catch {
-    const cache = await caches.open(API_CACHE);
-    const cached = await cache.match(request);
+    const cached = await matchApi(request);
     if (cached) return withCachedMark(cached);
     throw new Error("offline and not cached");
   } finally {

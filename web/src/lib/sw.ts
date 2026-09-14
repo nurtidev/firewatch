@@ -14,8 +14,9 @@
  * «Обновить»; остальные получают ненавязчивую подсказку.
  */
 
-/** Префикс кэшей данных API в воркере (см. public/sw.js). */
-const API_CACHE_PREFIX = "fw-api-";
+/** Кэш данных API в воркере: `fw-api` и кэши прошлых версий `fw-api-*`
+ *  (см. public/sw.js). Стирать надо оба — перенос мог не состояться. */
+const isApiCache = (name: string) => name === "fw-api" || name.startsWith("fw-api-");
 
 /**
  * Стереть офлайн-кэш данных ДЧС — при входе и при выходе.
@@ -36,9 +37,7 @@ export async function clearApiCache(): Promise<void> {
   if (typeof caches === "undefined") return;
   try {
     const keys = await caches.keys();
-    await Promise.all(
-      keys.filter((k) => k.startsWith(API_CACHE_PREFIX)).map((k) => caches.delete(k)),
-    );
+    await Promise.all(keys.filter((k) => isApiCache(k)).map((k) => caches.delete(k)));
   } catch {
     // Cache Storage недоступен (приватный режим, небезопасный контекст) —
     // значит, и кэша, который надо стирать, нет.
