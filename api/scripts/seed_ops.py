@@ -2,9 +2,11 @@
 
 Run:  docker compose exec api python -m scripts.seed_ops
 
-Assigns each building a district and a last-inspected date (deterministically
-synthesized from osm_id — replace with real ДЧС inspection history at pilot),
-and creates a few inspectors. Idempotent.
+Assigns each building a last-inspected date (deterministically synthesized from
+osm_id — replace with real ДЧС inspection history at pilot), assigns its
+district from the real OSM administrative boundary (scripts/seed_districts —
+раньше район тоже был хешем osm_id, то есть выдумкой), and creates a few
+inspectors. Idempotent.
 """
 
 import hashlib
@@ -13,22 +15,20 @@ from datetime import date, timedelta
 from sqlalchemy import text
 
 from app.db import engine
+from scripts import seed_districts, seed_users
 
 TODAY = date(2026, 6, 26)
-
-DISTRICTS = [
-    "Сарыаркинский",
-    "Алматинский",
-    "Есильский",
-    "Байконырский",
-    "Нуринский",
-]
 
 # Третий элемент — username учётной записи, с которой связана строка реестра
 # (inspectors.user_id). Связь обязательна: по ней резолвится авторство акта
 # проверки, сопоставление по ФИО как правило доступа неприемлемо.
+#
+# Демо-инспектор — в Есильском, том же районе, что и демо-руководитель
+# (seed_users): после перехода на настоящие границы районов в Есильском
+# оказался ЖК «Хайвилл», а в Сарыаркинском осталось 65 зданий из 4523 —
+# сюжет «инспектор ведёт объект, руководитель контролирует» держится только так.
 INSPECTORS = [
-    ("Ахметов Д.К.", "Сарыаркинский", "inspector"),
+    ("Ахметов Д.К.", "Есильский", "inspector"),
     ("Сулейменова А.Б.", "Алматинский", None),
     ("Жунусов Е.М.", "Есильский", None),
 ]
@@ -39,6 +39,40 @@ def rng(osm_id: int, salt: str) -> float:
     return int(h[:8], 16) / 0xFFFFFFFF
 
 
+def link_demo_inspectors(conn) -> None:
+    """Связать строки демо-реестра с учётными записями и выровнять их район.
+
+    Досвязка нужна, когда реестр засеян раньше учётных записей (порядок
+    скриптов при развёртывании с нуля не гарантирован). Сопоставление по ФИО
+    допустимо здесь только потому, что это сид демо-реестра, а не правило
+    доступа, и только в однозначном случае: учётная запись ещё ни с чем не
+    связана, а непривязанная строка с таким ФИО ровно одна (тёзки остаются без
+    связи — лучше 403 и ручная привязка, чем чужое авторство акта). Район в
+    условие не входит: у демо-инспектора он сменился вместе с переходом на
+    настоящие границы районов, и старая строка иначе осталась бы ничьей.
+    """
+    for name, _district, username in INSPECTORS:
+        if not username:
+            continue
+        conn.execute(
+            text(
+                """
+                UPDATE inspectors SET user_id = u.id
+                  FROM users u
+                 WHERE u.username = :u
+                   AND inspectors.user_id IS NULL
+                   AND inspectors.name = :n
+                   AND NOT EXISTS (SELECT 1 FROM inspectors z WHERE z.user_id = u.id)
+                   AND (SELECT count(*) FROM inspectors c
+                         WHERE c.user_id IS NULL AND c.name = :n) = 1
+                """
+            ),
+            {"u": username, "n": name},
+        )
+    # Район связанной строки = район учётной записи (единый источник — seed_users).
+    seed_users.sync_demo_registry(conn)
+
+
 def main() -> None:
     with engine.begin() as conn:
         rows = conn.execute(
@@ -47,16 +81,16 @@ def main() -> None:
 
         for b in rows:
             osm_id = b["osm_id"] or b["id"]
-            district = DISTRICTS[int(rng(osm_id, "district") * len(DISTRICTS))]
             days_ago = 10 + int(rng(osm_id, "lastcheck") * 420)
             last = TODAY - timedelta(days=days_ago)
             conn.execute(
-                text(
-                    "UPDATE buildings SET district = :d, last_inspected = :l "
-                    "WHERE id = :id"
-                ),
-                {"d": district, "l": last, "id": b["id"]},
+                text("UPDATE buildings SET last_inspected = :l WHERE id = :id"),
+                {"l": last, "id": b["id"]},
             )
+
+        # Район — полигон административной границы, тот же шаг, что в preDeploy:
+        # здания нового импорта получают настоящий район, а не хеш osm_id.
+        district_stats = seed_districts.run(conn)
 
         existing = conn.execute(text("SELECT count(*) FROM inspectors")).scalar()
         if not existing:
@@ -69,21 +103,10 @@ def main() -> None:
                     {"n": name, "d": district, "u": username},
                 )
 
-        # Досвязка на случай, когда реестр засеян раньше учётных записей
-        # (порядок скриптов при развёртывании с нуля не гарантирован).
-        for name, district, username in INSPECTORS:
-            if not username:
-                continue
-            conn.execute(
-                text(
-                    "UPDATE inspectors SET user_id = u.id FROM users u "
-                    "WHERE u.username = :u AND inspectors.user_id IS NULL "
-                    "AND inspectors.name = :n AND inspectors.district = :d"
-                ),
-                {"u": username, "n": name, "d": district},
-            )
+        link_demo_inspectors(conn)
 
-    print(f"seeded districts/last_inspected for {len(rows)} buildings, "
+    seed_districts.print_report(district_stats)
+    print(f"seeded last_inspected for {len(rows)} buildings, "
           f"{len(INSPECTORS)} inspectors")
 
 

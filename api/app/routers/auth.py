@@ -33,7 +33,9 @@ ASSIGNABLE_ROLES = (*INTERNAL_ROLES, *CITY_ROLES, "owner")
 # пользователь не видит ничего, поэтому район при заведении обязателен.
 DISTRICT_SCOPED_ROLES = ("inspector", "supervisor")
 
-# Районы Астаны — тот же список, что в scripts/seed_ops.py (buildings.district).
+# Районы Астаны — те же имена, что `name` в api/data/astana_districts.geojson
+# (таблица districts, scripts/seed_districts.py → buildings.district).
+# Совпадение списков проверяет tests/test_districts.py.
 DISTRICTS = (
     "Сарыаркинский",
     "Алматинский",

@@ -23,8 +23,10 @@ _POLY = (
     "'POLYGON((71 51,71.001 51,71.001 51.001,71 51.001,71 51))'),4326)"
 )
 
-# Районы демо-пользователей: inspector — Сарыаркинский, supervisor — Есильский.
-_OWN = "Сарыаркинский"
+# Районы демо-пользователей (seed_users): inspector и supervisor — оба в
+# Есильском (сюжет «инспектор ведёт объект, его руководитель контролирует»).
+# Чужой район для обоих — Алматинский.
+_OWN = "Есильский"
 _FOREIGN = "Алматинский"
 _SUPERVISED = "Есильский"
 
@@ -197,7 +199,9 @@ def test_supervisor_sees_only_own_district_inspectors(client):
     assert rows, "супервайзер должен видеть инспекторов своего района"
     assert {r["district"] for r in rows} == {_SUPERVISED}
     ids = [r["id"] for r in rows]
-    assert client.foreign_id not in ids and client.own_id not in ids
+    # Демо-инспектор — в районе супервайзера; инспектор чужого района — нет.
+    assert client.own_id in ids and client.supervised_id in ids
+    assert client.foreign_id not in ids
 
 
 def test_admin_sees_the_whole_roster(client):
@@ -235,7 +239,7 @@ def test_route_today_denies_unlinked_account(client):
 def test_supervisor_route_is_limited_to_own_district(client):
     h = _login(client, "supervisor", "supervisor123")
     assert (
-        client.get(f"/routes/today?inspector_id={client.own_id}", headers=h).status_code
+        client.get(f"/routes/today?inspector_id={client.foreign_id}", headers=h).status_code
         == 403
     )
     r = client.get(f"/routes/today?inspector_id={client.supervised_id}", headers=h)
@@ -303,9 +307,12 @@ def test_cards_list_is_district_scoped(client):
     assert client.upload_card in ids  # загруженный PDF своего района
     assert client.foreign_card not in ids
 
+    # Супервайзер — в том же районе, что и демо-инспектор: видит его карточки,
+    # но не карточку чужого района.
     h = _login(client, "supervisor", "supervisor123")
     ids = {c["id"] for c in client.get("/cards", headers=h).json()}
-    assert not ({client.own_card, client.foreign_card, client.upload_card} & ids)
+    assert {client.own_card, client.upload_card} <= ids
+    assert client.foreign_card not in ids
 
 
 @pytest.mark.parametrize(

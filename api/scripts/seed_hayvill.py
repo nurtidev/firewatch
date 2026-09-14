@@ -30,9 +30,10 @@ from app.db import engine
 from app.extraction import mask_contacts_field
 
 DATA = Path(__file__).resolve().parent / "seed_data" / "hayvill.json"
-# Preferred building to represent the complex (high-rise on Сарайшык, Сарыаркинский
-# district — same scope as the demo inspector). Falls back to the tallest
-# residential building in that district if the exact address isn't present.
+# Preferred building to represent the complex (high-rise on Сарайшык — по
+# настоящим границам OSM это Есильский район, тот же, что у демо-инспектора и
+# демо-руководителя). Falls back to the tallest residential building in that
+# district if the exact address isn't present.
 PREFERRED_ADDRESS = "%Сарайшық%7/1%"
 HYDRANT_OSM_BASE = -9000  # sentinel ids so re-runs upsert instead of duplicating
 
@@ -110,7 +111,7 @@ def _target_building(conn) -> dict:
     row = conn.execute(
         text(
             "SELECT id, address, district FROM buildings "
-            "WHERE building_type = 'residential' AND district = 'Сарыаркинский' "
+            "WHERE building_type = 'residential' AND district = 'Есильский' "
             "ORDER BY floors DESC NULLS LAST LIMIT 1"
         )
     ).mappings().first()

@@ -20,9 +20,9 @@ _POLY = (
     "'POLYGON((71 51,71.001 51,71.001 51.001,71 51.001,71 51))'),4326)"
 )
 
-# The seeded "inspector" user lives in this district; we put a building here so
-# the route_today query for that inspector returns at least one stop.
-_DISTRICT = "Сарыаркинский"
+# The seeded "inspector" user lives in this district (seed_users); we put a
+# building here so the route_today query for that inspector returns a stop.
+_DISTRICT = "Есильский"
 
 
 @pytest.fixture(scope="module")

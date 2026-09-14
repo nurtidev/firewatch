@@ -31,9 +31,9 @@ _POLY = (
 )
 _LAT, _LNG = 52.5, 72.5
 
-# Районы демо-пользователей (см. test_scoping.py): inspector — Сарыаркинский,
-# supervisor — Есильский.
-_OWN = "Сарыаркинский"
+# Районы демо-пользователей (см. test_scoping.py): inspector и supervisor — оба
+# Есильский.
+_OWN = "Есильский"
 _FOREIGN = "Алматинский"
 
 _ADDR = "Тестовая Әлем көшесі 501"
@@ -145,7 +145,7 @@ def test_supervisor_does_not_find_foreign_district(client, foreign_building):
 
 
 def test_inspector_does_not_find_foreign_district(client, foreign_building):
-    # inspector — Сарыаркинский; тоже не Алматинский.
+    # inspector — Есильский; тоже не Алматинский.
     h = _login(client, "inspector", "inspector123")
     r = client.get(
         "/buildings/search", params={"q": "тестовая шыдырту 12"}, headers=h
@@ -155,7 +155,7 @@ def test_inspector_does_not_find_foreign_district(client, foreign_building):
 
 
 def test_inspector_finds_own_district(client, own_building):
-    # own_building заведён в Сарыаркинском — то же, что у inspector.
+    # own_building заведён в Есильском — то же, что у inspector.
     h = _login(client, "inspector", "inspector123")
     r = client.get("/buildings/search", params={"q": _ADDR_NORM_QUERY}, headers=h)
     ids = [b["id"] for b in r.json()]

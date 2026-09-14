@@ -143,8 +143,9 @@ def test_overview_risk_bands_match_buildings_filter(client):
 
 def test_inspector_cannot_bypass_scope_via_filter(client):
     h = _login(client, "inspector", "inspector123")
-    # Asking for another district must still return only the inspector's own.
-    feats = client.get("/buildings?district=Есильский", headers=h).json()["features"]
+    # Asking for another district must still return only the inspector's own
+    # (the seeded inspector lives in Есильский — see seed_users).
+    feats = client.get("/buildings?district=Сарыаркинский", headers=h).json()["features"]
     assert len(feats) == 0
 
 
@@ -918,7 +919,7 @@ def test_visit_is_recorded_once_with_building_detail(client):
     h = _login(client, "inspector", "inspector123")
     _ensure_inspector_link(engine, "inspector")
     building_id = conn_scalar(
-        engine, "SELECT id FROM buildings WHERE district = 'Сарыаркинский' LIMIT 1"
+        engine, "SELECT id FROM buildings WHERE district = 'Есильский' LIMIT 1"
     )
 
     before = _audit_count(engine, path="/routes/visit")

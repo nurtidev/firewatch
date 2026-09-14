@@ -3,7 +3,7 @@
 Run:  docker compose exec api python -m scripts.seed_users
 
 Demo credentials (pilot only — change before any real deployment):
-  inspector  / inspector123   — надзорный инспектор (Сарыаркинский р-н)
+  inspector  / inspector123   — надзорный инспектор (Есильский р-н)
   supervisor / supervisor123  — руководитель управления (Есильский р-н)
   minister   / minister123    — замминистра (руководство, весь город)
   admin      / admin123       — администратор (все модули, весь город)
@@ -28,7 +28,10 @@ from app.db import engine
 
 # (username, password, name, role, district)
 USERS = [
-    ("inspector", "inspector123", "Ахметов Д.К.", "inspector", "Сарыаркинский"),
+    # Есильский — тот же район, что у supervisor: по настоящим границам OSM там
+    # ЖК «Хайвилл», а в Сарыаркинском осталось 65 зданий из 4523. Связанная
+    # строка реестра выравнивается ниже (sync_demo_registry).
+    ("inspector", "inspector123", "Ахметов Д.К.", "inspector", "Есильский"),
     ("supervisor", "supervisor123", "Сулейменова А.Б.", "supervisor", "Есильский"),
     ("minister", "minister123", "Замминистра", "leadership", None),
     ("admin", "admin123", "Администратор", "admin", None),
@@ -75,6 +78,32 @@ def _seed_owner_link(conn) -> None:
     print(f"linked owner → building #{building_id} (Хайвилл)")
 
 
+def sync_demo_registry(conn) -> int:
+    """Строка реестра демо-инспектора живёт в районе его учётной записи.
+
+    Район демо-инспектора сменился (Сарыаркинский → Есильский) вместе с
+    переходом на настоящие границы районов. Учётная запись обновляется upsert'ом
+    в main(), а связанная с ней строка `inspectors` — нет, и без этого шага
+    маршрут строился бы по одному району (route_today берёт район из реестра),
+    а объекты проверялись бы по другому (скоупинг берёт район учётной записи).
+    Трогает только строки, связанные FK с демо-учётками роли inspector.
+    """
+    usernames = [u for u, _p, _n, role, _d in USERS if role == "inspector"]
+    return conn.execute(
+        text(
+            """
+            UPDATE inspectors i
+               SET district = u.district
+              FROM users u
+             WHERE i.user_id = u.id
+               AND u.username = ANY(:names)
+               AND i.district IS DISTINCT FROM u.district
+            """
+        ),
+        {"names": usernames},
+    ).rowcount
+
+
 def main() -> None:
     with engine.begin() as conn:
         for username, password, name, role, district in [*USERS, OWNER]:
@@ -96,6 +125,9 @@ def main() -> None:
                 {"u": username, "p": hash_password(password), "n": name, "r": role,
                  "d": district},
             )
+        moved = sync_demo_registry(conn)
+        if moved:
+            print(f"inspectors: район {moved} строк(и) реестра выровнен по учётной записи")
         _seed_owner_link(conn)
     print(f"seeded {len(USERS) + 1} users")
 
