@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import { Box, Square } from "lucide-react";
 import { apiFetch } from "@/lib/auth";
-import { OSM_STYLE as STYLE, ASTANA_CENTER as CENTER } from "@/lib/mapStyle";
+import { OSM_STYLE as STYLE, ASTANA_CENTER as CENTER, RISK_SCORE_COLOR as RISK_COLOR } from "@/lib/mapStyle";
 import { CATEGORY_META, CATEGORY_MAP_COLOR, STATUS_META, type ReportCategory, type ReportStatus } from "@/lib/reports";
 
 export type MapFilters = {
@@ -12,22 +12,6 @@ export type MapFilters = {
   district?: string;
   risk?: string;
 };
-
-// Risk gradient mirrors the severity scale (lib/risk + @theme tokens) so the
-// map markers and the legend/badges read as one system.
-const RISK_COLOR: maplibregl.ExpressionSpecification = [
-  "interpolate",
-  ["linear"],
-  ["coalesce", ["get", "score"], 0],
-  0,
-  "#2fce7e", // normal
-  35,
-  "#ffd029", // elevated
-  70,
-  "#ff8c1a", // high
-  100,
-  "#ff453a", // critical
-];
 
 // Field-report category → color, single-sourced from lib/reports.ts (which in
 // turn mirrors the SEVERITY tokens — WebGL paint can't resolve CSS vars).
