@@ -12,6 +12,7 @@ from app.routers import (
     buildings,
     cards,
     chat,
+    city,
     dispatch,
     forces,
     health,
@@ -130,6 +131,7 @@ app.include_router(forces.router)
 app.include_router(dispatch.router)
 app.include_router(chat.router)
 app.include_router(overview.router)
+app.include_router(city.router)
 app.include_router(model.router)
 app.include_router(audit_log.router)
 

@@ -22,6 +22,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.audit import audit, client_ip
+from app.coverage import HYDRANT_RADIUS_M
 from app.db import get_db
 from app.routers.auth import current_user, require_roles
 from app.routers.forces import PRESETS
@@ -75,7 +76,6 @@ POSITION_KINDS = (
 POSITION_PHASES = ("localization", "extinguishing")
 
 # Nearest hydrants / access reports around the callout point (metres).
-HYDRANT_RADIUS_M = 800
 REPORTS_RADIUS_M = 400
 HYDRANT_LIMIT = 5
 

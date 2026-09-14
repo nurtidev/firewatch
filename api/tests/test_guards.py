@@ -67,6 +67,13 @@ ENDPOINTS = [
      {"leadership", "supervisor", "admin"}),
     ("overview", "GET", "/overview", None,
      {"supervisor", "leadership", "admin"}),
+    # Городской трек: акимат и руководство ведомства, admin — сопровождение.
+    ("city_summary", "GET", "/city/summary", None,
+     {"akimat", "leadership", "admin"}),
+    ("city_districts", "GET", "/city/districts.geojson", None,
+     {"akimat", "leadership", "admin"}),
+    ("city_priorities", "GET", "/city/priorities", None,
+     {"akimat", "leadership", "admin"}),
     ("forces_presets", "GET", "/forces/presets", None,
      {"supervisor", "admin", "dispatcher", "responder"}),
     ("forces_calc", "POST", "/forces/calc", {},
@@ -239,6 +246,9 @@ AKIMAT_ALLOWED = {
     ("GET", "/infra/routing/health"),
     ("GET", "/infra/blind-zones"),
     ("GET", "/infra/stats"),
+    ("GET", "/city/summary"),
+    ("GET", "/city/districts.geojson"),
+    ("GET", "/city/priorities"),
 }
 
 # Явно названные запреты из продуктового решения — дублируют перебор ниже,
