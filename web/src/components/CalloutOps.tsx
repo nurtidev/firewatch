@@ -14,7 +14,7 @@
  * Отметка ставится «сейчас» одним нажатием — в кабине и на месте пожара никто
  * не набирает время руками. Ошибочную отметку можно снять тем же нажатием.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Clock,
   Truck,
@@ -30,6 +30,7 @@ import {
   CloudUpload,
   WifiOff,
   FileText,
+  KeyRound,
   Loader2,
 } from "lucide-react";
 import {
@@ -47,7 +48,7 @@ import {
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { SEVERITY } from "@/lib/risk";
-import { apiFetch } from "@/lib/auth";
+import { apiFetch, useAuth } from "@/lib/auth";
 import FloorPlan2D from "@/components/FloorPlan2D";
 import DeploymentPlan from "@/components/DeploymentPlan";
 import { realPlanForFloor } from "@/lib/realgeom";
@@ -90,7 +91,9 @@ import {
   queueUpdate,
   rejectedFor,
   type Pending,
+  type PlanPosition,
   type PositionFields,
+  type PositionLabel,
   type RejectedEntry,
 } from "@/lib/deploymentQueue";
 import { isOnline } from "@/lib/offline";
@@ -448,13 +451,26 @@ function VehiclesSection({
  * ветку, которую никто не проверял на демо.
  */
 function useDeploymentQueue(calloutId: number, onChanged: () => void) {
+  // Очередь привязана к учётной записи (см. lib/deploymentQueue): при смене
+  // пользователя на общем планшете её надо перечитать — чужая не показывается.
+  const { user } = useAuth();
+  const owner = user?.username ?? null;
   const [pending, setPending] = useState<Pending[]>([]);
   const [rejected, setRejected] = useState<RejectedEntry[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [retryReason, setRetryReason] = useState<string | null>(null);
+  const [authRequired, setAuthRequired] = useState(false);
   // Расстановка из ответа синхронизации: держит принятую позицию на плане в
   // те доли секунды, пока едет свежий боевой пакет.
   const [synced, setSynced] = useState<DeploymentPosition[] | null>(null);
+
+  // onChanged приходит сверху и не обязан быть стабильным. В зависимостях
+  // flush он пересоздавал бы отправку на каждый рендер, а эффект подписки
+  // ниже — отправлял очередь заново при каждой перерисовке.
+  const onChangedRef = useRef(onChanged);
+  useEffect(() => {
+    onChangedRef.current = onChanged;
+  }, [onChanged]);
 
   const refresh = useCallback(() => {
     setPending(pendingFor(calloutId));
@@ -463,24 +479,29 @@ function useDeploymentQueue(calloutId: number, onChanged: () => void) {
 
   useEffect(() => {
     refresh();
-  }, [refresh]);
+  }, [refresh, owner]);
 
   const flush = useCallback(async () => {
-    if (pendingCount(calloutId) === 0) return;
+    if (pendingCount(calloutId) === 0) {
+      setAuthRequired(false);
+      return;
+    }
     setSyncing(true);
     try {
       const out = await flushDeployment(calloutId);
       setRetryReason(out.retryReason ?? null);
+      setAuthRequired(Boolean(out.authRequired));
       if (out.positions) setSynced(out.positions);
-      if (out.applied > 0 || out.rejected > 0) onChanged();
+      if (out.applied > 0 || out.rejected > 0) onChangedRef.current();
     } finally {
       setSyncing(false);
       refresh();
     }
-  }, [calloutId, onChanged, refresh]);
+  }, [calloutId, refresh]);
 
-  // Очередь уходит сама: при открытии выезда и как только вернулась связь.
-  // Кнопка «Отправить» существует для случая, когда navigator.onLine врёт.
+  // Очередь уходит сама: при открытии выезда, при входе владельца и как
+  // только вернулась связь. Кнопка «Отправить» — для случая, когда
+  // navigator.onLine врёт.
   const [online, setOnline] = useState(true);
   useEffect(() => {
     const onOnline = () => {
@@ -496,7 +517,7 @@ function useDeploymentQueue(calloutId: number, onChanged: () => void) {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
     };
-  }, [flush]);
+  }, [flush, owner]);
 
   /** Записать жест в очередь и сразу попробовать отправить. */
   const apply = useCallback(
@@ -518,6 +539,7 @@ function useDeploymentQueue(calloutId: number, onChanged: () => void) {
     rejected,
     syncing,
     retryReason,
+    authRequired,
     synced,
     setSynced,
     online,
@@ -525,6 +547,16 @@ function useDeploymentQueue(calloutId: number, onChanged: () => void) {
     apply,
     dismissRejected,
   };
+}
+
+/** Подпись отвергнутой позиции: тип и место, а не «операция #3». Названия
+ *  этажей в карточках уже человеческие («5-й этаж») — «этаж» не дописываем. */
+function rejectedLabel(r: RejectedEntry, t: (ru: string) => string): string {
+  const kind = r.kind ? t(POSITION_KIND_META[r.kind].label) : t("Позиция");
+  const what = r.where ? `${kind} · ${r.where}` : kind;
+  if (r.op === "patch") return `${t("Перемещение")}: ${what}`;
+  if (r.op === "delete") return `${t("Снятие")}: ${what}`;
+  return what;
 }
 
 function DeploymentSection({
@@ -618,14 +650,22 @@ function DeploymentSection({
       setAdding(false);
     });
 
+  // Что это за позиция — запоминается в очереди, чтобы отказ сервера назвать
+  // по-человечески («Перемещение: Ствол на тушение · 5-й этаж»), даже если
+  // позиции к тому времени на схеме уже нет.
+  const labelFor = (pos: PlanPosition | undefined): PositionLabel | undefined =>
+    pos ? { kind: pos.kind, floor: pos.floor, sector: pos.sector } : undefined;
+
   const move = (key: string, fields: PositionFields) => {
     const pos = positions.find((p) => p.key === key);
-    queue.apply(() => queueUpdate(calloutId, key, pos?.serverId ?? null, fields));
+    queue.apply(() =>
+      queueUpdate(calloutId, key, pos?.serverId ?? null, fields, labelFor(pos)),
+    );
   };
 
   const remove = (key: string) => {
     const pos = positions.find((p) => p.key === key);
-    queue.apply(() => queueDelete(calloutId, key, pos?.serverId ?? null));
+    queue.apply(() => queueDelete(calloutId, key, pos?.serverId ?? null, labelFor(pos)));
   };
 
   return (
@@ -720,7 +760,17 @@ function DeploymentSection({
             : t("Связи нет. Расставляйте — позиции сохранятся на устройстве и уйдут при связи.")}
         </Banner>
       )}
-      {editable && online && queue.pending.length > 0 && (
+      {/* 401/403 при отправке — не отказ расстановке: токен истёк за смену
+          без связи. Очередь цела, и человек должен знать, что для отправки
+          нужен вход, а не повтор нажатия «Отправить». */}
+      {editable && queue.authRequired && queue.pending.length > 0 && (
+        <Banner tone="warning" icon={KeyRound} className="mt-3">
+          {t(
+            "Нужен повторный вход. Расстановка ({n}) сохранена на устройстве и уйдёт после входа под этой же учётной записью.",
+          ).replace("{n}", String(queue.pending.length))}
+        </Banner>
+      )}
+      {editable && online && !queue.authRequired && queue.pending.length > 0 && (
         <Banner tone="info" icon={CloudUpload} className="mt-3">
           <span className="flex flex-wrap items-center gap-2">
             <span>
@@ -758,7 +808,7 @@ function DeploymentSection({
           <ul className="space-y-0.5">
             {queue.rejected.slice(0, 6).map((r) => (
               <li key={r.key}>
-                {t(r.label)} — {r.reason}
+                {rejectedLabel(r, t)} — {r.reason}
               </li>
             ))}
             {queue.rejected.length > 6 && (

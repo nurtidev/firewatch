@@ -429,9 +429,12 @@ export type PositionInput = {
   placed_at?: string;
 };
 
-/** Правка позиции в очереди синхронизации: адрес строки плюс изменённые поля. */
+/** Правка позиции в очереди синхронизации: адрес строки плюс изменённые поля.
+ *  Адрес — серверный id и/или client_uid: у позиции, поставленной на плане,
+ *  id может быть ещё неизвестен (ответ на постановку потерялся). */
 export type PositionPatchInput = Partial<Omit<PositionInput, "kind" | "client_uid">> & {
-  id: number;
+  id?: number;
+  client_uid?: string;
 };
 
 /** Очередь расстановки, накопленная устройством: конечное состояние, а не
@@ -440,12 +443,16 @@ export type PositionPatchInput = Partial<Omit<PositionInput, "kind" | "client_ui
 export type DeploymentSyncBody = {
   creates: (PositionInput & { client_uid: string })[];
   patches: PositionPatchInput[];
+  /** Снятие позиций с пульта — по серверному id. */
   deletes: number[];
+  /** Снятие позиций с плана — по client_uid. */
+  delete_uids: string[];
 };
 
 export type DeploymentSyncResult = {
   positions: DeploymentPosition[];
-  /** Ключи принятых операций: client_uid для постановки, `srv:<id>` для правки и снятия. */
+  /** Ключи принятых операций — те же, что у очереди: client_uid у позиций с
+   *  плана, `srv:<id>` у позиций с пульта. */
   applied: string[];
   /** Отвергнутое сервером — с причиной, которую показывают РТП, а не глотают. */
   rejected: { key: string; reason: string }[];
@@ -650,14 +657,19 @@ export function useCalloutPack(selectedId: number | null, pollMs?: number) {
     setCachedAt(null);
   }, []);
 
+  // Стабильная ссылка обязательна: reload уходит в CalloutOps как onChanged,
+  // и новая функция на каждый рендер пересоздавала бы там отправку очереди
+  // расстановки, а эффект — переподписывался и слал её заново каждый рендер.
+  const reload = useCallback(() => {
+    if (selectedId != null) load(selectedId);
+  }, [selectedId, load]);
+
   return {
     pack,
     loading,
     error,
     cachedAt,
-    reload: () => {
-      if (selectedId != null) load(selectedId);
-    },
+    reload,
     setPack,
   };
 }
