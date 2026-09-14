@@ -360,39 +360,114 @@ _NOW = datetime(2026, 8, 6, 10, 0, tzinfo=timezone.utc)
 @pytest.mark.parametrize(
     "placed",
     [
-        None,
         _CREATED,
         _NOW,
+        _CREATED + timedelta(minutes=12),
         _CREATED - timedelta(minutes=4),  # часы устройства чуть отстают
-        _NOW + timedelta(minutes=4),  # или чуть спешат
+        _NOW + timedelta(minutes=4),  # или чуть спешат — как и раньше, без правки
         # Астана, UTC+5: 14:45 местного — это 09:45 UTC, внутри выезда.
         datetime(2026, 8, 6, 14, 45, tzinfo=timezone(timedelta(hours=5))),
     ],
 )
-def test_placed_at_within_callout_is_accepted(placed):
-    assert D._placed_at_problem(placed, _CREATED, _NOW) is None
+def test_placed_at_within_callout_is_kept_as_is(placed):
+    fix = D._reconcile_placed_at(placed, None, _CREATED, _NOW)
+    assert fix.problem is None
+    assert fix.value == placed
+    assert fix.clock is None
+
+
+def test_placed_at_missing_stays_missing():
+    fix = D._reconcile_placed_at(None, _NOW, _CREATED, _NOW)
+    assert (fix.value, fix.problem, fix.clock) == (None, None, None)
 
 
 def test_placed_at_without_timezone_is_rejected():
     # Раньше такое время доезжало до min() рядом с aware-временем и роняло
     # ответ 500 уже после коммита.
-    problem = D._placed_at_problem(datetime(2026, 8, 6, 9, 45), _CREATED, _NOW)
-    assert problem and "часового пояса" in problem
+    fix = D._reconcile_placed_at(datetime(2026, 8, 6, 9, 45), _NOW, _CREATED, _NOW)
+    assert fix.problem and "часового пояса" in fix.problem
 
 
-def test_placed_at_before_callout_is_rejected():
-    problem = D._placed_at_problem(_CREATED - timedelta(minutes=6), _CREATED, _NOW)
-    assert problem and "раньше регистрации" in problem
+def test_fast_device_clock_is_corrected_not_rejected():
+    # Часы планшета спешат на два часа: связь живая, позиция поставлена
+    # минуту назад. Раньше — отказ «в будущем» и пропавший маркер.
+    skew = timedelta(hours=2)
+    placed = _NOW - timedelta(minutes=1)
+    fix = D._reconcile_placed_at(placed + skew, _NOW + skew, _CREATED, _NOW)
+    assert fix.problem is None
+    assert fix.value == placed
+    assert fix.clock["clock_skew_sec"] == -7200
+    assert fix.clock["clamped"] is False
+    assert fix.clock["device_placed_at"] == (placed + skew).isoformat()
 
 
-def test_placed_at_in_future_is_rejected():
-    problem = D._placed_at_problem(_NOW + timedelta(minutes=6), _CREATED, _NOW)
-    assert problem and "в будущем" in problem
+def test_slow_device_clock_at_callout_start_is_corrected():
+    # Часы отстают на два часа, ствол поставлен в первые секунды выезда —
+    # по часам устройства «раньше регистрации вызова».
+    skew = timedelta(hours=2)
+    created, now = _CREATED, _CREATED + timedelta(seconds=40)
+    placed = created + timedelta(seconds=30)
+    fix = D._reconcile_placed_at(placed - skew, now - skew, created, now)
+    assert fix.problem is None
+    assert fix.value == placed
+    assert fix.clock["clock_skew_sec"] == 7200
+    assert fix.clock["clamped"] is False
+
+
+def test_skew_within_tolerance_is_not_applied():
+    # Разница в пределах минуты — это в том числе время в пути запроса:
+    # точное время исправного планшета не сдвигается на задержку канала.
+    placed = _NOW - timedelta(minutes=3)
+    fix = D._reconcile_placed_at(placed, _NOW - timedelta(seconds=45), _CREATED, _NOW)
+    assert fix.value == placed
+    assert fix.clock is None
+
+
+def test_without_sent_at_implausible_time_is_clamped_not_rejected():
+    # Старый клиент без sent_at: поправить не по чему — прижимаем к выезду.
+    future = D._reconcile_placed_at(_NOW + timedelta(hours=2), None, _CREATED, _NOW)
+    assert future.problem is None and future.value == _NOW
+    assert future.clock == {
+        "device_placed_at": (_NOW + timedelta(hours=2)).isoformat(),
+        "sent_at": None,
+        "clock_skew_sec": None,
+        "clamped": True,
+    }
+    past = D._reconcile_placed_at(datetime(2020, 1, 1, tzinfo=timezone.utc), None, _CREATED, _NOW)
+    assert past.problem is None and past.value == _CREATED
+    assert past.clock["clamped"] is True
+
+
+def test_correction_is_clamped_when_placed_and_sent_disagree():
+    # Поправка по sent_at всё равно не выводит время за пределы выезда.
+    fix = D._reconcile_placed_at(
+        _NOW + timedelta(hours=5), _NOW - timedelta(hours=1), _CREATED, _NOW
+    )
+    assert fix.value == _NOW
+    assert fix.clock["clock_skew_sec"] == 3600 and fix.clock["clamped"] is True
+
+
+def test_naive_sent_at_is_ignored_not_rejected():
+    fix = D._reconcile_placed_at(
+        _NOW + timedelta(hours=1), (_NOW + timedelta(hours=1)).replace(tzinfo=None), _CREATED, _NOW
+    )
+    assert fix.problem is None and fix.value == _NOW
+    assert fix.clock["clock_skew_sec"] is None and fix.clock["clamped"] is True
 
 
 def test_placed_at_naive_callout_time_does_not_crash():
     naive_created = _CREATED.replace(tzinfo=None)
-    assert D._placed_at_problem(_CREATED, naive_created, _NOW) is None
+    fix = D._reconcile_placed_at(_CREATED, None, naive_created, _NOW)
+    assert fix.problem is None and fix.value == _CREATED
+
+
+def test_browser_iso_timestamp_parses_as_aware():
+    # `new Date().toISOString()` — единственный формат, который шлёт планшет.
+    item = D.SyncCreate(client_uid="u1", kind="hq", placed_at="2026-08-06T09:45:12.345Z")
+    body = D.DeploymentSync(creates=[item], sent_at="2026-08-06T10:00:00.000Z")
+    fix = D._reconcile_placed_at(item.placed_at, body.sent_at, _CREATED, _NOW)
+    assert fix.problem is None
+    assert fix.value == datetime(2026, 8, 6, 9, 45, 12, 345000, tzinfo=timezone.utc)
 
 
 # --- расчёт сил из карточки ПТП ---------------------------------------------

@@ -11,6 +11,7 @@ data reads here are citywide — dispatcher/responder are not district-scoped.
 """
 
 import re
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
@@ -1480,6 +1481,10 @@ class PositionCreate(BaseModel):
     # Время постановки по часам устройства. Отличается от created_at только
     # там, где связь пропадала: «ствол подан в 14:32, запись в 14:51».
     placed_at: datetime | None = None
+    # Часы устройства в момент отправки запроса. По разнице с часами сервера
+    # время постановки поправляется на сбитые часы планшета (см.
+    # `_reconcile_placed_at`). У батча синхронизации — поле самого батча.
+    sent_at: datetime | None = None
     # Расстановка внутри здания. Координаты — доля от габарита плана (0..1),
     # а не пиксели: план рисуется в разном масштабе (планшет, десктоп,
     # экспорт в донесение), и пиксельная координата «поехала» бы при первом
@@ -1610,45 +1615,117 @@ def get_deployment(
     }
 
 
-# Допуск на расхождение часов устройства и сервера. Планшет РТП без связи
-# часами не синхронизируется, но и сорокаминутного расхождения у исправного
-# устройства не бывает: всё, что дальше, — сбитые часы или чужие данные.
+# Расхождение часов устройства и сервера, которое не поправляется. Разница
+# «сервер − момент отправки» складывается из сбитых часов и времени в пути
+# запроса; в пределах минуты второе сравнимо с первым, и поправка сдвинула бы
+# точное время исправного планшета на задержку канала.
+CLOCK_SKEW_TOLERANCE = timedelta(seconds=60)
+
+# Допуск окна выезда: время в пределах [регистрация − 5 мин, сейчас + 5 мин]
+# пишется как пришло (так было и до поправки часов — ранее принятое время
+# старых клиентов не меняется). Время за его пределами — сбитые часы, и оно
+# прижимается уже к жёстким границам выезда: «ствол подан за пять минут до
+# вызова» в донесении хуже, чем «в момент регистрации».
 PLACED_AT_SKEW = timedelta(minutes=5)
 
 
-def _placed_at_problem(
-    placed_at: datetime | None, callout_created_at: datetime | None, now: datetime
-) -> str | None:
-    """Причина не принимать время постановки; None — время правдоподобно.
+def _aware(v: datetime) -> bool:
+    return v.tzinfo is not None and v.utcoffset() is not None
 
-    Время приходит с устройства, то есть с наименее проверяемой стороны, а
-    уходит в донесение как факт боевых действий («ствол подан в 14:32»).
-    Поэтому оно обязано быть с часовым поясом (иначе непонятно, какие это
-    14:32, а сравнение с серверным временем падает на смешении naive/aware)
-    и лежать в пределах выезда: раньше регистрации вызова ствол подать нельзя,
-    позже «сейчас» — тем более.
+
+@dataclass(frozen=True)
+class PlacedAt:
+    """Время постановки после сверки с часами сервера.
+
+    `problem` — причина не записывать позицию; `clock` — что пришлось сделать
+    со временем (для журнала): None, если время записано как пришло.
+    """
+
+    value: datetime | None
+    problem: str | None = None
+    clock: dict | None = None
+
+
+def _reconcile_placed_at(
+    placed_at: datetime | None,
+    sent_at: datetime | None,
+    callout_created_at: datetime | None,
+    now: datetime,
+) -> PlacedAt:
+    """Свести время постановки с часов устройства к часам сервера.
+
+    Время приходит с наименее проверяемой стороны, а уходит в донесение как
+    факт боевых действий («ствол подан в 14:32»). Раньше неправдоподобное
+    время отвергало позицию — и планшет, у которого часы спешат на десять
+    минут, терял каждый поставленный ствол даже при живой связи: маркер
+    уходил в «не принято» посреди расстановки. Отказ из-за часов хуже любой
+    неточности времени, поэтому время здесь **поправляется, а не отвергается**:
+
+      1. `sent_at` — часы устройства в момент отправки. Разница с часами
+         сервера и есть сбой часов планшета; на неё сдвигается время
+         постановки (за пределами допуска, см. CLOCK_SKEW_TOLERANCE).
+      2. Результат за пределами окна выезда (с допуском PLACED_AT_SKEW)
+         прижимается к его границам: не раньше регистрации вызова и не позже
+         «сейчас». Старый клиент без `sent_at` получает только это.
+
+    Отвергается одно — время без часового пояса: какие это 14:32, узнать
+    неоткуда. `Date.prototype.toISOString()` пояс даёт всегда (`Z`).
     """
     if placed_at is None:
-        return None
-    if placed_at.tzinfo is None or placed_at.utcoffset() is None:
-        return "Время постановки без часового пояса — позиция не записана"
+        return PlacedAt(None)
+    if not _aware(placed_at):
+        return PlacedAt(None, problem="Время постановки без часового пояса — позиция не записана")
+
+    skew = now - sent_at if sent_at is not None and _aware(sent_at) else None
+    corrected = skew is not None and abs(skew) > CLOCK_SKEW_TOLERANCE
+    value = placed_at
+    if corrected:
+        try:
+            value = placed_at + skew
+        except OverflowError:
+            # Время постановки и время отправки противоречат друг другу
+            # (одно у нулевого года, другое у десятитысячного) — поправлять
+            # не по чему, остаётся прижать к выезду.
+            value = placed_at
+
+    low = None
     if callout_created_at is not None:
-        created = (
+        low = (
             callout_created_at
-            if callout_created_at.tzinfo is not None
+            if _aware(callout_created_at)
             else callout_created_at.replace(tzinfo=timezone.utc)
         )
-        if placed_at < created - PLACED_AT_SKEW:
-            return "Время постановки раньше регистрации выезда — проверьте часы устройства"
-    if placed_at > now + PLACED_AT_SKEW:
-        return "Время постановки в будущем — проверьте часы устройства"
-    return None
+    too_early = low is not None and value < low - PLACED_AT_SKEW
+    too_late = value > now + PLACED_AT_SKEW
+    bounded = value
+    if too_early:
+        bounded = low
+    elif too_late:
+        bounded = now if low is None else max(now, low)
+    clamped = too_early or too_late
+
+    clock = None
+    if corrected or clamped:
+        clock = {
+            "device_placed_at": _iso(placed_at),
+            "sent_at": _iso(sent_at),
+            "clock_skew_sec": round(skew.total_seconds()) if skew is not None else None,
+            "clamped": clamped,
+        }
+    return PlacedAt(bounded, clock=clock)
+
+
+# Поля, которые повтор постановки может обновить (см. `_upsert_position`).
+_UPSERT_FIELDS = ("phase", "floor", "plan_x", "plan_y", "heading", "sector", "note")
 
 
 def _upsert_position(
     db: Session, callout_id: int, body: PositionCreate, username: str | None
-) -> tuple[int, str]:
-    """Записать позицию: `(id, "inserted" | "updated" | "unchanged")`.
+) -> tuple[int, str, list[str]]:
+    """Записать позицию: `(id, "inserted" | "updated" | "unchanged", поля)`.
+
+    Третий элемент — поля, которые повтор действительно изменил: в журнал
+    перемещения попадает то, что сдвинулось, а не весь список полей схемы.
 
     Доставка очереди расстановки — at-least-once: POST мог закоммититься и не
     донести ответ (в поле это обычный случай, а не редкость). Повтор с тем же
@@ -1673,6 +1750,19 @@ def _upsert_position(
         ).scalar()
         if not exists:
             raise HTTPException(404, "Машина не найдена")
+
+    # Прежнее состояние позиции — чтобы назвать в журнале изменённые поля.
+    # FOR UPDATE: между чтением и записью позицию не подвинут с пульта.
+    prev = None
+    if body.client_uid is not None:
+        prev = db.execute(
+            text(
+                "SELECT phase, floor, plan_x, plan_y, heading, sector, note "
+                "FROM deployment_positions WHERE callout_id = :cid AND client_uid = :uid "
+                "FOR UPDATE"
+            ),
+            {"cid": callout_id, "uid": body.client_uid},
+        ).mappings().first()
 
     geom = (
         "ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)"
@@ -1729,8 +1819,23 @@ def _upsert_position(
             "by": username,
         },
     ).mappings().first()
+    if row is not None and row["inserted"]:
+        return row["id"], "inserted", []
     if row is not None:
-        return row["id"], "inserted" if row["inserted"] else "updated"
+        if prev is None:
+            # Позицию вставил параллельный запрос между чтением и записью —
+            # прежнего состояния нет, называем все поля, которые мог тронуть повтор.
+            return row["id"], "updated", sorted(_UPSERT_FIELDS)
+        # Колонки — double precision / smallint / text: значение из запроса
+        # возвращается базой бит в бит, и сравнение в Python совпадает с
+        # IS DISTINCT FROM в самом запросе.
+        after = {
+            "phase": body.phase, "floor": body.floor, "plan_x": body.plan_x,
+            "plan_y": body.plan_y, "heading": body.heading,
+            "sector": body.sector if body.sector is not None else prev["sector"],
+            "note": body.note if body.note is not None else prev["note"],
+        }
+        return row["id"], "updated", sorted(f for f in _UPSERT_FIELDS if after[f] != prev[f])
     # Конфликт был, но менять нечего — возвращаем уже записанную позицию.
     existing = db.execute(
         text(
@@ -1739,7 +1844,7 @@ def _upsert_position(
         ),
         {"cid": callout_id, "uid": body.client_uid},
     ).scalar()
-    return existing, "unchanged"
+    return existing, "unchanged", []
 
 
 @router.post("/{callout_id}/deployment")
@@ -1754,70 +1859,103 @@ def add_position(
     row = _fetch_callout(db, callout_id)
     if row["status"] != "active":
         raise HTTPException(409, "Выезд закрыт — расстановка не меняется")
-    problem = _placed_at_problem(body.placed_at, row["created_at"], datetime.now(timezone.utc))
-    if problem:
-        raise HTTPException(422, problem)
+    placed = _reconcile_placed_at(
+        body.placed_at, body.sent_at, row["created_at"], datetime.now(timezone.utc)
+    )
+    if placed.problem:
+        raise HTTPException(422, placed.problem)
 
-    new_id, _state = _upsert_position(db, callout_id, body, user.get("username"))
+    item = body.model_copy(update={"placed_at": placed.value})
+    new_id, state, changed = _upsert_position(db, callout_id, item, user.get("username"))
     db.commit()
 
+    # Повтор с тем же client_uid — не вторая постановка: иначе в журнале
+    # выезда один ствол выглядел бы двумя.
+    if state == "inserted":
+        action = "callout.deployment_added"
+        detail = {"callout_id": callout_id, "position_id": new_id,
+                  "kind": body.kind, "phase": body.phase}
+        if body.client_uid is not None:
+            detail["client_uid"] = body.client_uid
+        if placed.value is not None:
+            detail["placed_at"] = _iso(placed.value)
+        if placed.clock:
+            detail.update(placed.clock)
+    elif state == "updated" and changed:
+        action = "callout.deployment_moved"
+        detail = {"callout_id": callout_id, "position_id": new_id,
+                  "client_uid": body.client_uid, "replay": True, "fields": changed}
+    else:
+        return _deployment(db, callout_id)
+
     audit(
-        action="callout.deployment_added",
+        action=action,
         username=user.get("username"),
         role=user.get("role"),
         method="POST",
         path=f"/dispatch/{callout_id}/deployment",
         status_code=200,
         ip=client_ip(request),
-        detail={"callout_id": callout_id, "position_id": new_id,
-                "kind": body.kind, "phase": body.phase},
+        detail=detail,
     )
     return _deployment(db, callout_id)
 
 
 def _update_position_row(
     db: Session, callout_id: int, position_id: int, body: "PositionPatch"
-) -> bool:
-    """Применить правку к позиции. False — позиции на этом выезде нет.
+) -> list[str] | None:
+    """Применить правку к позиции: поля, которые изменились; None — позиции нет.
 
     «Нет» здесь не ошибка клиента: пока РТП был без связи, диспетчер мог
     снять эту позицию с пульта. Решение, что с этим делать, принимает
     вызывающий: одиночный PATCH отвечает 404, синхронизация очереди —
     откладывает позицию в отвергнутые и продолжает с остальными.
+
+    Пустой список — правка ничего не меняет (повтор доставки): строка не
+    трогается, и в журнал писать нечего.
     """
-    exists = db.execute(
-        text("SELECT 1 FROM deployment_positions WHERE id = :pid AND callout_id = :cid"),
+    prev = db.execute(
+        text(
+            "SELECT sector, note, phase, floor, plan_x, plan_y, heading, "
+            "       ST_Y(geom) AS lat, ST_X(geom) AS lng "
+            "FROM deployment_positions WHERE id = :pid AND callout_id = :cid FOR UPDATE"
+        ),
         {"pid": position_id, "cid": callout_id},
-    ).scalar()
-    if not exists:
-        return False
+    ).mappings().first()
+    if prev is None:
+        return None
 
     # `id` и `client_uid` приходят в теле только у батча синхронизации — это
     # адрес строки, а не изменяемые поля.
     patch = body.model_dump(exclude_unset=True)
     patch.pop("id", None)
     patch.pop("client_uid", None)
+    # Колонки — double precision / smallint / text, точка хранится парой
+    # double: сравнение в Python точное, округления не вмешиваются.
+    changed = sorted(k for k, v in patch.items() if prev[k] != v)
+    if not changed:
+        return []
+
     sets: list[str] = []
     params: dict = {"pid": position_id}
-
     # Географическая точка собирается из пары координат, остальное — как есть.
     lat, lng = patch.pop("lat", None), patch.pop("lng", None)
-    if "lat" in body.model_fields_set:
+    if "lat" in changed or "lng" in changed:
         if lat is None:
             sets.append("geom = NULL")
         else:
             sets.append("geom = ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)")
             params.update(lat=lat, lng=lng)
     for key, value in patch.items():
-        sets.append(f"{key} = :{key}")
-        params[key] = value
+        if key in changed:
+            sets.append(f"{key} = :{key}")
+            params[key] = value
 
-    if sets:
-        db.execute(
-            text(f"UPDATE deployment_positions SET {', '.join(sets)} WHERE id = :pid"),
-            params,
-        )
-    return True
+    db.execute(
+        text(f"UPDATE deployment_positions SET {', '.join(sets)} WHERE id = :pid"),
+        params,
+    )
+    return changed
 
 
 @router.patch("/{callout_id}/deployment/{position_id}")
@@ -1839,21 +1977,23 @@ def update_position(
     if row["status"] != "active":
         raise HTTPException(409, "Выезд закрыт — расстановка не меняется")
 
-    if not _update_position_row(db, callout_id, position_id, body):
+    changed = _update_position_row(db, callout_id, position_id, body)
+    if changed is None:
         raise HTTPException(404, "Позиция не найдена")
     db.commit()
 
-    audit(
-        action="callout.deployment_moved",
-        username=user.get("username"),
-        role=user.get("role"),
-        method="PATCH",
-        path=f"/dispatch/{callout_id}/deployment/{position_id}",
-        status_code=200,
-        ip=client_ip(request),
-        detail={"callout_id": callout_id, "position_id": position_id,
-                "fields": sorted(body.model_fields_set)},
-    )
+    if changed:
+        audit(
+            action="callout.deployment_moved",
+            username=user.get("username"),
+            role=user.get("role"),
+            method="PATCH",
+            path=f"/dispatch/{callout_id}/deployment/{position_id}",
+            status_code=200,
+            ip=client_ip(request),
+            detail={"callout_id": callout_id, "position_id": position_id,
+                    "fields": changed},
+        )
     return _deployment(db, callout_id)
 
 
@@ -1976,6 +2116,9 @@ class DeploymentSync(BaseModel):
     patches: list[SyncPatch] = Field(default_factory=list)
     deletes: list[int] = Field(default_factory=list)
     delete_uids: list[SyncUid] = Field(default_factory=list)
+    # Часы устройства в момент отправки батча (см. `_reconcile_placed_at`).
+    # Старые клиенты его не шлют — их время только прижимается к выезду.
+    sent_at: datetime | None = None
 
     @model_validator(mode="after")
     def _bounded(self) -> "DeploymentSync":
@@ -2014,8 +2157,9 @@ def sync_deployment(
 
     Ключи ответа — те же, что у очереди устройства (`_sync_key`): client_uid у
     позиций с плана, `srv:<id>` у позиций с пульта. Время постановки
-    проверяется поштучно (`_placed_at_problem`): сбитые часы отвергают позицию,
-    а не батч.
+    сводится к часам сервера поштучно (`_reconcile_placed_at`): сбитые часы
+    планшета поправляются, а не отвергают позицию; отвергается только время
+    без часового пояса — и тоже поштучно, а не батч.
     """
     row = _fetch_callout(db, callout_id)
     if row["status"] != "active":
@@ -2035,13 +2179,15 @@ def sync_deployment(
     events: list[tuple[str, dict]] = []
 
     for item in body.creates:
-        problem = _placed_at_problem(item.placed_at, row["created_at"], now)
-        if problem:
-            rejected.append({"key": item.client_uid, "reason": problem})
+        sent_at = body.sent_at if body.sent_at is not None else item.sent_at
+        fix = _reconcile_placed_at(item.placed_at, sent_at, row["created_at"], now)
+        if fix.problem:
+            rejected.append({"key": item.client_uid, "reason": fix.problem})
             continue
+        item = item.model_copy(update={"placed_at": fix.value})
         try:
             with db.begin_nested():
-                position_id, state = _upsert_position(db, callout_id, item, username)
+                position_id, state, changed = _upsert_position(db, callout_id, item, username)
         except HTTPException as err:
             rejected.append({"key": item.client_uid, "reason": str(err.detail)})
             continue
@@ -2052,21 +2198,20 @@ def sync_deployment(
         if item.placed_at is not None:
             placed.append(item.placed_at)
         if state == "inserted":
-            events.append((
-                "callout.deployment_added",
-                {"callout_id": callout_id, "position_id": position_id, "kind": item.kind,
-                 "phase": item.phase, "via": "sync", "client_uid": item.client_uid,
-                 "placed_at": _iso(item.placed_at)},
-            ))
-        elif state == "updated":
+            detail = {"callout_id": callout_id, "position_id": position_id, "kind": item.kind,
+                      "phase": item.phase, "via": "sync", "client_uid": item.client_uid,
+                      "placed_at": _iso(item.placed_at)}
+            if fix.clock:
+                detail.update(fix.clock)
+            events.append(("callout.deployment_added", detail))
+        elif state == "updated" and changed:
             # Повтор постановки с другой точкой: ответ на первую отправку
             # потерялся, а позицию успели передвинуть. Для разбора выезда это
             # перемещение, а не вторая постановка.
             events.append((
                 "callout.deployment_moved",
                 {"callout_id": callout_id, "position_id": position_id, "via": "sync",
-                 "client_uid": item.client_uid, "replay": True,
-                 "fields": ["floor", "heading", "phase", "plan_x", "plan_y"]},
+                 "client_uid": item.client_uid, "replay": True, "fields": changed},
             ))
         # "unchanged" — позицию уже приняли в прошлый раз, запись о ней в
         # журнале есть; второй раз она выглядела бы как второй ствол.
@@ -2076,22 +2221,25 @@ def sync_deployment(
         try:
             with db.begin_nested():
                 position_id = _resolve_position(db, callout_id, patch.id, patch.client_uid)
-                found = position_id is not None and _update_position_row(
-                    db, callout_id, position_id, patch
+                changed = (
+                    _update_position_row(db, callout_id, position_id, patch)
+                    if position_id is not None
+                    else None
                 )
         except SQLAlchemyError:
             rejected.append({"key": key, "reason": "Правка не применена"})
             continue
-        if not found:
+        if changed is None:
             rejected.append({"key": key, "reason": "Позиция снята — правка не применена"})
             continue
         applied.append(key)
-        events.append((
-            "callout.deployment_moved",
-            {"callout_id": callout_id, "position_id": position_id, "via": "sync",
-             "client_uid": patch.client_uid,
-             "fields": sorted(patch.model_fields_set - {"id", "client_uid"})},
-        ))
+        # Повтор той же правки ничего не меняет — и в журнал не идёт.
+        if changed:
+            events.append((
+                "callout.deployment_moved",
+                {"callout_id": callout_id, "position_id": position_id, "via": "sync",
+                 "client_uid": patch.client_uid, "fields": changed},
+            ))
 
     for position_id in body.deletes:
         key = f"srv:{position_id}"

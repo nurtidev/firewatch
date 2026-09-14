@@ -540,55 +540,222 @@ def test_deployment_sync_delete_by_client_uid_is_idempotent(client):
     assert removed[0]["client_uid"] == uid
 
 
-def test_deployment_sync_rejects_implausible_placed_at_per_item(client):
-    """Неправдоподобное время постановки отвергает позицию, а не батч.
+def _callout_created_at(engine, callout_id: int) -> datetime:
+    with engine.connect() as conn:
+        return conn.execute(
+            text("SELECT created_at FROM callouts WHERE id = :c"), {"c": callout_id}
+        ).scalar()
 
-    Время приходит с устройства и уходит в донесение как факт боевых действий.
-    Без пояса оно раньше доезжало до min() рядом с aware-временем и роняло
-    ответ 500 уже после коммита — устройство повторяло батч, не зная, что он
-    записан.
+
+def _create(uid: str, placed_at: str) -> dict:
+    return {"client_uid": uid, "kind": "barrel_ext", "floor": "1",
+            "plan_x": 0.5, "plan_y": 0.5, "placed_at": placed_at}
+
+
+def _added_detail(engine, callout_id: int, uid: str) -> dict:
+    return next(
+        d for d in _audit_details(engine, "callout.deployment_added", callout_id)
+        if d.get("client_uid") == uid
+    )
+
+
+def test_deployment_sync_clamps_implausible_placed_at_without_sent_at(client):
+    """Старый клиент без sent_at: неправдоподобное время прижимается к выезду.
+
+    Отказ из-за часов терял позицию при живой связи. Отвергается только время
+    без пояса — поштучно, а не батч: без пояса оно раньше доезжало до min()
+    рядом с aware-временем и роняло ответ 500 уже после коммита.
     """
     from app.db import engine
 
     h = _login(client, "dispatcher", "dispatcher123")
     callout_id = _open_callout(client, h)
+    created = _callout_created_at(engine, callout_id)
     now = datetime.now(timezone.utc)
-    good = now - timedelta(minutes=1)
+    good = now - timedelta(seconds=1)
+    early, future, naive = "test-deploy-0009", "test-deploy-0010", "test-deploy-0011"
 
-    def create(uid: str, placed_at: str) -> dict:
-        return {"client_uid": uid, "kind": "barrel_ext", "floor": "1",
-                "plan_x": 0.5, "plan_y": 0.5, "placed_at": placed_at}
-
-    bad = ["test-deploy-0009", "test-deploy-0010", "test-deploy-0011"]
     data = _sync(
         client, h, callout_id,
         {"creates": [
-            create("test-deploy-0008", good.isoformat()),
-            create(bad[0], "2020-01-01T00:00:00+00:00"),  # раньше вызова
-            create(bad[1], (now + timedelta(hours=1)).isoformat()),  # в будущем
-            create(bad[2], now.replace(tzinfo=None).isoformat()),  # без пояса
+            _create("test-deploy-0008", good.isoformat()),
+            _create(early, "2020-01-01T00:00:00+00:00"),  # раньше вызова
+            _create(future, (now + timedelta(hours=2)).isoformat()),  # в будущем
+            _create(naive, now.replace(tzinfo=None).isoformat()),  # без пояса
         ]},
     )
-    assert data["applied"] == ["test-deploy-0008"]
-    assert sorted(r["key"] for r in data["rejected"]) == bad
-    assert all(r["reason"] for r in data["rejected"])
-    uids = {p["client_uid"] for p in data["positions"]}
-    assert "test-deploy-0008" in uids
-    assert not uids & set(bad)
+    assert data["applied"] == ["test-deploy-0008", early, future]
+    assert [r["key"] for r in data["rejected"]] == [naive]
+    by_uid = {p["client_uid"]: p for p in data["positions"]}
+    assert naive not in by_uid
+    assert datetime.fromisoformat(by_uid[early]["placed_at"]) == created
+    after = datetime.now(timezone.utc)
+    assert now <= datetime.fromisoformat(by_uid[future]["placed_at"]) <= after
+
+    clock = _added_detail(engine, callout_id, future)
+    assert clock["clamped"] is True
+    assert clock["clock_skew_sec"] is None and clock["sent_at"] is None
+    assert datetime.fromisoformat(clock["device_placed_at"]) == now + timedelta(hours=2)
+    assert _added_detail(engine, callout_id, early)["clamped"] is True
+    # Время в пределах выезда пишется как пришло, без пометок о часах.
+    assert "clamped" not in _added_detail(engine, callout_id, "test-deploy-0008")
 
     summary = _audit_details(engine, "callout.deployment_synced", callout_id)[-1]
-    assert summary["applied"] == 1 and summary["rejected"] == 3
-    assert abs(datetime.fromisoformat(summary["oldest_placed_at"]) - good) < timedelta(
-        milliseconds=1
-    )
+    assert summary["applied"] == 3 and summary["rejected"] == 1
+    assert datetime.fromisoformat(summary["oldest_placed_at"]) == min(created, good)
 
-    # Поштучная постановка с пульта проверяется так же.
+    # Поштучная постановка с пульта ведёт себя так же: принята, время прижато.
     r = client.post(
         f"/dispatch/{callout_id}/deployment",
-        json={"kind": "hq", "placed_at": "2020-01-01T00:00:00+00:00"},
+        json={"kind": "hq", "client_uid": "test-deploy-single-old",
+              "placed_at": "2020-01-01T00:00:00+00:00"},
         headers=h,
     )
-    assert r.status_code == 422
+    assert r.status_code == 200, r.text
+    single = next(p for p in r.json() if p["client_uid"] == "test-deploy-single-old")
+    assert datetime.fromisoformat(single["placed_at"]) == created
+
+
+def test_deployment_sync_fast_device_clock_is_corrected(client):
+    """Часы планшета спешат на два часа — позиция принята с верным временем.
+
+    Регрессия прошлого раунда: при живой связи каждая постановка на схеме
+    получала отказ «время в будущем» и исчезала в «не принято».
+    """
+    from app.db import engine
+
+    h = _login(client, "dispatcher", "dispatcher123")
+    callout_id = _open_callout(client, h)
+    skew = timedelta(hours=2)
+    now = datetime.now(timezone.utc)
+    placed = now - timedelta(seconds=1)
+    uid = "test-deploy-fast-clock"
+
+    data = _sync(
+        client, h, callout_id,
+        {"creates": [_create(uid, (placed + skew).isoformat())],
+         "sent_at": (now + skew).isoformat()},
+    )
+    assert data["applied"] == [uid] and data["rejected"] == []
+    stored = datetime.fromisoformat(
+        next(p for p in data["positions"] if p["client_uid"] == uid)["placed_at"]
+    )
+    # Поправка — по часам сервера в момент приёма: к «сейчас» теста добавляется
+    # только время в пути запроса.
+    assert timedelta(0) <= stored - placed < timedelta(seconds=5)
+
+    clock = _added_detail(engine, callout_id, uid)
+    assert abs(clock["clock_skew_sec"] + 7200) <= 5
+    assert clock["clamped"] is False
+    assert datetime.fromisoformat(clock["device_placed_at"]) == placed + skew
+    assert datetime.fromisoformat(clock["sent_at"]) == now + skew
+
+
+def test_deployment_sync_slow_device_clock_at_callout_start_is_corrected(client):
+    """Часы отстают на два часа, ствол поставлен в первые секунды выезда.
+
+    По часам устройства это «раньше регистрации вызова» — раньше отказ.
+    """
+    from app.db import engine
+
+    h = _login(client, "dispatcher", "dispatcher123")
+    callout_id = _open_callout(client, h)
+    created = _callout_created_at(engine, callout_id)
+    skew = timedelta(hours=2)
+    now = datetime.now(timezone.utc)
+    uid = "test-deploy-slow-clock"
+
+    data = _sync(
+        client, h, callout_id,
+        {"creates": [_create(uid, (now - skew).isoformat())],
+         "sent_at": (now - skew).isoformat()},
+    )
+    assert data["applied"] == [uid] and data["rejected"] == []
+    stored = datetime.fromisoformat(
+        next(p for p in data["positions"] if p["client_uid"] == uid)["placed_at"]
+    )
+    # До поправки это было «на два часа раньше регистрации вызова».
+    assert stored - created > -timedelta(minutes=1)
+    assert timedelta(0) <= stored - now < timedelta(seconds=5)
+
+    clock = _added_detail(engine, callout_id, uid)
+    assert abs(clock["clock_skew_sec"] - 7200) <= 5
+    assert clock["clamped"] is False
+
+
+def test_single_add_uses_sent_at_and_replay_is_not_a_second_add(client):
+    """Поштучная постановка: та же поправка часов, а повтор — не второй ствол.
+
+    Повтор с тем же client_uid раньше писал второй `deployment_added`; повтор
+    с изменённым участком — перемещение только по участку; чистый повтор —
+    ничего.
+    """
+    from app.db import engine
+
+    h = _login(client, "dispatcher", "dispatcher123")
+    callout_id = _open_callout(client, h)
+    skew = timedelta(hours=2)
+    now = datetime.now(timezone.utc)
+    body = {"kind": "hq", "client_uid": "test-deploy-single-1", "floor": "1",
+            "plan_x": 0.4, "plan_y": 0.4,
+            "placed_at": (now + skew).isoformat(), "sent_at": (now + skew).isoformat()}
+
+    first = client.post(f"/dispatch/{callout_id}/deployment", json=body, headers=h)
+    assert first.status_code == 200, first.text
+    mine = next(p for p in first.json() if p["client_uid"] == "test-deploy-single-1")
+    assert timedelta(0) <= datetime.fromisoformat(mine["placed_at"]) - now < timedelta(seconds=5)
+
+    for _ in range(2):
+        again = client.post(f"/dispatch/{callout_id}/deployment", json=body, headers=h)
+        assert again.status_code == 200, again.text
+    resector = client.post(
+        f"/dispatch/{callout_id}/deployment", json={**body, "sector": "БУ-3"}, headers=h
+    )
+    assert resector.status_code == 200, resector.text
+
+    added = _audit_details(engine, "callout.deployment_added", callout_id)
+    moved = _audit_details(engine, "callout.deployment_moved", callout_id)
+    assert len(added) == 1
+    assert abs(added[0]["clock_skew_sec"] + 7200) <= 5
+    assert [m["fields"] for m in moved] == [["sector"]]
+
+
+def test_deployment_moved_logs_only_changed_fields(client):
+    """В журнал перемещения — только то, что сдвинулось; повтор — ничего."""
+    from app.db import engine
+
+    h = _login(client, "dispatcher", "dispatcher123")
+    callout_id = _open_callout(client, h)
+    uid = "test-deploy-fields"
+    created = _sync(
+        client, h, callout_id,
+        {"creates": [{"client_uid": uid, "kind": "barrel_ext", "floor": "2",
+                      "plan_x": 0.1, "plan_y": 0.2, "heading": 90}]},
+    )
+    pos_id = next(p["id"] for p in created["positions"] if p["client_uid"] == uid)
+
+    # Правка из очереди шлёт координаты целиком, но сдвинулся только участок.
+    patch = {"client_uid": uid, "plan_x": 0.1, "plan_y": 0.2, "heading": 90, "sector": "БУ-1"}
+    assert _sync(client, h, callout_id, {"patches": [patch]})["applied"] == [uid]
+    # Повтор той же правки: принят (очередь должна очиститься), в журнал не идёт.
+    assert _sync(client, h, callout_id, {"patches": [patch]})["applied"] == [uid]
+    # Повтор постановки со сдвинутой точкой — перемещение только по plan_x.
+    _sync(
+        client, h, callout_id,
+        {"creates": [{"client_uid": uid, "kind": "barrel_ext", "floor": "2",
+                      "plan_x": 0.6, "plan_y": 0.2, "heading": 90}]},
+    )
+    # Одиночный PATCH: только примечание; затем тот же PATCH ещё раз.
+    for _ in range(2):
+        r = client.patch(
+            f"/dispatch/{callout_id}/deployment/{pos_id}",
+            json={"note": "у лифтового холла", "heading": 90},
+            headers=h,
+        )
+        assert r.status_code == 200, r.text
+
+    moved = _audit_details(engine, "callout.deployment_moved", callout_id)
+    assert [m["fields"] for m in moved] == [["sector"], ["plan_x"], ["note"]]
 
 
 def test_deployment_sync_patch_rejection_is_keyed_by_client_uid(client):
