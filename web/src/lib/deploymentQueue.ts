@@ -97,7 +97,14 @@ export type PositionLabel = {
   sector: string | null;
 };
 
-type PendingBase = { key: string; seq: number; rev: number; at: number };
+type PendingBase = {
+  key: string;
+  seq: number;
+  rev: number;
+  /** Вкладка, выдавшая `rev` (см. sameRevision). У записей до этого поля — нет. */
+  tab?: string;
+  at: number;
+};
 
 export type Pending =
   | (PendingBase & {
@@ -325,23 +332,43 @@ function sweepExpired(): void {
  * (`rev`) берутся из него. Версия обязана расти при любой смене операции:
  * снятие, выданное с `rev: 1` поверх отправленной постановки с `rev: 1`,
  * совпало бы с ней и было бы выброшено ответом на ту отправку как
- * «подтверждённое». Продолжается с максимума в хранилище — иначе после
- * перезагрузки новая версия могла бы совпасть со старой.
+ * «подтверждённое».
+ *
+ * Максимум перечитывается из хранилища на **каждом** шаге, а не один раз:
+ * очередь общая для всех вкладок владельца. Счётчик, прочитанный при первой
+ * мутации и дальше живущий в памяти, во второй вкладке выдавал версию, равную
+ * версии записи, которая сейчас в полёте у первой, — и ответ на ту отправку
+ * удалял правку второй вкладки как подтверждённую. Выданный максимум ещё и
+ * записывается отдельным ключом: снятая из очереди запись (dropQueue) не
+ * должна освобождать свой номер для повторной выдачи.
+ *
+ * localStorage не даёт взаимоисключения между вкладками, и две вкладки в одну
+ * миллисекунду всё же могут прочитать один максимум. Поэтому версия
+ * сравнивается вместе с вкладкой, которая её выдала (`tab`, см. sameRevision).
  */
 const counters = new Map<string, number>();
+const REV_PREFIX = "fw_deployment_rev:";
+const revKey = (owner: string) => `${REV_PREFIX}${owner}`;
 function tick(owner: string): number {
-  let n = counters.get(owner);
-  if (n == null) {
-    n = 0;
-    for (const entries of Object.values(readQueue(owner))) {
-      for (const entry of Object.values(entries)) {
-        n = Math.max(n, entry.seq ?? 0, entry.rev ?? 0);
-      }
+  let n = Math.max(counters.get(owner) ?? 0, Number(read<number>(revKey(owner))) || 0);
+  for (const entries of Object.values(readQueue(owner))) {
+    for (const entry of Object.values(entries)) {
+      n = Math.max(n, entry.seq ?? 0, entry.rev ?? 0);
     }
   }
   n += 1;
   counters.set(owner, n);
+  write(revKey(owner), n);
   return n;
+}
+
+/** Вкладка, в которой выполняется этот модуль. Ставится на каждую мутацию
+ *  рядом с `rev`: одинаковый номер из двух вкладок — всё равно разные версии. */
+const TAB_ID = newClientId();
+
+/** Запись не менялась с момента отправки — ни здесь, ни в другой вкладке. */
+function sameRevision(cur: Pending | undefined, sent: Pending): boolean {
+  return cur != null && cur.rev === sent.rev && cur.tab === sent.tab;
 }
 
 /** Отправленные и ещё не подтверждённые ключи: `owner|callout → key → rev`.
@@ -400,6 +427,7 @@ export function queueCreate(calloutId: number, draft: PositionDraft): string {
       key,
       seq: n,
       rev: n,
+      tab: TAB_ID,
       at: Date.now(),
       placedAt: new Date().toISOString(),
       draft,
@@ -428,6 +456,7 @@ export function queueUpdate(
       entries[key] = {
         ...prev,
         rev: tick(owner),
+        tab: TAB_ID,
         at: now,
         draft: { ...prev.draft, ...fields } as PositionDraft,
       };
@@ -442,6 +471,7 @@ export function queueUpdate(
             ...prev,
             id: prev.id ?? id,
             rev: tick(owner),
+            tab: TAB_ID,
             at: now,
             fields: { ...prev.fields, ...fields },
             label: prev.label ?? label,
@@ -452,6 +482,7 @@ export function queueUpdate(
             id,
             seq: tick(owner),
             rev: tick(owner),
+            tab: TAB_ID,
             at: now,
             fields,
             label,
@@ -484,6 +515,7 @@ export function queueDelete(
           id: null,
           seq: prev.seq,
           rev: tick(owner),
+          tab: TAB_ID,
           at: Date.now(),
           label: { kind: prev.draft.kind, floor: prev.draft.floor, sector: prev.draft.sector ?? null },
         };
@@ -499,6 +531,7 @@ export function queueDelete(
       id: serverId ?? serverIdOfKey(key) ?? (prev ? prev.id : null),
       seq: prev?.seq ?? tick(owner),
       rev: tick(owner),
+      tab: TAB_ID,
       at: Date.now(),
       label: prev?.label ?? label,
     };
@@ -756,7 +789,7 @@ async function runFlush(owner: string, calloutId: number): Promise<FlushOutcome>
     pushRejected(owner, calloutId, batch.map((e) => rejectedEntry(e, reason)));
     mutate(owner, calloutId, (entries) => {
       for (const e of batch) {
-        if (entries[e.key]?.rev === e.rev) delete entries[e.key];
+        if (sameRevision(entries[e.key], e)) delete entries[e.key];
       }
     });
     return { applied: 0, rejected: batch.length };
@@ -792,7 +825,7 @@ async function runFlush(owner: string, calloutId: number): Promise<FlushOutcome>
       // Сервер не упомянул ключ ни в принятом, ни в отвергнутом — не
       // считаем доставленным, повторим.
       if (!appliedKeys.has(sent.key)) continue;
-      if (cur.rev === sent.rev) {
+      if (sameRevision(cur, sent)) {
         delete entries[sent.key];
         continue;
       }
@@ -808,6 +841,7 @@ async function runFlush(owner: string, calloutId: number): Promise<FlushOutcome>
           id: serverIdByUid.get(sent.key) ?? null,
           seq: cur.seq,
           rev: cur.rev,
+          tab: cur.tab,
           at: cur.at,
           fields,
           label: { kind, floor: cur.draft.floor, sector: cur.draft.sector ?? null },
