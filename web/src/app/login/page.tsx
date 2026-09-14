@@ -28,14 +28,14 @@ const DEMO_BY_ROLE: Record<Role, DemoUser> = {
 
 const DEMO_GROUPS: { title: string; colsClass: string; roles: Role[] }[] = [
   {
-    title: "Надзорная вертикаль",
-    colsClass: "grid-cols-3",
-    roles: ["inspector", "supervisor", "leadership"],
+    title: "Пожарные",
+    colsClass: "grid-cols-2",
+    roles: ["dispatcher", "responder", "inspector", "supervisor"],
   },
   {
-    title: "Реагирование и внешние",
-    colsClass: "grid-cols-2",
-    roles: ["dispatcher", "responder", "owner", "admin"],
+    title: "Город, руководство и внешние",
+    colsClass: "grid-cols-3",
+    roles: ["leadership", "owner", "admin"],
   },
 ];
 
