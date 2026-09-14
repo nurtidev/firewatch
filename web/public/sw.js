@@ -66,6 +66,21 @@ const CURRENT_CACHES = [PRECACHE, STATIC_CACHE, PAGES_CACHE, API_CACHE];
 /** Кэш данных API — текущий или прошлой версии. */
 const isApiCache = (name) => name === API_CACHE || name.startsWith(LEGACY_API_PREFIX);
 const OFFLINE_URL = "/offline.html";
+/**
+ * `/login` — единственная страница приложения, у которой нет своего
+ * пользователя: её можно прекэшировать без риска подсунуть чужой боевой
+ * пакет с общего планшета (в отличие от /dispatch, /callout и т.п. —
+ * аутентифицированные страницы в прекэш никогда не кладём). Прекэш нужен
+ * ей отдельно от общего PAGES_CACHE (см. handleNavigation и его catch):
+ * выход из приложения делает клиентский переход (`router.replace`), а не
+ * полную навигацию — Next при потере связи запрашивает RSC-пейлоад
+ * (`/login?_rsc=…`), а когда и он не отвечает, сам откатывается на жёсткую
+ * навигацию. Если к этому моменту /login ни разу не был открыт полной
+ * навигацией в этой сессии (или его вытеснили из PAGES_CACHE), эта жёсткая
+ * навигация тоже бьёт в сеть вникуда и получала бы общую заглушку «нет
+ * связи» вместо рабочей формы входа.
+ */
+const LOGIN_URL = "/login";
 
 /** Сколько API ждёт сеть, прежде чем отдать помеченный снимок. */
 const API_TIMEOUT_MS = 4000;
@@ -105,7 +120,9 @@ const CACHE_LIMITS = { [STATIC_CACHE]: 400, [PAGES_CACHE]: 60, [API_CACHE]: 60 }
 let apiEpoch = 0;
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(PRECACHE).then((cache) => cache.addAll([OFFLINE_URL])));
+  event.waitUntil(
+    caches.open(PRECACHE).then((cache) => cache.addAll([OFFLINE_URL, LOGIN_URL])),
+  );
   // Ждать активации не нужно: воркер всё равно не станет управляющим, пока
   // приложение само не попросит (см. SKIP_WAITING).
 });
@@ -283,6 +300,13 @@ async function matchPage(request) {
   return cache.match(request, { ignoreSearch: true });
 }
 
+/** Прекэшированная (не вытесняемая) копия /login — запасной вариант, когда
+ *  её нет и в PAGES_CACHE (см. LOGIN_URL). */
+async function matchLoginPrecache() {
+  const cache = await caches.open(PRECACHE);
+  return cache.match(LOGIN_URL);
+}
+
 /* ───────────────────────────── Маршрутизация ───────────────────────────── */
 
 self.addEventListener("fetch", (event) => {
@@ -319,8 +343,18 @@ self.addEventListener("fetch", (event) => {
 
 async function handleNavigation(event) {
   const { request } = event;
+  const isLogin = new URL(request.url).pathname === LOGIN_URL;
   const network = fetch(request).then(async (fresh) => {
-    if (fresh && fresh.ok) await putStamped(PAGES_CACHE, request, fresh);
+    if (fresh && fresh.ok) {
+      await putStamped(PAGES_CACHE, request, fresh);
+      // Держим прекэш /login свежим на каждой удачной живой навигации —
+      // вместо того, чтобы полагаться на версию, снятую при установке
+      // воркера (см. LOGIN_URL и install).
+      if (isLogin) {
+        const precache = await caches.open(PRECACHE);
+        await precache.put(LOGIN_URL, fresh.clone());
+      }
+    }
     return fresh;
   });
   // Если человеку уже отдали копию, свежая страница всё равно должна лечь в
@@ -339,9 +373,18 @@ async function handleNavigation(event) {
     const cached = await matchPage(request);
     return cached ?? (await network);
   } catch {
-    // Сеть ответила ошибкой — вот теперь честно офлайн.
+    // Сеть ответила ошибкой — вот теперь честно офлайн. Копии страницы в
+    // PAGES_CACHE может не быть (выход из приложения — это клиентский
+    // переход, который сюда попадает только вторым шагом, после провала
+    // RSC-запроса, см. LOGIN_URL) — тогда /login отдаём из прекэша, а не
+    // общей заглушкой: без него офлайн-выход утыкался бы в /offline.html
+    // вместо рабочей формы входа.
     const cached = await matchPage(request);
     if (cached) return cached;
+    if (isLogin) {
+      const login = await matchLoginPrecache();
+      if (login) return login;
+    }
     return offlineResponse();
   } finally {
     clearTimeout(timer);
