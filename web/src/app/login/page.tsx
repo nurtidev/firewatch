@@ -24,18 +24,19 @@ const DEMO_BY_ROLE: Record<Role, DemoUser> = {
   responder: { username: "responder", label: "Начальник караула", hint: "боевые расчёты ПЧ" },
   owner: { username: "owner", label: "Владелец объекта", hint: "портал ОСИ" },
   admin: { username: "admin", label: "Администратор", hint: "все модули" },
+  akimat: { username: "akimat", label: "Акимат", hint: "картина города" },
 };
 
 const DEMO_GROUPS: { title: string; colsClass: string; roles: Role[] }[] = [
   {
-    title: "Надзорная вертикаль",
-    colsClass: "grid-cols-3",
-    roles: ["inspector", "supervisor", "leadership"],
+    title: "Пожарные",
+    colsClass: "grid-cols-2",
+    roles: ["dispatcher", "responder", "inspector", "supervisor"],
   },
   {
-    title: "Реагирование и внешние",
+    title: "Город, руководство и внешние",
     colsClass: "grid-cols-2",
-    roles: ["dispatcher", "responder", "owner", "admin"],
+    roles: ["leadership", "akimat", "owner", "admin"],
   },
 ];
 
@@ -184,7 +185,7 @@ export default function LoginPage() {
 
         <p className="mt-6 flex items-center justify-center gap-1.5 text-2xs text-faint">
           <ShieldCheck className="h-3.5 w-3.5" />
-          {t("Защищённый доступ · только для сотрудников ДЧС")}
+          {t("Защищённый доступ · для сотрудников ДЧС и акимата")}
         </p>
       </div>
     </main>

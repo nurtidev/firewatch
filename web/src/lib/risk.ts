@@ -14,6 +14,13 @@ export type SeverityMeta = {
   dot: string;
   /** raw CSS var, for inline styling on maps/SVG where utilities can't reach. */
   cssVar: string;
+  /** Literal hex mirror of the CSS var above — WebGL paint properties
+   *  (MapLibre `fill-color`/`circle-color`/…) can't resolve `var(--color-*)`
+   *  at all, so map layers need the resolved color as a plain string. Kept
+   *  identical across themes on purpose (globals.css: "Severity — color IS
+   *  data (identical hue in light)") — if you change a severity color, change
+   *  it in globals.css AND here together (see hard rule 2 in CLAUDE.md). */
+  hex: string;
   label: string;
 };
 
@@ -25,6 +32,7 @@ export const SEVERITY: Record<Severity, SeverityMeta> = {
     border: "border-critical/40",
     dot: "bg-critical",
     cssVar: "var(--color-critical)",
+    hex: "#ff453a",
     label: "Критический",
   },
   high: {
@@ -34,6 +42,7 @@ export const SEVERITY: Record<Severity, SeverityMeta> = {
     border: "border-high/40",
     dot: "bg-high",
     cssVar: "var(--color-high)",
+    hex: "#ff8c1a",
     label: "Высокий",
   },
   elevated: {
@@ -43,6 +52,7 @@ export const SEVERITY: Record<Severity, SeverityMeta> = {
     border: "border-elevated/40",
     dot: "bg-elevated",
     cssVar: "var(--color-elevated)",
+    hex: "#ffd029",
     label: "Повышенный",
   },
   normal: {
@@ -52,6 +62,7 @@ export const SEVERITY: Record<Severity, SeverityMeta> = {
     border: "border-normal/40",
     dot: "bg-normal",
     cssVar: "var(--color-normal)",
+    hex: "#2fce7e",
     label: "В норме",
   },
   info: {
@@ -61,6 +72,7 @@ export const SEVERITY: Record<Severity, SeverityMeta> = {
     border: "border-info/40",
     dot: "bg-info",
     cssVar: "var(--color-info)",
+    hex: "#3d9bff",
     label: "Справочно",
   },
 };
