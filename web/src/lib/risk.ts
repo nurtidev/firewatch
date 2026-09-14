@@ -78,7 +78,9 @@ export const SEVERITY: Record<Severity, SeverityMeta> = {
 };
 
 /**
- * Risk score 0–100 → severity. The canonical thresholds for the whole app.
+ * Risk score 0–100 → severity. The canonical thresholds for the whole app —
+ * the ONLY place they're defined on the frontend. Never re-hardcode 20/40/60
+ * in a map step-expression, a legend, or a band table; import these instead.
  *
  * Anchored to the calibrated score distribution, NOT to round numbers: scores
  * are right-skewed (median ~9, p95 ~64, p99 ~83), so the old ≥85 "critical" cut
@@ -86,20 +88,38 @@ export const SEVERITY: Record<Severity, SeverityMeta> = {
  * These operating points keep every band populated (critical ≈ top ~6%, high ≈
  * next ~10%, elevated ≈ next ~20%) so the ranking is actionable. Re-check these
  * against the real distribution after retraining on ДЧС data.
- * Keep in sync with: api RISK_BANDS, chat SCHEMA_DOC, map legend/filter.
+ * Keep in sync with: api RISK_BANDS (city.py derives its HIGH_MIN_SCORE from
+ * it), chat SCHEMA_DOC. Severity hex colors (below) are checked against
+ * globals.css by `web/scripts/check-severity-colors.mjs` in CI.
  */
+export const ELEVATED_MIN_SCORE = 20;
+export const HIGH_MIN_SCORE = 40;
+export const CRITICAL_MIN_SCORE = 60;
+
+/** Ordered critical → normal, for anything that needs to iterate the bands
+ *  rather than just classify one score — map legends, the stacked
+ *  risk-profile bar on /city, MapLibre `step` color expressions
+ *  (lib/mapStyle.ts). Each `min` is inclusive (score >= min falls in that
+ *  band), matching scoreSeverity/scoreBand below exactly. */
+export const SEVERITY_THRESHOLDS: { key: Exclude<Severity, "info">; min: number }[] = [
+  { key: "critical", min: CRITICAL_MIN_SCORE },
+  { key: "high", min: HIGH_MIN_SCORE },
+  { key: "elevated", min: ELEVATED_MIN_SCORE },
+  { key: "normal", min: 0 },
+];
+
 export function scoreSeverity(score: number): SeverityMeta {
-  if (score >= 60) return SEVERITY.critical;
-  if (score >= 40) return SEVERITY.high;
-  if (score >= 20) return SEVERITY.elevated;
+  if (score >= CRITICAL_MIN_SCORE) return SEVERITY.critical;
+  if (score >= HIGH_MIN_SCORE) return SEVERITY.high;
+  if (score >= ELEVATED_MIN_SCORE) return SEVERITY.elevated;
   return SEVERITY.normal;
 }
 
 /** Short risk band label, e.g. for legends. */
 export function scoreBand(score: number): string {
-  if (score >= 60) return "Критический";
-  if (score >= 40) return "Высокий";
-  if (score >= 20) return "Средний";
+  if (score >= CRITICAL_MIN_SCORE) return "Критический";
+  if (score >= HIGH_MIN_SCORE) return "Высокий";
+  if (score >= ELEVATED_MIN_SCORE) return "Средний";
   return "Низкий";
 }
 

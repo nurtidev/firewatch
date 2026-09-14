@@ -79,6 +79,9 @@ jobs:
       - name: Install deps
         working-directory: web
         run: npm install --no-audit --no-fund
+      - name: Severity colors match globals.css
+        working-directory: web
+        run: node scripts/check-severity-colors.mjs
       - name: Build (type-checks the app)
         working-directory: web
         env:

@@ -19,7 +19,7 @@ import CityBuildingPanel from "@/components/CityBuildingPanel";
 import { DEMO_DATA, DEMO_NOTICE_SHORT } from "@/lib/demo";
 import { useT } from "@/lib/i18n";
 import { SectionLabel, Button } from "@/components/ui";
-import { SEVERITY, scoreBand } from "@/lib/risk";
+import { SEVERITY, scoreBand, SEVERITY_THRESHOLDS } from "@/lib/risk";
 import { cn } from "@/lib/cn";
 import {
   DEFAULT_CITY_LAYERS,
@@ -213,9 +213,9 @@ function CityMapInner() {
             <div className="mt-4 border-t border-border pt-3">
               <SectionLabel className="mb-1.5">{t("Условные обозначения")}</SectionLabel>
               <div className="space-y-1.5" role="list" aria-label={t("Условные обозначения")}>
-                {[SEVERITY.normal, SEVERITY.elevated, SEVERITY.high, SEVERITY.critical].map((sev) => (
-                  <LegendRow key={sev.key} color={sev.cssVar} shape="fill">
-                    {t(scoreBand(sev.key === "critical" ? 60 : sev.key === "high" ? 40 : sev.key === "elevated" ? 20 : 0))}
+                {[...SEVERITY_THRESHOLDS].reverse().map(({ key, min }) => (
+                  <LegendRow key={key} color={SEVERITY[key].cssVar} shape="fill">
+                    {t(scoreBand(min))}
                   </LegendRow>
                 ))}
                 <LegendRow color="var(--color-info)" shape="dot">

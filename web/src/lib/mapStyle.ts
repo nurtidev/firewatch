@@ -1,5 +1,5 @@
 import type { StyleSpecification, ExpressionSpecification } from "maplibre-gl";
-import { SEVERITY } from "./risk";
+import { SEVERITY, ELEVATED_MIN_SCORE, HIGH_MIN_SCORE, CRITICAL_MIN_SCORE } from "./risk";
 
 /**
  * Shared MapLibre base style — a single OSM raster tile source. Was copy-pasted
@@ -66,10 +66,10 @@ export const RISK_SCORE_COLOR: ExpressionSpecification = [
   "step",
   ["coalesce", ["get", "score"], 0],
   SEVERITY.normal.hex,
-  20,
+  ELEVATED_MIN_SCORE,
   SEVERITY.elevated.hex,
-  40,
+  HIGH_MIN_SCORE,
   SEVERITY.high.hex,
-  60,
+  CRITICAL_MIN_SCORE,
   SEVERITY.critical.hex,
 ];
