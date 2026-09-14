@@ -147,12 +147,11 @@ export default function Landing() {
           <div>
             <h1 className="text-[clamp(2.15rem,5vw,3.6rem)] font-extrabold leading-[1.05] tracking-tight">
               {t("Цифровой двойник объекта")}{" "}
-              <span className="text-accent">{t("и оценка уязвимости")}</span>{" "}
-              {t("— какие объекты проверять в первую очередь")}
+              <span className="text-accent">{t("и объяснимая оценка уязвимости")}</span>
             </h1>
             <p className="mt-5 max-w-[520px] text-[clamp(1rem,2vw,1.2rem)] leading-relaxed text-muted">
               {t(
-                "FireWatch превращает бумажный план тушения в интерактивный 3D-двойник и оценивает риск каждого здания — чтобы ДЧС действовал на опережение.",
+                "FireWatch превращает бумажный план тушения в интерактивный 3D-двойник, оценивает риск каждого здания и показывает, какие объекты проверять в первую очередь.",
               )}
             </p>
             <div className="mt-8 flex flex-wrap gap-3.5">
