@@ -429,6 +429,12 @@ export type PositionInput = {
   placed_at?: string;
 };
 
+/** Часы устройства в момент отправки. Сервер сравнивает их со своими и
+ *  поправляет `placed_at` на сбитые часы планшета: без этого планшет, у
+ *  которого часы спешат, получал отказ по каждой поставленной позиции. Ставится
+ *  здесь, вплотную к запросу, а не при постановке в очередь. */
+const sentAtNow = () => new Date().toISOString();
+
 /** Правка позиции в очереди синхронизации: адрес строки плюс изменённые поля.
  *  Адрес — серверный id и/или client_uid: у позиции, поставленной на плане,
  *  id может быть ещё неизвестен (ответ на постановку потерялся). */
@@ -487,7 +493,7 @@ export async function syncDeployment(
     r = await apiFetch(`/dispatch/${calloutId}/deployment/sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, sent_at: sentAtNow() }),
     });
   } catch {
     throw new SyncError("Связи нет — расстановка ждёт отправки", 0);
@@ -505,7 +511,7 @@ export async function addPosition(
   const r = await apiFetch(`/dispatch/${calloutId}/deployment`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, sent_at: sentAtNow() }),
   });
   if (!r.ok) throw new Error(await errorText(r, "Не удалось добавить позицию"));
   return r.json();
