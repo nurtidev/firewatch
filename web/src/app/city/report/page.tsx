@@ -11,9 +11,15 @@
  * гидрантам и частям, методика и её ограничения. Никаких ФИО/телефонов/адресов
  * инспекторов — акимат видит только городские агрегаты и точечные приоритеты
  * (адреса подсказок в /city/priorities не персональные данные).
+ *
+ * Не оборачивается в AppShell (это отдельный печатный лист, не часть
+ * приложения-оболочки) — а значит AppShell-евский guard-редирект по роли на
+ * эту страницу вообще не запускается. useRoleGuard — тот же редирект, вынесен
+ * в хук специально для страниц вроде этой (см. lib/useRoleGuard.ts).
  */
 
 import { useCallback, useEffect, useState } from "react";
+import type { Role } from "@/lib/auth";
 import PrintToolbar from "@/components/report/PrintToolbar";
 import Watermark from "@/components/report/Watermark";
 import { Skeleton, Banner, Button } from "@/components/ui";
@@ -21,20 +27,31 @@ import {
   getCitySummary,
   getCityPriorities,
   isCityRouterMissing,
+  isCityForbidden,
   districtName,
+  localizedDistrictName,
   type CitySummary,
   type CityPriorities,
 } from "@/lib/city";
 import CoverageSourceNote from "@/components/CoverageSourceNote";
 import { scoreBand } from "@/lib/risk";
-import { useT, useLocale, intlLocale } from "@/lib/i18n";
+import { useT, useLocale, intlLocale, type Locale } from "@/lib/i18n";
+import { useRoleGuard } from "@/lib/useRoleGuard";
+
+// Module-level constant, not an inline array literal — useRoleGuard's effect
+// depends on this array's identity, and a new literal every render would
+// re-run it every render.
+const CITY_REPORT_ROLES: Role[] = ["akimat", "leadership", "admin"];
+
+type LoadError = "missing" | "forbidden" | "error" | null;
 
 export default function CityReportPage() {
   const t = useT();
   const { locale } = useLocale();
+  const { ready, allowed } = useRoleGuard(CITY_REPORT_ROLES);
   const [summary, setSummary] = useState<CitySummary | null>(null);
   const [priorities, setPriorities] = useState<CityPriorities | null>(null);
-  const [error, setError] = useState<"missing" | "error" | null>(null);
+  const [error, setError] = useState<LoadError>(null);
 
   const load = useCallback(() => {
     setError(null);
@@ -46,13 +63,27 @@ export default function CityReportPage() {
       .catch((e) => {
         setSummary(null);
         setPriorities(null);
-        setError(isCityRouterMissing(e) ? "missing" : "error");
+        setError(isCityRouterMissing(e) ? "missing" : isCityForbidden(e) ? "forbidden" : "error");
       });
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (ready && allowed) load();
+  }, [ready, allowed, load]);
+
+  // Before the role is known, or while a disallowed role is being bounced by
+  // useRoleGuard's redirect — show a plain loading skeleton, never the report
+  // shell or an error banner for data that was never going to be fetched.
+  if (!ready || !allowed) {
+    return (
+      <div className="fw-report-root light min-h-screen bg-bg text-fg">
+        <PrintToolbar />
+        <div className="mx-auto max-w-[210mm] px-4 pb-10">
+          <Skeleton className="h-[240mm] w-full" />
+        </div>
+      </div>
+    );
+  }
 
   const loading = !summary && !error;
 
@@ -69,6 +100,9 @@ export default function CityReportPage() {
               "Городской модуль ещё не подключён — отчёт появится, как только сервис данных по городу будет доступен.",
             )}
           </Banner>
+        )}
+        {error === "forbidden" && (
+          <Banner tone="critical">{t("Нет доступа к отчёту.")}</Banner>
         )}
         {error === "error" && (
           <Banner tone="critical">{t("Не удалось загрузить данные для отчёта. Попробуйте ещё раз.")}</Banner>
@@ -96,7 +130,7 @@ function Report({
 }: {
   summary: CitySummary;
   priorities: CityPriorities;
-  locale: "ru" | "kk" | "en";
+  locale: Locale;
   t: (s: string) => string;
 }) {
   const dateStr = new Date(summary.computed_at).toLocaleString(intlLocale(locale), {
@@ -106,6 +140,7 @@ function Report({
     hour: "2-digit",
     minute: "2-digit",
   });
+  const n = (v: number) => v.toLocaleString(intlLocale(locale));
 
   return (
     <article className="fw-sheet relative mx-auto bg-surface p-[10mm] text-xs shadow-sm">
@@ -122,23 +157,29 @@ function Report({
       <Section title={t("1. Показатели города")}>
         <Rows
           rows={[
-            [t("Зданий в базе"), String(summary.city.buildings_total)],
-            [t("Требуют внимания"), String(summary.city.attention_buildings)],
-            [t("Средняя оценка уязвимости"), String(Math.round(summary.city.avg_score))],
+            [t("Зданий в базе"), n(summary.city.buildings_total)],
+            [t("Требуют внимания"), n(summary.city.attention_buildings)],
+            [t("Средняя оценка уязвимости"), n(Math.round(summary.city.avg_score))],
             [
               t("В слепой зоне прибытия"),
-              `${summary.city.blind_zone_buildings} (${summary.city.blind_pct}%)`,
+              `${n(summary.city.blind_zone_buildings)} (${summary.city.blind_pct}%)`,
             ],
             [
               t("Неисправные гидранты"),
-              `${summary.city.hydrants_broken} ${t("из")} ${summary.city.hydrants_total}`,
+              `${n(summary.city.hydrants_broken)} ${t("из")} ${n(summary.city.hydrants_total)}`,
             ],
-            [t("Пожарных частей"), String(summary.city.stations_total)],
-            [t("Открытых предписаний"), String(summary.city.open_prescriptions)],
+            [t("Пожарных частей"), n(summary.city.stations_total)],
+            [t("Открытых предписаний"), n(summary.city.open_prescriptions)],
             [
-              t("Медианное время прибытия"),
-              summary.city.median_arrival_min != null
-                ? `${summary.city.median_arrival_min} ${t("мин")}`
+              `${t("Время прибытия (медиана)")} (${t("норматив")} ${summary.normative_min ?? 10} ${t("мин")})`,
+              summary.city.median_response_min != null
+                ? `${n(summary.city.median_response_min)} ${t("мин")}`
+                : t("нет данных"),
+            ],
+            [
+              t("В пути (медиана)"),
+              summary.city.median_travel_min != null
+                ? `${n(summary.city.median_travel_min)} ${t("мин")}`
                 : t("нет данных"),
             ],
           ]}
@@ -162,14 +203,17 @@ function Report({
             {summary.districts.map((d) => (
               <tr key={d.name} className="border-b border-border/60">
                 <td className="tabular py-1">{d.rank}</td>
-                <td className="py-1 font-medium">{districtName(d, locale)}</td>
-                <td className="tabular py-1">{d.buildings_total}</td>
-                <td className="tabular py-1">{d.attention_buildings}</td>
+                <td className="py-1 font-medium">
+                  {districtName(d, locale)}
+                  {d.stations_total === 0 && ` (${t("нет пожарной части в данных")})`}
+                </td>
+                <td className="tabular py-1">{n(d.buildings_total)}</td>
+                <td className="tabular py-1">{n(d.attention_buildings)}</td>
                 <td className="tabular py-1">
                   {Math.round(d.avg_score)} · {t(scoreBand(d.avg_score))}
                 </td>
                 <td className="tabular py-1">{d.blind_pct}%</td>
-                <td className="tabular py-1">{d.hydrants_broken}</td>
+                <td className="tabular py-1">{n(d.hydrants_broken)}</td>
               </tr>
             ))}
           </tbody>
@@ -182,8 +226,8 @@ function Report({
         ) : (
           <Rows
             rows={priorities.hydrant_gaps.slice(0, 5).map((c, i) => [
-              `#${i + 1} · ${c.district}`,
-              `${c.buildings} ${t("зданий")} · ${t("балл")} ${Math.round(c.avg_score)}${
+              `#${i + 1} · ${localizedDistrictName(c.district, summary.districts, locale)}`,
+              `${n(c.buildings)} ${t("зданий")} · ${t("балл")} ${Math.round(c.avg_score)}${
                 c.sample_addresses.length ? ` · ${c.sample_addresses.slice(0, 2).join(", ")}` : ""
               }`,
             ])}
@@ -197,8 +241,10 @@ function Report({
         ) : (
           <Rows
             rows={priorities.station_gaps.slice(0, 5).map((c, i) => [
-              `#${i + 1} · ${c.district}`,
-              `${c.blind_buildings} ${t("зданий вне зоны прибытия")} · ${t("балл")} ${Math.round(c.avg_score)}`,
+              `#${i + 1} · ${localizedDistrictName(c.district, summary.districts, locale)}`,
+              `${n(c.blind_buildings)} ${t("зданий вне зоны прибытия")} · ${t("балл")} ${Math.round(c.avg_score)}${
+                c.sample_addresses.length ? ` · ${c.sample_addresses.slice(0, 2).join(", ")}` : ""
+              }`,
             ])}
           />
         )}
@@ -210,6 +256,18 @@ function Report({
         <div className="mt-2">
           <CoverageSourceNote source={summary.coverage_source} approximate={summary.approximate} />
         </div>
+        <p className="mt-2 leading-relaxed text-muted">
+          {t(
+            "Исходные данные содержат немного пожарных частей на весь город — у отдельных районов их может не быть вовсе. Это ограничение исходных данных, а не факт реального отсутствия части.",
+          )}
+        </p>
+        {summary.stations_stale_isochrones && (
+          <p className="mt-2 leading-relaxed text-elevated">
+            {t(
+              "Зоны прибытия отдельных частей рассчитаны по устаревшим изохронам — слепые зоны и покрытие могут не отражать текущую дорожную сеть.",
+            )}
+          </p>
+        )}
         {summary.demo_data && (
           <p className="mt-2 leading-relaxed text-elevated">
             {t(

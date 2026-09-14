@@ -52,6 +52,16 @@ export function isCityRouterMissing(err: unknown): boolean {
   return err instanceof CityApiError && err.status === 404;
 }
 
+/** True for a 403 — the role isn't allowed on this endpoint. Distinct from
+ *  "the router doesn't exist" (404) and from a generic backend failure:
+ *  shown as "Нет доступа" rather than "сервис не отвечает". AppShell-wrapped
+ *  pages redirect before this can normally happen, but a print page without
+ *  AppShell (e.g. /city/report) has no such guard on its own — see
+ *  lib/useRoleGuard.ts. */
+export function isCityForbidden(err: unknown): boolean {
+  return err instanceof CityApiError && err.status === 403;
+}
+
 /* ── Coverage source (how the "zone d'arrivée" / arrival zone was computed) ──
  * Contract update from the coordinator (supersedes the "isochrone"|"buffer"
  * pair in the original brief): a city-wide number can legitimately mix
@@ -84,7 +94,14 @@ export type CityBands = {
 };
 
 /** The same metric shape appears at city level and per-district — a district
- *  row is "the city metrics, scoped to one district" plus its identity. */
+ *  row is "the city metrics, scoped to one district" plus its identity.
+ *
+ *  Contract update (superseded the original single `median_arrival_min`):
+ *  arrival time splits into two comparable-to-different-things numbers —
+ *  `median_response_min` (вызов зарегистрирован → прибытие; this is the one
+ *  comparable against the 10-minute normative, `CitySummary.normative_min`)
+ *  and `median_travel_min` (выезд → прибытие; time actually on the road —
+ *  never compare this one against the normative, it excludes turnout time). */
 export type CityMetrics = {
   buildings_total: number;
   avg_score: number;
@@ -98,7 +115,13 @@ export type CityMetrics = {
   stations_total: number;
   open_prescriptions: number;
   callouts_90d: number;
-  median_arrival_min: number | null;
+  median_response_min: number | null;
+  median_travel_min: number | null;
+  /** Informational; not surfaced everywhere. Buildings not resolved to any
+   *  district (fell outside every polygon and wasn't nearest-matched yet, or
+   *  similar) — present at the `city` level, tolerate its absence per
+   *  district. */
+  unassigned?: number;
 };
 
 export type CityDistrictSummary = CityMetrics & {
@@ -121,6 +144,27 @@ export type CitySummary = {
   method: string;
   city: CityMetrics;
   districts: CityDistrictSummary[];
+  /** Arrival normative in minutes (currently always 10) — the number
+   *  `median_response_min` is judged against. Falls back to 10 (the
+   *  citywide constant used elsewhere, e.g. InfraMap's `normative_min`) if
+   *  the backend hasn't started sending this yet. */
+  normative_min?: number;
+  /** Informational fields the backend may send; not all are surfaced in the
+   *  UI yet — typed so a response that includes them doesn't need an `any`
+   *  cast, and so a future screen can read them without touching this type
+   *  again. */
+  arrival_method?: string;
+  hydrant_radius_m?: number;
+  callout_window_days?: number;
+  /** OSM attribution string from the backend, if sent — the hardcoded
+   *  "© OpenStreetMap contributors" on every city screen already satisfies
+   *  the ODbL requirement on its own, so this is read opportunistically
+   *  (not required for the attribution to be correct). */
+  attribution?: string;
+  /** True when some fire-station arrival isochrones are stale (recomputed
+   *  less often than the rest of the coverage data) — an accuracy caveat on
+   *  `coverage_source`/`blind_zone_buildings`, not a hard error. */
+  stations_stale_isochrones?: boolean;
 };
 
 export function getCitySummary(): Promise<CitySummary> {
@@ -168,6 +212,9 @@ export type StationGapCell = {
   blind_buildings: number;
   high_risk_blind: number;
   avg_score: number;
+  // Added alongside hydrant_gaps' — same "not PII, just a few nearby
+  // addresses to orient by" reasoning applies here too.
+  sample_addresses: string[];
 };
 
 export type CityPriorities = {
@@ -180,6 +227,9 @@ export type CityPriorities = {
   method: string;
   hydrant_gaps: HydrantGapCell[];
   station_gaps: StationGapCell[];
+  /** Informational, tolerated but not required to be shown everywhere. */
+  attribution?: string;
+  stations_stale_isochrones?: boolean;
 };
 
 export function getCityPriorities(limit = 10): Promise<CityPriorities> {
@@ -200,4 +250,20 @@ export function districtName(
   if (locale === "kk") return d.name_kk || d.name;
   if (locale === "en") return d.name_en || d.name;
   return d.name;
+}
+
+/** `/city/priorities` cells carry only a bare Russian `district` string (the
+ *  section C contract has no name_kk/name_en there, unlike /city/summary and
+ *  /city/districts.geojson) — this looks the name up in a district summary
+ *  list that DOES carry them (pass `summary.districts`) and localizes it.
+ *  Falls back to the Russian name when no summary is loaded yet or nothing
+ *  matches (e.g. a stale/partial fetch) — never throws, never blank. */
+export function localizedDistrictName(
+  name: string,
+  districts: CityDistrictSummary[] | null | undefined,
+  locale: "ru" | "kk" | "en",
+): string {
+  if (locale === "ru") return name;
+  const match = districts?.find((d) => d.name === name);
+  return match ? districtName(match, locale) : name;
 }

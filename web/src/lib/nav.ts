@@ -59,14 +59,15 @@ export const NAV: NavItem[] = [
     hint: "Полевые донесения: заблокированные проезды, неисправные гидранты — вне плановых проверок" },
   // Раньше жили в треке «Город» (Phase 1): это ДЧС-внутренняя сводка,
   // карта риска и инфраструктура, а не картина города для акимата — Phase 2
-  // развёл их по разным трекам. leadership не потерял доступ (deep link,
-  // ссылка из другого экрана всё ещё откроется), но эти три модуля больше не
-  // его основная навигация — она теперь /city/*; поэтому здесь только
-  // extraAccessRoles, не roles (не дублируется в navForRole/сайдбаре/тайлах
-  // дашборда).
-  { href: "/dashboard", label: "Сводка ДЧС", roles: ["supervisor", "admin"],
-    track: "fire", section: "prevention",
-    extraAccessRoles: ["leadership"] },
+  // развёл их по разным трекам. /dashboard — рабочий экран, который
+  // leadership по-прежнему должен ВИДЕТЬ в сайдбаре (roles), а не доставать
+  // только по deep link: сводка риска по городу остаётся его инструментом
+  // ДЧС наравне с /city — картиной для акимата. /map и /infra — детальные
+  // операционные экраны (карта конкретных зданий, состояние гидрантов) —
+  // для leadership это уже не основная навигация, только extraAccessRoles
+  // (deep link работает, из сайдбара не показывается).
+  { href: "/dashboard", label: "Сводка ДЧС", roles: ["supervisor", "admin", "leadership"],
+    track: "fire", section: "prevention" },
   { href: "/map", label: "Карта риска", roles: ["inspector", "supervisor", "admin"],
     track: "fire", section: "prevention",
     extraAccessRoles: ["leadership"] },
@@ -200,11 +201,10 @@ export function trackOfPath(pathname: string): "fire" | "city" | "system" | null
 
 /** True only when a role has at least two visible items in BOTH the fire
  *  and the city track — that's when switching between them is meaningful.
- *  Matrix: leadership/admin → true (leadership keeps ≥2 fire items via
- *  /vehicles + /reports even though /dashboard, /map, /infra dropped to
- *  extraAccessRoles-only); supervisor → false (fire only, no city items);
- *  akimat → false (city only, no fire items); inspector/dispatcher/
- *  responder/owner → false. */
+ *  Matrix: leadership/admin → true (leadership has /dashboard, /vehicles,
+ *  /reports in fire — /map and /infra stay extraAccessRoles-only for it);
+ *  supervisor → false (fire only, no city items); akimat → false (city
+ *  only, no fire items); inspector/dispatcher/responder/owner → false. */
 export function hasTrackSwitch(role: Role): boolean {
   return trackItems(role, "fire").length >= 2 && trackItems(role, "city").length >= 2;
 }
