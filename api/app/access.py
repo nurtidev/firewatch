@@ -26,6 +26,16 @@ FULL_ACCESS_ROLES = frozenset({"leadership", "admin"})
 # so that data scoping opens up without also opening privileged endpoints.
 CITYWIDE_ROLES = frozenset({"leadership", "admin", "dispatcher", "responder"})
 
+# Городской трек: акимат читает картину города — здания с оценкой уязвимости,
+# инфраструктуру, /city/*. В CITYWIDE_ROLES его добавлять НЕЛЬЗЯ: тем же
+# `enforce_building_scope` скоупятся донесения (reports.py) и визиты
+# (routes.py), и общегородская роль получила бы донесения с фото, авторами и
+# описаниями с мест — ПДн, которые акимату не выдаются. Поэтому доступ к
+# зданиям открывается явно — флагом `allow_city_read` — и только там, где
+# выдача является реестром зданий без персональных данных (buildings.py).
+# Все остальные вызовы для акимата остаются fail closed.
+CITY_READ_ROLES = frozenset({"akimat"})
+
 
 def has_full_access(user: dict) -> bool:
     return user.get("role") in FULL_ACCESS_ROLES
@@ -36,7 +46,19 @@ def has_citywide_data_access(user: dict) -> bool:
     return user.get("role") in CITYWIDE_ROLES
 
 
-def enforce_building_scope(clauses: list[str], params: dict, user: dict, alias: str = "b") -> None:
+def has_city_read_access(user: dict) -> bool:
+    """Роль городского трека (акимат): читает реестр зданий всего города, и только его."""
+    return user.get("role") in CITY_READ_ROLES
+
+
+def enforce_building_scope(
+    clauses: list[str],
+    params: dict,
+    user: dict,
+    alias: str = "b",
+    *,
+    allow_city_read: bool = False,
+) -> None:
     """Append a district restriction to a buildings query for scoped roles.
 
     No-op for citywide roles (leadership/admin + dispatcher/responder). For
@@ -44,8 +66,14 @@ def enforce_building_scope(clauses: list[str], params: dict, user: dict, alias: 
     assigned district gets a clause that matches no rows at all (fail closed) —
     binding NULL would instead match every row with a NULL district via
     `IS NOT DISTINCT FROM`.
+
+    `allow_city_read=True` — no-op и для ролей городского трека (акимат). Флаг
+    передаёт только выдача реестра зданий (buildings.py); донесения, визиты и
+    всё прочее вызывают без него, и акимат там получает пустую выдачу.
     """
     if has_citywide_data_access(user):
+        return
+    if allow_city_read and has_city_read_access(user):
         return
     district = user.get("district")
     if district is None:

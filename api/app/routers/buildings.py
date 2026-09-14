@@ -2,7 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.access import enforce_building_scope, has_citywide_data_access
+from app.access import (
+    enforce_building_scope,
+    has_city_read_access,
+    has_citywide_data_access,
+)
 from app.audit import audit, client_ip
 from app.db import get_db
 from app.routers.auth import current_user
@@ -83,8 +87,9 @@ def list_buildings(
         clauses.append(RISK_BANDS[risk])
 
     # Server-side district confinement for scoped roles (cannot be bypassed by
-    # the client-supplied `district` filter above).
-    enforce_building_scope(clauses, params, user)
+    # the client-supplied `district` filter above). Реестр зданий без ПДн —
+    # поэтому здесь (и только здесь, плюс /search) открыт городскому треку.
+    enforce_building_scope(clauses, params, user, allow_city_read=True)
 
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
 
@@ -167,8 +172,8 @@ def search_buildings(
 
     # Server-side district confinement for scoped roles — тот же слой, что и у
     # GET /buildings, поэтому супервайзер не найдёт поиском объект чужого района
-    # даже зная точный адрес.
-    enforce_building_scope(clauses, params, user)
+    # даже зная точный адрес. Акимат ищет по всему городу (реестр без ПДн).
+    enforce_building_scope(clauses, params, user, allow_city_read=True)
 
     rows = db.execute(
         text(
@@ -254,10 +259,19 @@ def building_detail(
 
     # Data scope, not a privilege: citywide roles (leadership/admin +
     # dispatcher/responder) see any object; scoped roles only their district.
-    if not has_citywide_data_access(user) and row["district"] != user.get("district"):
+    # Акимат (городской трек) открывает любое здание города — явным условием,
+    # а не через CITYWIDE_ROLES (см. app/access.py::CITY_READ_ROLES).
+    city_reader = has_city_read_access(user)
+    if (
+        not (has_citywide_data_access(user) or city_reader)
+        and row["district"] != user.get("district")
+    ):
         raise HTTPException(status_code=404, detail="building not found")
 
-    card = _building_card(building_id, db)
+    # Сводка ПТП — документ ДЧС (контакты ответственных, силы и средства,
+    # водоисточники объекта), в городской трек он не входит: акимат видит
+    # здание и оценку уязвимости, но не оперкарточку.
+    card = None if city_reader else _building_card(building_id, db)
 
     audit(
         action="read.building",

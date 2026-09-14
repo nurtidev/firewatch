@@ -49,9 +49,17 @@ TRANSITION_STATUSES = {"in_progress", "resolved", "dismissed"}
 FIELD_ROLES = require_roles("inspector", "supervisor", "admin", "dispatcher", "responder")
 # Triaging the queue is a supervisory decision.
 REVIEW_ROLES = require_roles("supervisor", "admin")
+# Чтение очереди — внутренние роли ДЧС. Раньше GET был открыт любому
+# аутентифицированному пользователю и держался только на скоупинге (внешний
+# owner получал пустую выдачу). Явный список отвечает внешним и городским
+# ролям (owner, akimat) отказом 403: донесение — это фото, автор и описание с
+# места, то есть ПДн, которых нет в картине города для акимата.
+READ_ROLES = require_roles(
+    "inspector", "supervisor", "leadership", "admin", "dispatcher", "responder"
+)
 
-# Router-level auth: any authenticated role can read the queue (GET below is not
-# further narrowed); mutating endpoints layer their own role guard.
+# Router-level auth requires an authenticated user; every endpoint below layers
+# its own role guard (READ_ROLES for the queue, FIELD/REVIEW_ROLES for writes).
 router = APIRouter(prefix="/reports", tags=["field-reports"], dependencies=[Depends(current_user)])
 
 
@@ -244,7 +252,7 @@ def list_reports(
     status: str | None = None,
     category: str | None = None,
     db: Session = Depends(get_db),
-    user: dict = Depends(current_user),
+    user: dict = Depends(READ_ROLES),
 ) -> list[dict]:
     clauses, params = _list_filters(status, category, user, "fr")
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
@@ -294,7 +302,7 @@ def reports_geojson(
     status: str | None = None,
     category: str | None = None,
     db: Session = Depends(get_db),
-    user: dict = Depends(current_user),
+    user: dict = Depends(READ_ROLES),
 ) -> dict:
     """Point layer of field reports for the map (id/category/status only)."""
     clauses, params = _list_filters(status, category, user, "fr")

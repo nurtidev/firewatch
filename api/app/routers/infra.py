@@ -15,9 +15,15 @@ router = APIRouter(
     prefix="/infra",
     tags=["infrastructure"],
     # Hydrants and stations are the боевой roles' bread and butter — dispatcher
-    # and responder read the whole city's infrastructure.
+    # and responder read the whole city's infrastructure. Акимат (городской трек)
+    # читает те же слои для карты уязвимости; калибровка роутера и все записи
+    # закрыты для него собственными, более узкими guard'ами эндпоинтов.
     dependencies=[
-        Depends(require_roles("supervisor", "leadership", "admin", "dispatcher", "responder"))
+        Depends(
+            require_roles(
+                "supervisor", "leadership", "admin", "dispatcher", "responder", "akimat"
+            )
+        )
     ],
 )
 

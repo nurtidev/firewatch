@@ -8,9 +8,11 @@ a role outside the list gets 403, a role inside it never gets 401/403.
 """
 
 import asyncio
+import re
 
 import pytest
 from fastapi import HTTPException
+from fastapi.routing import APIRoute
 
 from app.db import get_db
 from app.main import app
@@ -18,7 +20,7 @@ from app.routers.auth import current_user, require_roles
 
 ALL_ROLES = (
     "inspector", "supervisor", "leadership", "admin",
-    "dispatcher", "responder", "owner",
+    "dispatcher", "responder", "owner", "akimat",
 )
 
 # Mutable holder so the overridden current_user can vary the role per request.
@@ -70,9 +72,11 @@ ENDPOINTS = [
     ("forces_calc", "POST", "/forces/calc", {},
      {"supervisor", "admin", "dispatcher", "responder"}),
     ("infra_stats", "GET", "/infra/stats", None,
-     {"supervisor", "leadership", "admin", "dispatcher", "responder"}),
+     {"supervisor", "leadership", "admin", "dispatcher", "responder", "akimat"}),
     ("infra_stations", "GET", "/infra/stations", None,
-     {"supervisor", "leadership", "admin", "dispatcher", "responder"}),
+     {"supervisor", "leadership", "admin", "dispatcher", "responder", "akimat"}),
+    ("infra_blind_zones", "GET", "/infra/blind-zones", None,
+     {"supervisor", "leadership", "admin", "dispatcher", "responder", "akimat"}),
     ("hydrant_status", "POST", "/infra/hydrants/1/status", {"status": "ok"},
      {"dispatcher", "responder", "supervisor", "admin"}),
     # Пересчёт зон прибытия переписывает слой, на котором строятся выводы о
@@ -105,6 +109,12 @@ ENDPOINTS = [
      {"inspector", "supervisor", "admin", "dispatcher", "responder"}),
     ("reports_status", "POST", "/reports/1/status", {"status": "in_progress"},
      {"supervisor", "admin"}),
+    # Очередь донесений читают только внутренние роли ДЧС: фото, авторы и
+    # описания с мест не уходят ни внешнему owner, ни акимату.
+    ("reports_list", "GET", "/reports", None,
+     {"inspector", "supervisor", "leadership", "admin", "dispatcher", "responder"}),
+    ("reports_geojson", "GET", "/reports/geojson", None,
+     {"inspector", "supervisor", "leadership", "admin", "dispatcher", "responder"}),
     # Боевой модуль — dispatch of callouts and the боевой пакет.
     ("dispatch_search", "GET", "/dispatch/search?q=абая", None,
      {"dispatcher", "admin"}),
@@ -183,7 +193,7 @@ def test_visit_photo_allows_internal_roles(client, role):
 # (view-only) must still not be able to upload.
 
 
-@pytest.mark.parametrize("role", ["leadership", "owner"])
+@pytest.mark.parametrize("role", ["leadership", "owner", "akimat"])
 def test_visit_photo_upload_denies_view_only_roles(client, role):
     _ROLE["value"] = role
     resp = client.post("/routes/visit/photo")
@@ -202,6 +212,117 @@ def test_visit_photo_upload_allows_field_and_boevoy_roles(client, role):
     )
     # Passes the guard; never an auth verdict.
     assert resp.status_code not in (401, 403)
+
+
+# --- akimat: граница городского трека ------------------------------------------
+# Акимат — только чтение картины города: реестр зданий с оценкой уязвимости,
+# инфраструктура, /city/*. Проверяется не выборка, а ВСЕ маршруты приложения:
+# новый эндпоинт, который без guard'а случайно открылся акимату, валит тест,
+# пока его не внесут в разрешённый список осознанно.
+#
+# Разрешённые записи (POST) — только собственная сессия: вход, выход и
+# завершение своих сессий. Всё прочее с методом записи — 403.
+AKIMAT_ALLOWED = {
+    ("GET", "/"),
+    ("GET", "/health"),
+    ("POST", "/auth/login"),
+    ("GET", "/auth/me"),
+    ("POST", "/auth/logout"),
+    ("POST", "/auth/revoke"),
+    ("GET", "/buildings"),
+    ("GET", "/buildings/search"),
+    ("GET", "/buildings/freshness"),
+    ("GET", "/buildings/{building_id}"),
+    ("GET", "/infra/stations"),
+    ("GET", "/infra/hydrants"),
+    ("GET", "/infra/coverage"),
+    ("GET", "/infra/routing/health"),
+    ("GET", "/infra/blind-zones"),
+    ("GET", "/infra/stats"),
+}
+
+# Явно названные запреты из продуктового решения — дублируют перебор ниже,
+# чтобы отказ по ним читался в отчёте pytest поимённо.
+AKIMAT_DENIED = [
+    ("GET", "/reports"),
+    ("GET", "/reports/geojson"),
+    ("GET", "/cards"),
+    ("GET", "/cards/1"),
+    ("GET", "/cards/1/file"),
+    ("POST", "/chat"),
+    ("GET", "/audit"),
+    ("GET", "/dispatch"),
+    ("GET", "/dispatch/stats"),
+    ("GET", "/forces/presets"),
+    ("GET", "/routes/progress"),
+    ("GET", "/routes/today"),
+    ("GET", "/inspectors"),
+    ("GET", "/portal/summary"),
+    ("GET", "/auth/users"),
+    ("GET", "/model"),
+    ("GET", "/overview"),
+    ("GET", "/infra/routing/calibration"),
+    ("GET", f"/routes/visit/photo/visit_{'0' * 32}.jpg"),
+    ("GET", f"/portal/photo/owner_{'0' * 32}.jpg"),
+    ("POST", "/infra/hydrants/1/status"),
+    ("POST", "/infra/coverage/rebuild"),
+    ("POST", "/reports"),
+    ("POST", "/routes/visit/photo"),
+]
+
+
+def _app_routes():
+    """Все (метод, шаблон пути) приложения.
+
+    Через OpenAPI-схему, а не `app.routes`: начиная с FastAPI 0.13x подключённые
+    роутеры лежат в `app.routes` обёртками `_IncludedRouter`, и перебор по
+    `APIRoute` видел бы один корневой маршрут. Маршрутов со
+    `include_in_schema=False` в api нет (проверяется ниже).
+    """
+    for template, ops in app.openapi()["paths"].items():
+        for method in ops:
+            yield method.upper(), template
+
+
+def _api_routes(routes):
+    for r in routes:
+        if isinstance(r, APIRoute):
+            yield r
+        elif getattr(r, "original_router", None) is not None:
+            yield from _api_routes(r.original_router.routes)
+
+
+def test_no_routes_hidden_from_schema():
+    routes = list(_api_routes(app.routes))
+    assert len(routes) > 50, "обход роутеров не нашёл маршруты — сменилась внутренняя структура FastAPI"
+    hidden = [r.path for r in routes if not r.include_in_schema]
+    assert hidden == [], hidden
+
+
+@pytest.mark.parametrize("method,path", AKIMAT_DENIED, ids=[f"{m} {p}" for m, p in AKIMAT_DENIED])
+def test_akimat_denied_list(client, method, path):
+    _ROLE["value"] = "akimat"
+    resp = client.request(method, path, json=None if method == "GET" else {})
+    assert resp.status_code == 403, f"akimat: {method} {path} → {resp.status_code}"
+
+
+def test_akimat_boundary_covers_every_route(client):
+    _ROLE["value"] = "akimat"
+    seen: set[tuple[str, str]] = set()
+    leaks, blocked = [], []
+    for method, template in _app_routes():
+        seen.add((method, template))
+        path = re.sub(r"\{[^}]+\}", "1", template)
+        resp = client.request(method, path, json=None if method == "GET" else {})
+        if (method, template) in AKIMAT_ALLOWED:
+            if resp.status_code in (401, 403):
+                blocked.append(f"{method} {template} → {resp.status_code}")
+        elif resp.status_code != 403:
+            leaks.append(f"{method} {template} → {resp.status_code}")
+    assert not leaks, "акимату открыты маршруты вне городского трека: " + "; ".join(leaks)
+    assert not blocked, "акимату закрыты разрешённые маршруты: " + "; ".join(blocked)
+    # Разрешённый список не должен ссылаться на удалённые/переименованные маршруты.
+    assert AKIMAT_ALLOWED <= seen, AKIMAT_ALLOWED - seen
 
 
 # --- require_roles factory (pure, no app) -------------------------------------

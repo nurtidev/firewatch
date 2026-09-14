@@ -4,7 +4,7 @@ import pytest
 
 from fastapi import HTTPException
 
-from app.access import enforce_building_scope, has_full_access
+from app.access import CITYWIDE_ROLES, enforce_building_scope, has_full_access
 from app.auth import create_token, decode_token, hash_password, verify_password
 from app.chat import ChatError, validate_sql
 from app.routers.forces import ForcesRequest, calc
@@ -114,6 +114,32 @@ def test_enforce_scope_restricts_scoped_role():
     clauses, params = [], {}
     enforce_building_scope(clauses, params, {"role": "inspector", "district": "X"})
     assert len(clauses) == 1 and "scope_district" in clauses[0]
+    assert params["scope_district"] == "X"
+
+
+def test_akimat_is_not_a_citywide_data_role():
+    # Иначе тот же helper открыл бы акимату донесения и визиты (ПДн).
+    assert "akimat" not in CITYWIDE_ROLES
+    assert not has_full_access({"role": "akimat"})
+
+
+def test_enforce_scope_fails_closed_for_akimat_by_default():
+    clauses, params = [], {}
+    enforce_building_scope(clauses, params, {"role": "akimat", "district": None})
+    assert clauses == ["FALSE"] and params == {}
+
+
+def test_enforce_scope_opens_city_read_only_when_asked():
+    clauses, params = [], {}
+    enforce_building_scope(
+        clauses, params, {"role": "akimat", "district": None}, allow_city_read=True
+    )
+    assert clauses == [] and params == {}
+    # Флаг не расширяет доступ скоупленным ролям.
+    clauses, params = [], {}
+    enforce_building_scope(
+        clauses, params, {"role": "inspector", "district": "X"}, allow_city_read=True
+    )
     assert params["scope_district"] == "X"
 
 

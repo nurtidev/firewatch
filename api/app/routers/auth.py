@@ -23,7 +23,11 @@ INTERNAL_ROLES = (
     "dispatcher",
     "responder",
 )
-ASSIGNABLE_ROLES = (*INTERNAL_ROLES, "owner")
+# Городской трек: акимат — внешний по отношению к ДЧС читатель картины города
+# (только чтение, без ПДн — см. app/access.py::CITY_READ_ROLES). Района у него
+# нет (весь город), к зданиям, в отличие от owner, не привязан.
+CITY_ROLES = ("akimat",)
+ASSIGNABLE_ROLES = (*INTERNAL_ROLES, *CITY_ROLES, "owner")
 
 # Роли, у которых район — граница доступа (app/access.py): без района такой
 # пользователь не видит ничего, поэтому район при заведении обязателен.

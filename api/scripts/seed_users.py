@@ -9,6 +9,7 @@ Demo credentials (pilot only — change before any real deployment):
   admin      / admin123       — администратор (все модули, весь город)
   dispatcher / dispatcher123  — диспетчер ЦОУ/112 (боевой модуль, весь город)
   responder  / responder123   — начальник караула ПЧ-1 (боевой модуль, весь город)
+  akimat     / akimat123      — акимат г. Астаны (городской трек, только чтение, без ПДн)
   owner      / owner123       — председатель ОСИ (внешний владелец, портал)
 
 District scoping: inspector/supervisor see only their district; leadership/admin
@@ -34,6 +35,8 @@ USERS = [
     # Боевой модуль: citywide by role (district = NULL), not district-scoped.
     ("dispatcher", "dispatcher123", "Диспетчер ЦОУ", "dispatcher", None),
     ("responder", "responder123", "Начальник караула ПЧ-1", "responder", None),
+    # Городской трек: только чтение картины города, без ПДн (app/access.py).
+    ("akimat", "akimat123", "Акимат г. Астаны", "akimat", None),
 ]
 
 
