@@ -20,6 +20,9 @@ import {
   Flame,
   Building2,
   Landmark,
+  Layers,
+  Target,
+  FileText,
   Menu,
   X,
   LogOut,
@@ -27,10 +30,10 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import {
-  NAV,
   navForRole,
   trackItems,
   trackOfPath,
+  matchNavItem,
   hasTrackSwitch,
   TRACKS,
   SECTION_LABEL,
@@ -62,6 +65,10 @@ const ICONS: Record<string, LucideIcon> = {
   "/model": Brain,
   "/audit": ShieldCheck,
   "/users": Users,
+  "/city": Landmark,
+  "/city/map": Layers,
+  "/city/priorities": Target,
+  "/city/report": FileText,
 };
 
 // TRACKS in lib/nav.ts names icons by string, not component, so nav.ts stays
@@ -112,6 +119,11 @@ export default function AppShell({
   // Pure function of the current route — safe to call during render (no
   // hydration mismatch risk, unlike localStorage below).
   const pathTrack = trackOfPath(pathname);
+  // Longest-matching NAV href for the current route — e.g. on `/city/map`
+  // this is `/city/map`, not `/city` (see matchNavItem in lib/nav.ts), so
+  // exactly one sidebar item highlights active, never both a parent and a
+  // child route sharing a prefix.
+  const activeHref = matchNavItem(pathname)?.href;
 
   // On a route that belongs to neither track (system pages, non-NAV pages),
   // the active track comes from localStorage instead — resolved in an
@@ -128,9 +140,7 @@ export default function AppShell({
     // NAV route their role can't see (e.g. deep link, or a role change), bounce
     // them to their default landing page. Non-NAV routes (login, public landings)
     // are left alone. The backend guards enforce this too — this is just UX.
-    const match = NAV.find(
-      (n) => pathname === n.href || pathname.startsWith(n.href + "/"),
-    );
+    const match = matchNavItem(pathname);
     if (match) {
       const allowed = match.extraAccessRoles
         ? [...match.roles, ...match.extraAccessRoles]
@@ -218,7 +228,7 @@ export default function AppShell({
   // render gets a new identity every render, so React would remount every
   // link (losing focus/hover) on each AppShell update.
   const renderNavLink = (item: NavItem) => {
-    const active = pathname === item.href || pathname.startsWith(item.href + "/");
+    const active = item.href === activeHref;
     const Icon = ICONS[item.href] ?? LayoutDashboard;
     return (
       <Link
@@ -265,7 +275,7 @@ export default function AppShell({
             FireWatch<span className="text-accent">.</span>
           </div>
           <div className="mt-0.5 text-2xs font-medium uppercase tracking-[0.18em] text-faint">
-            {t("ДЧС Астаны")}
+            {t(user.role === "akimat" ? "Акимат Астаны" : "ДЧС Астаны")}
           </div>
         </Link>
         <button

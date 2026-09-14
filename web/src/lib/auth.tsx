@@ -19,7 +19,8 @@ export type Role =
   | "admin"
   | "owner"
   | "dispatcher"
-  | "responder";
+  | "responder"
+  | "akimat";
 export type User = {
   username: string;
   name: string;
