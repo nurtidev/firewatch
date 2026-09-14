@@ -11,6 +11,9 @@ import {
   Sparkles,
   Shapes,
   Box,
+  Radio,
+  Flame,
+  Building2,
   type LucideIcon,
 } from "lucide-react";
 
@@ -36,7 +39,8 @@ export const PIPELINE: { icon: LucideIcon; k: string; title: string; text: strin
   },
 ];
 
-/** Six modules — one safety loop. Gov-framed, reused on "/" and "/gov". */
+/** The full loop — prevention, oversight, response. Gov-framed, reused on "/" and "/gov".
+    Keep in sync with the live product: modules 07–09 shipped after the first six. */
 export const MODULES: {
   k: string;
   icon: LucideIcon;
@@ -85,5 +89,26 @@ export const MODULES: {
     title: "ИИ-аналитик",
     pain: "Ответ без ручных выгрузок",
     text: "Вопрос на естественном языке → ответ строго из данных ДЧС, с указанием источников.",
+  },
+  {
+    k: "07 · ЦОУ",
+    icon: Radio,
+    title: "Пульт диспетчера",
+    pain: "Кого и чем направить на вызов?",
+    text: "Регистрация вызова, наряд сил и техники, статусы подразделений и единая хронология выезда.",
+  },
+  {
+    k: "08 · РТП",
+    icon: Flame,
+    title: "Боевой выезд",
+    pain: "Что известно об объекте по дороге?",
+    text: "Оперкарточка в руках у РТП, расстановка сил на поэтажном плане, расчёт сил и средств по методике ДЧС, электронное донесение.",
+  },
+  {
+    k: "09 · ПОРТАЛ",
+    icon: Building2,
+    title: "Кабинет собственника",
+    pain: "Что устранить и до какого срока?",
+    text: "Владелец объекта видит свои нарушения, сроки и документы — предписания не теряются в переписке.",
   },
 ];

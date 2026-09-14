@@ -322,7 +322,7 @@ export const dict: { en: Record<string, string>; kk: Record<string, string> } = 
     "Тип здания": "Building type",
     "Этажей": "Floors",
     "ID объекта": "Facility ID",
-    "SHAP · Вклад факторов": "SHAP · Factor contribution",
+    "Почему такая оценка": "Why this score",
     "Факторы риска": "Risk factors",
     "повышает риск": "raises risk",
     "снижает риск": "lowers risk",
@@ -330,7 +330,7 @@ export const dict: { en: Record<string, string>; kk: Record<string, string> } = 
     "прибытие": "arrival",
     "Ранг": "Rank",
     "Водоисточников:": "Water sources:",
-    "Модель": "Model",
+    "Версия модели": "Model version",
 
     // ── components/SchemeGallery.tsx ─────────────────────────────────────
     "Оригинальные схемы из ПТП объекта (оцифрованы из Visio). Клик — открыть лист в полном размере с зумом.":
@@ -660,7 +660,7 @@ export const dict: { en: Record<string, string>; kk: Record<string, string> } = 
     "Тип здания": "Ғимарат түрі",
     "Этажей": "Қабаттар",
     "ID объекта": "Нысан ID",
-    "SHAP · Вклад факторов": "SHAP · Факторлар үлесі",
+    "Почему такая оценка": "Неліктен осындай баға",
     "Факторы риска": "Қауіп факторлары",
     "повышает риск": "қауіпті арттырады",
     "снижает риск": "қауіпті төмендетеді",
@@ -668,7 +668,7 @@ export const dict: { en: Record<string, string>; kk: Record<string, string> } = 
     "прибытие": "келу",
     "Ранг": "Дәреже",
     "Водоисточников:": "Су көздері:",
-    "Модель": "Модель",
+    "Версия модели": "Модель нұсқасы",
 
     // ── components/SchemeGallery.tsx ─────────────────────────────────────
     "Оригинальные схемы из ПТП объекта (оцифрованы из Visio). Клик — открыть лист в полном размере с зумом.":

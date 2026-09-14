@@ -245,12 +245,15 @@ export default function BuildingPanel({
               ))}
             </div>
 
-            {/* SHAP factors */}
+            {/* SHAP factors. Заголовок намеренно без слова SHAP: панель открывается
+                с карты риска, а она доступна инспектору — для него это чужой жаргон,
+                который нечего объяснять прямо в рабочем экране. Метод назван на
+                странице «Модель ИИ», куда ходят supervisor и руководство. */}
             {data.explanation.length > 0 && (
               <div className="mt-6">
                 <div className="flex items-center gap-2">
                   <BarChart2 className="h-3.5 w-3.5 text-faint" aria-hidden />
-                  <SectionLabel>{t("SHAP · Вклад факторов")}</SectionLabel>
+                  <SectionLabel>{t("Почему такая оценка")}</SectionLabel>
                 </div>
                 <ul className="mt-3 space-y-3" aria-label={t("Факторы риска")}>
                   {data.explanation.map((f) => {
@@ -359,9 +362,11 @@ export default function BuildingPanel({
               </div>
             )}
 
-            {/* Model version */}
+            {/* Версия модели: нужна для разбора расхождений («на какой версии
+                считали»), но техническое имя сборки читателю панели ничего не
+                говорит — поэтому подписано как версия, а не как имя алгоритма. */}
             <p className="mt-6 text-2xs text-faint">
-              {t("Модель")} · {data.model_version ?? "—"}
+              {t("Версия модели")} · {data.model_version ?? "—"}
             </p>
           </div>
         )}
