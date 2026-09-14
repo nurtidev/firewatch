@@ -232,6 +232,42 @@ def test_sync_forbidden_for_oversight_role(client):
     assert resp.status_code == 403
 
 
+def test_sync_delete_by_client_uid_passes_validation(client):
+    # Позицию сняли, пока её постановка была в полёте: серверного id у
+    # устройства ещё нет, и снимать её можно только по client_uid.
+    resp = client.post(_SYNC, json={"delete_uids": ["1754500000-ab12cd"]})
+    assert resp.status_code not in (401, 403, 422)
+
+
+def test_sync_delete_by_client_uid_rejects_empty_uid(client):
+    resp = client.post(_SYNC, json={"delete_uids": [""]})
+    assert resp.status_code == 422
+
+
+def test_sync_delete_uids_count_toward_batch_limit(client):
+    uids = [f"u{i}" for i in range(D.SYNC_MAX_ITEMS)]
+    resp = client.post(_SYNC, json={"deletes": [1], "delete_uids": uids})
+    assert resp.status_code == 422
+
+
+def test_sync_patch_by_client_uid_passes_validation(client):
+    resp = client.post(
+        _SYNC, json={"patches": [{"client_uid": "u1", "plan_x": 0.2, "plan_y": 0.3}]}
+    )
+    assert resp.status_code not in (401, 403, 422)
+
+
+def test_sync_patch_requires_id_or_client_uid(client):
+    # Правка без адреса ни к чему не приложится.
+    resp = client.post(_SYNC, json={"patches": [{"plan_x": 0.2, "plan_y": 0.3}]})
+    assert resp.status_code == 422
+
+
+def test_sync_patch_address_alone_is_not_a_change(client):
+    resp = client.post(_SYNC, json={"patches": [{"id": 7, "client_uid": "u1"}]})
+    assert resp.status_code == 422
+
+
 # --- POST /dispatch/{id}/report/export: доступ -------------------------------
 
 
@@ -301,6 +337,62 @@ def test_digit_variant(token, variant):
 def test_like_escape_neutralizes_wildcards():
     assert D._like_escape("100%") == "100\\%"
     assert D._like_escape("a_b") == "a\\_b"
+
+
+# --- синхронизация расстановки: ключи и время постановки --------------------
+#
+# Ключ ответа обязан совпадать с ключом очереди на устройстве: у позиции,
+# поставленной на плане, это client_uid. Разойдись они — отвергнутая правка
+# молча исчезает из очереди как «принятая».
+
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+
+def test_sync_key_prefers_client_uid():
+    assert D._sync_key("1754500000-ab12cd", 42) == "1754500000-ab12cd"
+    assert D._sync_key(None, 42) == "srv:42"
+
+
+_CREATED = datetime(2026, 8, 6, 9, 30, tzinfo=timezone.utc)
+_NOW = datetime(2026, 8, 6, 10, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize(
+    "placed",
+    [
+        None,
+        _CREATED,
+        _NOW,
+        _CREATED - timedelta(minutes=4),  # часы устройства чуть отстают
+        _NOW + timedelta(minutes=4),  # или чуть спешат
+        # Астана, UTC+5: 14:45 местного — это 09:45 UTC, внутри выезда.
+        datetime(2026, 8, 6, 14, 45, tzinfo=timezone(timedelta(hours=5))),
+    ],
+)
+def test_placed_at_within_callout_is_accepted(placed):
+    assert D._placed_at_problem(placed, _CREATED, _NOW) is None
+
+
+def test_placed_at_without_timezone_is_rejected():
+    # Раньше такое время доезжало до min() рядом с aware-временем и роняло
+    # ответ 500 уже после коммита.
+    problem = D._placed_at_problem(datetime(2026, 8, 6, 9, 45), _CREATED, _NOW)
+    assert problem and "часового пояса" in problem
+
+
+def test_placed_at_before_callout_is_rejected():
+    problem = D._placed_at_problem(_CREATED - timedelta(minutes=6), _CREATED, _NOW)
+    assert problem and "раньше регистрации" in problem
+
+
+def test_placed_at_in_future_is_rejected():
+    problem = D._placed_at_problem(_NOW + timedelta(minutes=6), _CREATED, _NOW)
+    assert problem and "в будущем" in problem
+
+
+def test_placed_at_naive_callout_time_does_not_crash():
+    naive_created = _CREATED.replace(tzinfo=None)
+    assert D._placed_at_problem(_CREATED, naive_created, _NOW) is None
 
 
 # --- расчёт сил из карточки ПТП ---------------------------------------------

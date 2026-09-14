@@ -13,7 +13,7 @@ DATABASE_URL, например
 """
 
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import text
@@ -218,6 +218,9 @@ def test_deployment_sync_replay_does_not_duplicate(client):
     """
     h = _login(client, "dispatcher", "dispatcher123")
     callout_id = _open_callout(client, h)
+    # Время постановки обязано лежать в пределах выезда (см. _placed_at_problem),
+    # поэтому оно отсчитывается от «сейчас», а не зашито датой.
+    placed = datetime.now(timezone.utc) - timedelta(minutes=1)
     body = {
         "creates": [
             {
@@ -228,7 +231,7 @@ def test_deployment_sync_replay_does_not_duplicate(client):
                 "plan_x": 0.42,
                 "plan_y": 0.31,
                 "heading": 90,
-                "placed_at": "2026-08-06T09:32:00+00:00",
+                "placed_at": placed.isoformat(),
             }
         ]
     }
@@ -247,7 +250,7 @@ def test_deployment_sync_replay_does_not_duplicate(client):
     assert len(mine) == 1
     # Время постановки — по часам устройства, не по моменту, когда связь
     # вернулась: по нему разбирают ход тушения.
-    assert mine[0]["placed_at"].startswith("2026-08-06T09:32")
+    assert abs(datetime.fromisoformat(mine[0]["placed_at"]) - placed) < timedelta(milliseconds=1)
     assert mine[0]["placed_at"] != mine[0]["created_at"]
     assert mine[0]["heading"] == 90
 
@@ -383,6 +386,7 @@ def test_deployment_sync_is_audited_per_position(client):
 
     h = _login(client, "dispatcher", "dispatcher123")
     callout_id = _open_callout(client, h)
+    placed = datetime.now(timezone.utc) - timedelta(minutes=2)
     client.post(
         f"/dispatch/{callout_id}/deployment/sync",
         json={
@@ -393,7 +397,7 @@ def test_deployment_sync_is_audited_per_position(client):
                     "floor": "1",
                     "plan_x": 0.3,
                     "plan_y": 0.6,
-                    "placed_at": "2026-08-06T09:40:00+00:00",
+                    "placed_at": placed.isoformat(),
                 }
             ]
         },
@@ -421,7 +425,206 @@ def test_deployment_sync_is_audited_per_position(client):
         ).scalar()
     assert added == 1
     assert summary["applied"] == 1 and summary["rejected"] == 0
-    assert summary["oldest_placed_at"].startswith("2026-08-06T09:40")
+    assert abs(datetime.fromisoformat(summary["oldest_placed_at"]) - placed) < timedelta(
+        milliseconds=1
+    )
+
+
+def _sync(client, headers, callout_id: int, body: dict) -> dict:
+    r = client.post(f"/dispatch/{callout_id}/deployment/sync", json=body, headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _audit_details(engine, action: str, callout_id: int) -> list[dict]:
+    with engine.connect() as conn:
+        return conn.execute(
+            text(
+                "SELECT detail FROM audit_log WHERE action = :a "
+                "  AND (detail->>'callout_id')::bigint = :c ORDER BY id"
+            ),
+            {"a": action, "c": callout_id},
+        ).scalars().all()
+
+
+def test_deployment_sync_resent_create_applies_final_state(client):
+    """Потерянный ответ плюс перемещение — повтор постановки с новой точкой.
+
+    Устройство не узнало, что постановка дошла, а РТП тем временем передвинул
+    ствол. Очередь шлёт конечное состояние: тот же client_uid с новыми
+    координатами. Раньше конфликт глотался (DO NOTHING), сервер отвечал
+    «принято», устройство убирало запись — и ствол навсегда оставался в старой
+    точке, в том числе в напечатанном донесении.
+    """
+    from app.db import engine
+
+    h = _login(client, "dispatcher", "dispatcher123")
+    callout_id = _open_callout(client, h)
+    uid = "test-deploy-0006"
+    first = _sync(
+        client, h, callout_id,
+        {"creates": [{"client_uid": uid, "kind": "barrel_ext", "floor": "4",
+                      "plan_x": 0.1, "plan_y": 0.1, "heading": 0}]},
+    )
+    pos_id = next(p["id"] for p in first["positions"] if p["client_uid"] == uid)
+
+    # Участок уточнили с пульта: повтор из очереди без участка не должен его стереть.
+    r = client.patch(
+        f"/dispatch/{callout_id}/deployment/{pos_id}", json={"sector": "БУ-2"}, headers=h
+    )
+    assert r.status_code == 200, r.text
+
+    moved_body = {"creates": [{"client_uid": uid, "kind": "barrel_ext", "floor": "5",
+                               "plan_x": 0.7, "plan_y": 0.6, "heading": 270}]}
+    resent = _sync(client, h, callout_id, moved_body)
+    assert resent["applied"] == [uid]
+    assert resent["rejected"] == []
+    mine = [p for p in resent["positions"] if p["client_uid"] == uid]
+    assert len(mine) == 1
+    assert mine[0]["id"] == pos_id
+    assert (mine[0]["floor"], mine[0]["plan_x"], mine[0]["plan_y"], mine[0]["heading"]) == (
+        "5", 0.7, 0.6, 270,
+    )
+    assert mine[0]["sector"] == "БУ-2"
+
+    def sync_moves() -> list[dict]:
+        return [
+            d for d in _audit_details(engine, "callout.deployment_moved", callout_id)
+            if d.get("via") == "sync"
+        ]
+
+    assert len(sync_moves()) == 1
+    assert sync_moves()[0]["position_id"] == pos_id
+
+    # Чистый повтор того же состояния — не перемещение: журнал не растёт.
+    again = _sync(client, h, callout_id, moved_body)
+    assert again["applied"] == [uid]
+    assert len(sync_moves()) == 1
+    assert len(_audit_details(engine, "callout.deployment_added", callout_id)) == 1
+
+
+def test_deployment_sync_delete_by_client_uid_is_idempotent(client):
+    """Снятие позиции, чья постановка была в полёте, — по client_uid.
+
+    Серверного id у устройства нет, а если ответ потерялся — и не будет.
+    Раньше такое снятие висело в очереди без адреса: сервер хранил позицию,
+    планшет её прятал, «ждёт отправки» не уходило никогда.
+    """
+    from app.db import engine
+
+    h = _login(client, "dispatcher", "dispatcher123")
+    callout_id = _open_callout(client, h)
+    uid = "test-deploy-0007"
+    _sync(
+        client, h, callout_id,
+        {"creates": [{"client_uid": uid, "kind": "barrel_def", "floor": "2",
+                      "plan_x": 0.3, "plan_y": 0.3}]},
+    )
+
+    dropped = _sync(client, h, callout_id, {"delete_uids": [uid]})
+    assert dropped["applied"] == [uid]
+    assert dropped["rejected"] == []
+    assert all(p["client_uid"] != uid for p in dropped["positions"])
+
+    # Повтор и снятие того, что до сервера так и не дошло: цель достигнута.
+    never = "test-deploy-never-arrived"
+    again = _sync(client, h, callout_id, {"delete_uids": [uid, never]})
+    assert again["applied"] == [uid, never]
+    assert again["rejected"] == []
+
+    removed = [
+        d for d in _audit_details(engine, "callout.deployment_removed", callout_id)
+        if d.get("via") == "sync"
+    ]
+    assert len(removed) == 1
+    assert removed[0]["client_uid"] == uid
+
+
+def test_deployment_sync_rejects_implausible_placed_at_per_item(client):
+    """Неправдоподобное время постановки отвергает позицию, а не батч.
+
+    Время приходит с устройства и уходит в донесение как факт боевых действий.
+    Без пояса оно раньше доезжало до min() рядом с aware-временем и роняло
+    ответ 500 уже после коммита — устройство повторяло батч, не зная, что он
+    записан.
+    """
+    from app.db import engine
+
+    h = _login(client, "dispatcher", "dispatcher123")
+    callout_id = _open_callout(client, h)
+    now = datetime.now(timezone.utc)
+    good = now - timedelta(minutes=1)
+
+    def create(uid: str, placed_at: str) -> dict:
+        return {"client_uid": uid, "kind": "barrel_ext", "floor": "1",
+                "plan_x": 0.5, "plan_y": 0.5, "placed_at": placed_at}
+
+    bad = ["test-deploy-0009", "test-deploy-0010", "test-deploy-0011"]
+    data = _sync(
+        client, h, callout_id,
+        {"creates": [
+            create("test-deploy-0008", good.isoformat()),
+            create(bad[0], "2020-01-01T00:00:00+00:00"),  # раньше вызова
+            create(bad[1], (now + timedelta(hours=1)).isoformat()),  # в будущем
+            create(bad[2], now.replace(tzinfo=None).isoformat()),  # без пояса
+        ]},
+    )
+    assert data["applied"] == ["test-deploy-0008"]
+    assert sorted(r["key"] for r in data["rejected"]) == bad
+    assert all(r["reason"] for r in data["rejected"])
+    uids = {p["client_uid"] for p in data["positions"]}
+    assert "test-deploy-0008" in uids
+    assert not uids & set(bad)
+
+    summary = _audit_details(engine, "callout.deployment_synced", callout_id)[-1]
+    assert summary["applied"] == 1 and summary["rejected"] == 3
+    assert abs(datetime.fromisoformat(summary["oldest_placed_at"]) - good) < timedelta(
+        milliseconds=1
+    )
+
+    # Поштучная постановка с пульта проверяется так же.
+    r = client.post(
+        f"/dispatch/{callout_id}/deployment",
+        json={"kind": "hq", "placed_at": "2020-01-01T00:00:00+00:00"},
+        headers=h,
+    )
+    assert r.status_code == 422
+
+
+def test_deployment_sync_patch_rejection_is_keyed_by_client_uid(client):
+    """Отказ по правке приходит под ключом очереди устройства.
+
+    Для позиции, поставленной на плане, ключ очереди — client_uid. Сервер
+    отвечал `srv:<id>`, клиент не находил отказ у себя и убирал правку как
+    принятую: РТП не узнавал, что перемещение не записалось.
+    """
+    h = _login(client, "dispatcher", "dispatcher123")
+    callout_id = _open_callout(client, h)
+    uid = "test-deploy-0012"
+    _sync(
+        client, h, callout_id,
+        {"creates": [{"client_uid": uid, "kind": "barrel_ext", "floor": "3",
+                      "plan_x": 0.2, "plan_y": 0.2}]},
+    )
+
+    # Правка по client_uid, без серверного id.
+    moved = _sync(
+        client, h, callout_id,
+        {"patches": [{"client_uid": uid, "plan_x": 0.8, "plan_y": 0.9}]},
+    )
+    assert moved["applied"] == [uid]
+    after = next(p for p in moved["positions"] if p["client_uid"] == uid)
+    assert (after["plan_x"], after["plan_y"]) == (0.8, 0.9)
+
+    gone = _sync(
+        client, h, callout_id,
+        {"patches": [
+            {"id": 10_000_000, "client_uid": "test-deploy-gone-1", "heading": 90},
+            {"client_uid": "test-deploy-gone-2", "heading": 90},
+        ]},
+    )
+    assert gone["applied"] == []
+    assert [r["key"] for r in gone["rejected"]] == ["test-deploy-gone-1", "test-deploy-gone-2"]
 
 
 def test_report_export_is_audited_with_preliminary_flag(client):

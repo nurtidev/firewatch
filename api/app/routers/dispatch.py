@@ -11,7 +11,8 @@ data reads here are citywide — dispatcher/responder are not district-scoped.
 """
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -1609,15 +1610,62 @@ def get_deployment(
     }
 
 
-def _insert_position(
+# Допуск на расхождение часов устройства и сервера. Планшет РТП без связи
+# часами не синхронизируется, но и сорокаминутного расхождения у исправного
+# устройства не бывает: всё, что дальше, — сбитые часы или чужие данные.
+PLACED_AT_SKEW = timedelta(minutes=5)
+
+
+def _placed_at_problem(
+    placed_at: datetime | None, callout_created_at: datetime | None, now: datetime
+) -> str | None:
+    """Причина не принимать время постановки; None — время правдоподобно.
+
+    Время приходит с устройства, то есть с наименее проверяемой стороны, а
+    уходит в донесение как факт боевых действий («ствол подан в 14:32»).
+    Поэтому оно обязано быть с часовым поясом (иначе непонятно, какие это
+    14:32, а сравнение с серверным временем падает на смешении naive/aware)
+    и лежать в пределах выезда: раньше регистрации вызова ствол подать нельзя,
+    позже «сейчас» — тем более.
+    """
+    if placed_at is None:
+        return None
+    if placed_at.tzinfo is None or placed_at.utcoffset() is None:
+        return "Время постановки без часового пояса — позиция не записана"
+    if callout_created_at is not None:
+        created = (
+            callout_created_at
+            if callout_created_at.tzinfo is not None
+            else callout_created_at.replace(tzinfo=timezone.utc)
+        )
+        if placed_at < created - PLACED_AT_SKEW:
+            return "Время постановки раньше регистрации выезда — проверьте часы устройства"
+    if placed_at > now + PLACED_AT_SKEW:
+        return "Время постановки в будущем — проверьте часы устройства"
+    return None
+
+
+def _upsert_position(
     db: Session, callout_id: int, body: PositionCreate, username: str | None
-) -> int | None:
-    """Вставить позицию. None — такой client_uid на выезде уже есть.
+) -> tuple[int, str]:
+    """Записать позицию: `(id, "inserted" | "updated" | "unchanged")`.
 
     Доставка очереди расстановки — at-least-once: POST мог закоммититься и не
     донести ответ (в поле это обычный случай, а не редкость). Повтор с тем же
     client_uid обязан быть безвредным, иначе после каждого разрыва связи на
     плане появлялся бы второй ствол в той же точке.
+
+    Но «безвредный» не значит «игнорируемый». Очередь шлёт не первоначальную
+    постановку, а конечное состояние позиции: ответ на первую отправку
+    потерялся, РТП тем временем передвинул ствол — и повтор приходит уже с
+    новыми координатами. DO NOTHING молча выбросил бы перемещение, а клиент,
+    получив «принято», убрал бы его из очереди: ствол остался бы в старой
+    точке и на сервере, и в напечатанном донесении. Поэтому конфликт
+    обновляет поля, которыми распоряжается схема (этап, этаж, точка,
+    направление). Участок и примечание — только если устройство их прислало:
+    их могли уточнить с пульта, и пустое значение из очереди не должно их
+    стирать. Тип позиции, машина и авторство не меняются: это другая позиция,
+    а не правка этой.
     """
     if body.vehicle_id is not None:
         exists = db.execute(
@@ -1631,10 +1679,10 @@ def _insert_position(
         if body.lat is not None
         else "NULL"
     )
-    return db.execute(
+    row = db.execute(
         text(
             f"""
-            INSERT INTO deployment_positions
+            INSERT INTO deployment_positions AS p
                 (callout_id, kind, phase, sector, geom, note, vehicle_id,
                  floor, plan_x, plan_y, heading, client_uid, placed_at, created_by)
             VALUES (:cid, :kind, :phase, :sector, {geom}, :note, :vid,
@@ -1642,8 +1690,25 @@ def _insert_position(
             -- Предикат обязателен: индекс частичный (позиции с пульта
             -- client_uid не имеют, и их NULL'ы не конфликтуют между собой).
             ON CONFLICT (callout_id, client_uid) WHERE client_uid IS NOT NULL
-                DO NOTHING
-            RETURNING id
+            DO UPDATE SET
+                phase   = EXCLUDED.phase,
+                floor   = EXCLUDED.floor,
+                plan_x  = EXCLUDED.plan_x,
+                plan_y  = EXCLUDED.plan_y,
+                heading = EXCLUDED.heading,
+                sector  = COALESCE(EXCLUDED.sector, p.sector),
+                note    = COALESCE(EXCLUDED.note, p.note)
+            -- Чистый повтор (ничего не изменилось) строку не трогает: иначе
+            -- каждый разрыв связи писал бы в журнал перемещение, которого не было.
+            WHERE (p.phase, p.floor, p.plan_x, p.plan_y, p.heading,
+                   p.sector, p.note)
+                  IS DISTINCT FROM
+                  (EXCLUDED.phase, EXCLUDED.floor, EXCLUDED.plan_x, EXCLUDED.plan_y,
+                   EXCLUDED.heading, COALESCE(EXCLUDED.sector, p.sector),
+                   COALESCE(EXCLUDED.note, p.note))
+            -- xmax = 0 только у только что вставленной строки: так один
+            -- запрос отличает постановку от правки повтором.
+            RETURNING id, (xmax = 0) AS inserted
             """
         ),
         {
@@ -1663,7 +1728,18 @@ def _insert_position(
             "placed_at": body.placed_at,
             "by": username,
         },
+    ).mappings().first()
+    if row is not None:
+        return row["id"], "inserted" if row["inserted"] else "updated"
+    # Конфликт был, но менять нечего — возвращаем уже записанную позицию.
+    existing = db.execute(
+        text(
+            "SELECT id FROM deployment_positions "
+            "WHERE callout_id = :cid AND client_uid = :uid"
+        ),
+        {"cid": callout_id, "uid": body.client_uid},
     ).scalar()
+    return existing, "unchanged"
 
 
 @router.post("/{callout_id}/deployment")
@@ -1678,8 +1754,11 @@ def add_position(
     row = _fetch_callout(db, callout_id)
     if row["status"] != "active":
         raise HTTPException(409, "Выезд закрыт — расстановка не меняется")
+    problem = _placed_at_problem(body.placed_at, row["created_at"], datetime.now(timezone.utc))
+    if problem:
+        raise HTTPException(422, problem)
 
-    new_id = _insert_position(db, callout_id, body, user.get("username"))
+    new_id, _state = _upsert_position(db, callout_id, body, user.get("username"))
     db.commit()
 
     audit(
@@ -1713,10 +1792,11 @@ def _update_position_row(
     if not exists:
         return False
 
-    # `id` приходит в теле только у батча синхронизации — это адрес строки,
-    # а не изменяемое поле.
+    # `id` и `client_uid` приходят в теле только у батча синхронизации — это
+    # адрес строки, а не изменяемые поля.
     patch = body.model_dump(exclude_unset=True)
     patch.pop("id", None)
+    patch.pop("client_uid", None)
     sets: list[str] = []
     params: dict = {"pid": position_id}
 
@@ -1821,15 +1901,53 @@ class SyncCreate(PositionCreate):
 
 
 class SyncPatch(PositionPatch):
-    """Правка позиции из очереди: та же, что и одиночная, плюс адрес строки."""
+    """Правка позиции из очереди: та же, что и одиночная, плюс адрес строки.
 
-    id: int
+    Адрес — серверный id или client_uid. Позицию, поставленную на плане,
+    устройство знает по client_uid с первой секунды, а серверный id может так
+    и не узнать: ответ на постановку потерялся. Если пришли оба, строку
+    находит id, а client_uid служит ключом ответа (см. `_sync_key`).
+    """
+
+    id: int | None = None
+    client_uid: str | None = Field(None, min_length=1, max_length=64)
 
     @model_validator(mode="after")
     def _beside_id(self) -> "SyncPatch":
-        if not (self.model_fields_set - {"id"}):
-            raise ValueError("укажите хотя бы одно поле кроме id")
+        if self.id is None and self.client_uid is None:
+            raise ValueError("укажите id или client_uid позиции")
+        if not (self.model_fields_set - {"id", "client_uid"}):
+            raise ValueError("укажите хотя бы одно поле кроме адреса позиции")
         return self
+
+
+def _sync_key(client_uid: str | None, position_id: int | None) -> str:
+    """Ключ операции в ответе синхронизации — тот же, что у очереди устройства.
+
+    Очередь ключует позицию так же, как рисует: `client_uid ?? "srv:<id>"`
+    (`mergePositions` в web/src/lib/deploymentQueue.ts). Отказ по правке под
+    ключом `srv:<id>` для позиции с client_uid клиент у себя не находил и
+    убирал правку как принятую — перемещение пропадало молча.
+    """
+    return client_uid if client_uid else f"srv:{position_id}"
+
+
+def _resolve_position(
+    db: Session, callout_id: int, position_id: int | None, client_uid: str | None
+) -> int | None:
+    """id позиции этого выезда по id либо по client_uid; None — такой нет."""
+    if position_id is not None:
+        return db.execute(
+            text("SELECT id FROM deployment_positions WHERE id = :pid AND callout_id = :cid"),
+            {"pid": position_id, "cid": callout_id},
+        ).scalar()
+    return db.execute(
+        text(
+            "SELECT id FROM deployment_positions "
+            "WHERE callout_id = :cid AND client_uid = :uid"
+        ),
+        {"cid": callout_id, "uid": client_uid},
+    ).scalar()
 
 
 # Потолок батча. Расстановка на крупном пожаре — это десятки позиций; двести
@@ -1837,23 +1955,33 @@ class SyncPatch(PositionPatch):
 # занять плохой канал на минуту.
 SYNC_MAX_ITEMS = 200
 
+SyncUid = Annotated[str, Field(min_length=1, max_length=64)]
+
 
 class DeploymentSync(BaseModel):
     """Очередь расстановки, накопленная устройством без связи.
 
     Клиент присылает не журнал жестов, а конечное состояние: позиция,
     поставленная и пять раз подвинутая без связи, приходит одним `create` с
-    итоговыми координатами. Поэтому здесь нет ни порядка операций, ни правок
-    для ещё не созданных позиций — только три независимых списка.
+    итоговыми координатами. Поэтому здесь нет порядка операций — только
+    независимые списки.
+
+    Снятие — двумя списками: `deletes` по серверному id (позиции с пульта) и
+    `delete_uids` по client_uid (позиции с плана). Второй нужен позиции, которую
+    сняли, пока её постановка была в полёте: серверного id у устройства нет, а
+    без адреса снятие висело бы в очереди вечно, пока сервер хранит позицию.
     """
 
     creates: list[SyncCreate] = Field(default_factory=list)
     patches: list[SyncPatch] = Field(default_factory=list)
     deletes: list[int] = Field(default_factory=list)
+    delete_uids: list[SyncUid] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _bounded(self) -> "DeploymentSync":
-        total = len(self.creates) + len(self.patches) + len(self.deletes)
+        total = (
+            len(self.creates) + len(self.patches) + len(self.deletes) + len(self.delete_uids)
+        )
         if total == 0:
             raise ValueError("пустая синхронизация")
         if total > SYNC_MAX_ITEMS:
@@ -1883,6 +2011,11 @@ def sync_deployment(
 
     Закрытый выезд отвергается целиком, ответом 409: силами закрытого выезда
     уже не распоряжаются, и разбирать такую очередь по одной позиции незачем.
+
+    Ключи ответа — те же, что у очереди устройства (`_sync_key`): client_uid у
+    позиций с плана, `srv:<id>` у позиций с пульта. Время постановки
+    проверяется поштучно (`_placed_at_problem`): сбитые часы отвергают позицию,
+    а не батч.
     """
     row = _fetch_callout(db, callout_id)
     if row["status"] != "active":
@@ -1892,16 +2025,23 @@ def sync_deployment(
     role = user.get("role")
     ip = client_ip(request)
     path = f"/dispatch/{callout_id}/deployment/sync"
+    now = datetime.now(timezone.utc)
     applied: list[str] = []
     rejected: list[dict] = []
+    # Только принятое и только aware — иначе min() ниже падает уже после коммита.
+    placed: list[datetime] = []
     # Аудит пишется своим соединением, поэтому события копятся и уходят после
     # коммита: запись о позиции, которую откатили, хуже отсутствия записи.
     events: list[tuple[str, dict]] = []
 
     for item in body.creates:
+        problem = _placed_at_problem(item.placed_at, row["created_at"], now)
+        if problem:
+            rejected.append({"key": item.client_uid, "reason": problem})
+            continue
         try:
             with db.begin_nested():
-                new_id = _insert_position(db, callout_id, item, username)
+                position_id, state = _upsert_position(db, callout_id, item, username)
         except HTTPException as err:
             rejected.append({"key": item.client_uid, "reason": str(err.detail)})
             continue
@@ -1909,21 +2049,36 @@ def sync_deployment(
             rejected.append({"key": item.client_uid, "reason": "Позиция не записана"})
             continue
         applied.append(item.client_uid)
-        # new_id is None — эту позицию уже приняли в прошлый раз, и запись о
-        # ней в журнале есть; второй раз она бы выглядела как второй ствол.
-        if new_id is not None:
+        if item.placed_at is not None:
+            placed.append(item.placed_at)
+        if state == "inserted":
             events.append((
                 "callout.deployment_added",
-                {"callout_id": callout_id, "position_id": new_id, "kind": item.kind,
-                 "phase": item.phase, "via": "sync",
+                {"callout_id": callout_id, "position_id": position_id, "kind": item.kind,
+                 "phase": item.phase, "via": "sync", "client_uid": item.client_uid,
                  "placed_at": _iso(item.placed_at)},
             ))
+        elif state == "updated":
+            # Повтор постановки с другой точкой: ответ на первую отправку
+            # потерялся, а позицию успели передвинуть. Для разбора выезда это
+            # перемещение, а не вторая постановка.
+            events.append((
+                "callout.deployment_moved",
+                {"callout_id": callout_id, "position_id": position_id, "via": "sync",
+                 "client_uid": item.client_uid, "replay": True,
+                 "fields": ["floor", "heading", "phase", "plan_x", "plan_y"]},
+            ))
+        # "unchanged" — позицию уже приняли в прошлый раз, запись о ней в
+        # журнале есть; второй раз она выглядела бы как второй ствол.
 
     for patch in body.patches:
-        key = f"srv:{patch.id}"
+        key = _sync_key(patch.client_uid, patch.id)
         try:
             with db.begin_nested():
-                found = _update_position_row(db, callout_id, patch.id, patch)
+                position_id = _resolve_position(db, callout_id, patch.id, patch.client_uid)
+                found = position_id is not None and _update_position_row(
+                    db, callout_id, position_id, patch
+                )
         except SQLAlchemyError:
             rejected.append({"key": key, "reason": "Правка не применена"})
             continue
@@ -1933,8 +2088,9 @@ def sync_deployment(
         applied.append(key)
         events.append((
             "callout.deployment_moved",
-            {"callout_id": callout_id, "position_id": patch.id, "via": "sync",
-             "fields": sorted(patch.model_fields_set - {"id"})},
+            {"callout_id": callout_id, "position_id": position_id, "via": "sync",
+             "client_uid": patch.client_uid,
+             "fields": sorted(patch.model_fields_set - {"id", "client_uid"})},
         ))
 
     for position_id in body.deletes:
@@ -1959,6 +2115,29 @@ def sync_deployment(
                 {"callout_id": callout_id, "position_id": position_id, "via": "sync"},
             ))
 
+    for uid in body.delete_uids:
+        try:
+            with db.begin_nested():
+                deleted = db.execute(
+                    text(
+                        "DELETE FROM deployment_positions "
+                        "WHERE callout_id = :cid AND client_uid = :uid RETURNING id"
+                    ),
+                    {"cid": callout_id, "uid": uid},
+                ).scalar()
+        except SQLAlchemyError:
+            rejected.append({"key": uid, "reason": "Позиция не снята"})
+            continue
+        # Позиции с таким client_uid нет: её уже сняли или постановка до
+        # сервера так и не дошла. В обоих случаях цель снятия достигнута.
+        applied.append(uid)
+        if deleted is not None:
+            events.append((
+                "callout.deployment_removed",
+                {"callout_id": callout_id, "position_id": deleted, "via": "sync",
+                 "client_uid": uid},
+            ))
+
     db.commit()
 
     for action, detail in events:
@@ -1974,7 +2153,6 @@ def sync_deployment(
         )
     # Сводка отдельной записью: по ней в разборе видно, сколько времени
     # расстановка велась вслепую и что из неё не дошло.
-    placed = [c.placed_at for c in body.creates if c.placed_at is not None]
     audit(
         action="callout.deployment_synced",
         username=username,
