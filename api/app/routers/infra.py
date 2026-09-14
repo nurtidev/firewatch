@@ -21,7 +21,7 @@ from app.coverage import (
     stations_total as _stations_total,
 )
 from app.db import get_db
-from app.routers.auth import require_roles
+from app.routers.auth import current_user, require_roles
 
 router = APIRouter(
     prefix="/infra",
@@ -217,9 +217,28 @@ def coverage(db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/routing/health")
-def routing_health() -> dict:
-    """Состояние дорожного роутера — видно, на чём считается покрытие."""
-    return {**routing.health(), "time_factor": settings.routing_time_factor}
+def routing_health(user: dict = Depends(current_user)) -> dict:
+    """Состояние дорожного роутера — видно, на чём считается покрытие.
+
+    Сырой текст ошибки OSRM (адрес внутреннего хоста, трассировка) видит
+    только admin; остальным ролям, включая акимат, — обобщённое сообщение.
+    Подробность остаётся в логе (routing.health).
+    """
+    return {
+        **public_routing_health(routing.health(), user.get("role")),
+        "time_factor": settings.routing_time_factor,
+    }
+
+
+def public_routing_health(health: dict, role: str | None) -> dict:
+    if role == "admin" or health.get("ok"):
+        return health
+    generic = (
+        "Дорожный роутер не отвечает"
+        if health.get("configured")
+        else "Дорожный роутер не настроен"
+    )
+    return {**health, "detail": generic}
 
 
 @router.get("/routing/calibration")

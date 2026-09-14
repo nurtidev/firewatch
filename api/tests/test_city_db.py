@@ -255,6 +255,39 @@ def test_denormalized_districts_follow_the_building_or_the_point(client):
     assert _scalar("SELECT district FROM operational_cards WHERE id = :i", i=client.card_id) == second
 
 
+def test_report_without_building_gets_district_of_its_point_at_write_time(client):
+    """Район донесения фиксируется при записи по точке, а не по автору: у
+    диспетчера района нет, и раньше донесение не попадало ни в одну очередь,
+    пока seed_districts не перенесёт его при следующем деплое."""
+    from app.db import engine
+    from scripts import seed_districts
+
+    target = client.names[2]
+    lon, lat = _scalar(
+        "SELECT ST_X(ST_PointOnSurface(geom)) FROM districts WHERE name = :n", n=target
+    ), _scalar("SELECT ST_Y(ST_PointOnSurface(geom)) FROM districts WHERE name = :n", n=target)
+    h = _login(client, "dispatcher")
+    r = client.post(
+        "/reports",
+        headers=h,
+        json={"category": "other", "description": "Проезд перекрыт шлагбаумом без ключа",
+              "lat": lat, "lng": lon},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["district"] == target
+    # Вне всех полигонов — ближайший район, тоже сразу.
+    r = client.post(
+        "/reports",
+        headers=h,
+        json={"category": "other", "description": "Проезд перекрыт шлагбаумом без ключа",
+              "lat": _OUTSIDE[1], "lng": _OUTSIDE[0]},
+    )
+    assert r.json()["district"] in client.names
+    # И сид после этого не переносит ни одно из них.
+    with engine.begin() as conn:
+        assert seed_districts.propagate_field_reports(conn) == 0
+
+
 def test_seed_districts_second_run_changes_nothing(client):
     from app.db import engine
     from scripts import seed_districts
@@ -266,12 +299,39 @@ def test_seed_districts_second_run_changes_nothing(client):
 
 
 def test_demo_inspector_and_registry_row_live_in_esil():
-    assert _scalar("SELECT district FROM users WHERE username = 'inspector'") == "Есильский"
-    registry = _scalar(
-        "SELECT i.district FROM inspectors i JOIN users u ON u.id = i.user_id "
-        "WHERE u.username = 'inspector'"
-    )
-    assert registry in (None, "Есильский")  # строка реестра может быть не заведена
+    """Самодостаточно: от любого состояния базы seed_users переводит демо-инспектора
+    и связанную с ним строку реестра в Есильский."""
+    from app.db import engine
+    from scripts import seed_users
+
+    seed_users.main()
+    created = None
+    with engine.begin() as conn:
+        uid = conn.execute(text("SELECT id FROM users WHERE username = 'inspector'")).scalar()
+        row = conn.execute(
+            text("SELECT id FROM inspectors WHERE user_id = :u"), {"u": uid}
+        ).scalar()
+        if row is None:
+            row = created = conn.execute(
+                text(
+                    "INSERT INTO inspectors (name, district, user_id) "
+                    "VALUES ('Город · демо-инспектор', 'Сарыаркинский', :u) RETURNING id"
+                ),
+                {"u": uid},
+            ).scalar()
+        # Состояние «до»: учётка и её строка реестра в старом районе.
+        conn.execute(text("UPDATE users SET district = 'Сарыаркинский' WHERE id = :u"), {"u": uid})
+        conn.execute(
+            text("UPDATE inspectors SET district = 'Сарыаркинский' WHERE id = :i"), {"i": row}
+        )
+    try:
+        seed_users.main()
+        assert _scalar("SELECT district FROM users WHERE username = 'inspector'") == "Есильский"
+        assert _scalar("SELECT district FROM inspectors WHERE id = :i", i=row) == "Есильский"
+    finally:
+        if created is not None:
+            with engine.begin() as conn:
+                conn.execute(text("DELETE FROM inspectors WHERE id = :i"), {"i": created})
 
 
 # --- /city/summary --------------------------------------------------------------
@@ -304,7 +364,12 @@ def test_summary_district_sums_equal_city_totals(client):
     assert town["bands"] == {"critical": 5, "high": 5, "elevated": 0, "low": 5}
     assert (town["stations_total"], town["hydrants_total"], town["hydrants_broken"]) == (1, 2, 1)
     assert town["callouts_90d"] == 2
-    assert town["median_arrival_min"] == 7.0
+    # Ход 6 и 8 мин; регистрация → прибытие на минуту больше (выезд через 1 мин).
+    assert town["median_travel_min"] == 7.0
+    assert town["median_response_min"] == 8.0
+    assert "median_arrival_min" not in town
+    assert body["response_method"] == city.RESPONSE_METHOD
+    assert body["travel_method"] == city.TRAVEL_METHOD
     assert town["open_prescriptions"] == 1
 
     by_name = {d["name"]: d for d in districts}
@@ -312,7 +377,9 @@ def test_summary_district_sums_equal_city_totals(client):
     # Первый район: гидрант рядом и часть рядом — ни одного «здания внимания».
     assert by_name[first]["attention_buildings"] == 0
     assert by_name[first]["rank"] == 5
-    assert by_name[first]["median_arrival_min"] == 7.0
+    assert by_name[first]["median_travel_min"] == 7.0
+    assert by_name[first]["median_response_min"] == 8.0
+    assert by_name[second]["median_response_min"] is None
     # Остальные: 70 и 45 без исправного гидранта в 800 м.
     assert all(by_name[n]["attention_buildings"] == 2 for n in client.names[1:])
     assert by_name[second]["hydrants_broken"] == 1
@@ -347,8 +414,19 @@ def test_districts_geojson_matches_summary(client):
                               "attention_buildings", "buildings_total"}
         assert (props["rank"], props["attention_buildings"], props["buildings_total"]) == expected[props["name"]]
         assert feature["geometry"]["type"] in ("Polygon", "MultiPolygon")
-    # Упрощённые полигоны заметно легче исходного файла (179 КБ).
-    assert len(r.content) < 120_000
+    # Контуры не упрощаются (упрощение по отдельности рвёт общие границы):
+    # число вершин совпадает с таблицей.
+    vertices = sum(
+        len(ring)
+        for f in fc["features"]
+        for poly in (
+            [f["geometry"]["coordinates"]]
+            if f["geometry"]["type"] == "Polygon"
+            else f["geometry"]["coordinates"]
+        )
+        for ring in poly
+    )
+    assert vertices == _scalar("SELECT sum(ST_NPoints(geom)) FROM districts")
 
 
 # --- /city/priorities ------------------------------------------------------------

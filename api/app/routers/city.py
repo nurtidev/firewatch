@@ -38,14 +38,16 @@ from app.districts import district_of
 from app.routers.auth import require_roles
 from app.routers.buildings import RISK_BANDS
 
-# Акимат и руководство ведомства; admin — сопровождение. Скоупленные роли ДЧС
-# (inspector/supervisor) и боевые роли сюда не входят: у них свои экраны.
-CITY_ROLES = ("akimat", "leadership", "admin")
+# Кто читает /city: акимат и руководство ведомства; admin — сопровождение.
+# Скоупленные роли ДЧС (inspector/supervisor) и боевые роли сюда не входят: у
+# них свои экраны. Не путать с auth.CITY_ROLES — это назначаемые роли
+# городского трека (только akimat).
+CITY_API_ROLES = ("akimat", "leadership", "admin")
 
 router = APIRouter(
     prefix="/city",
     tags=["city"],
-    dependencies=[Depends(require_roles(*CITY_ROLES))],
+    dependencies=[Depends(require_roles(*CITY_API_ROLES))],
 )
 
 # Данные пилота демонстрационные, пока ДЧС не передал реальные.
@@ -57,8 +59,6 @@ CELL_M = 500
 # UTM 42N: метрическая сетка для Астаны (≈71.4° в. д. — зона 42, 66–72° в. д.).
 GRID_SRID = 32642
 CALLOUT_WINDOW_DAYS = 90
-# ~15–20 м на широте Астаны: форма района читается, полезная нагрузка мала.
-SIMPLIFY_DEG = 0.0002
 PRIORITIES_MAX = 50
 
 # Полосы ответа /city ↔ ключи RISK_BANDS (в /buildings средняя полоса — `mid`).
@@ -72,9 +72,19 @@ SUMMARY_METHOD = (
     f"Внимание = здания с оценкой ≥{HIGH_MIN_SCORE} в слепой зоне прибытия "
     f"ИЛИ без исправного гидранта в {coverage.HYDRANT_RADIUS_M} м"
 )
-ARRIVAL_METHOD = (
+# Два разных времени — и оба нужны: норматив прибытия (normative_min, 10 мин)
+# отсчитывается от приёма вызова, поэтому сравнивать с ним можно только
+# `median_response_min`; `median_travel_min` — чистый ход машины, он сопоставим
+# с зоной прибытия по дорогам. Определение времени реагирования совпадает с
+# /dispatch/stats (регистрация → прибытие), окно — городское, 90 дней.
+RESPONSE_METHOD = (
+    "Медиана времени реагирования: от регистрации вызова до отметки «прибытие» "
+    f"по выездам за {CALLOUT_WINDOW_DAYS} дней — сравнима с нормативом прибытия; "
+    "без отметок — нет данных"
+)
+TRAVEL_METHOD = (
     "Медиана времени хода: от отметки «выезд» до отметки «прибытие» по выездам "
-    f"за {CALLOUT_WINDOW_DAYS} дней; без отметок — нет данных"
+    f"за {CALLOUT_WINDOW_DAYS} дней — без сбора и приёма вызова; без отметок — нет данных"
 )
 PRIORITIES_METHOD = (
     f"Оценка по плотности зданий высокого риска в ячейках {CELL_M}×{CELL_M} м — "
@@ -124,8 +134,13 @@ def _blank() -> dict:
         "scored": 0,
         "score_sum": 0,
         "bands": {k: 0 for k, _ in BAND_KEYS},
+        "median_response_sec": None,
         "median_travel_sec": None,
     }
+
+
+def _minutes(seconds: float | None) -> float | None:
+    return round(seconds / 60.0, 1) if seconds is not None else None
 
 
 def _merge_buildings(acc: dict, row: dict) -> None:
@@ -140,7 +155,6 @@ def _merge_buildings(acc: dict, row: dict) -> None:
 def _finalize(acc: dict) -> tuple[dict, float | None]:
     total = acc["buildings_total"]
     avg = acc["score_sum"] / acc["scored"] if acc["scored"] else None
-    median = acc["median_travel_sec"]
     metrics = {
         "buildings_total": total,
         "avg_score": round_half_up(avg),
@@ -154,7 +168,10 @@ def _finalize(acc: dict) -> tuple[dict, float | None]:
         "stations_total": acc["stations_total"],
         "open_prescriptions": acc["open_prescriptions"],
         "callouts_90d": acc["callouts_90d"],
-        "median_arrival_min": round(median / 60.0, 1) if median is not None else None,
+        # Регистрация вызова → прибытие (сравнимо с нормативом, см. RESPONSE_METHOD).
+        "median_response_min": _minutes(acc["median_response_sec"]),
+        # Выезд → прибытие, чистый ход (см. TRAVEL_METHOD).
+        "median_travel_min": _minutes(acc["median_travel_sec"]),
     }
     return metrics, avg
 
@@ -217,6 +234,7 @@ def assemble_summary(
             continue
         for key in _POINT_FIELDS:
             target[key] += int(row[key])
+        target["median_response_sec"] = row["median_response_sec"]
         target["median_travel_sec"] = row["median_travel_sec"]
 
     for row in prescription_rows:
@@ -353,13 +371,20 @@ def _point_rows(db: Session) -> list[dict]:
             f"""
             WITH pts AS (
                 SELECT 'station' AS kind, s.geom, NULL::text AS status,
+                       NULL::double precision AS response_sec,
                        NULL::double precision AS travel_sec
                   FROM fire_stations s
                 UNION ALL
-                SELECT 'hydrant', h.geom, h.status, NULL::double precision
+                SELECT 'hydrant', h.geom, h.status, NULL::double precision,
+                       NULL::double precision
                   FROM hydrants h
                 UNION ALL
                 SELECT 'callout', c.geom, NULL::text,
+                       -- Регистрация → прибытие (как median_response_sec в /dispatch/stats).
+                       CASE WHEN c.arrived_at > c.created_at
+                            THEN EXTRACT(EPOCH FROM (c.arrived_at - c.created_at))::double precision
+                       END,
+                       -- Выезд → прибытие: чистый ход.
                        CASE WHEN c.dispatched_at IS NOT NULL
                              AND c.arrived_at > c.dispatched_at
                             THEN EXTRACT(EPOCH FROM (c.arrived_at - c.dispatched_at))::double precision
@@ -368,7 +393,8 @@ def _point_rows(db: Session) -> list[dict]:
                  WHERE c.created_at >= now() - make_interval(days => :days)
             ),
             placed AS (
-                SELECT p.kind, p.status, p.travel_sec, {district_of("p.geom")} AS district
+                SELECT p.kind, p.status, p.response_sec, p.travel_sec,
+                       {district_of("p.geom")} AS district
                   FROM pts p
             )
             SELECT district,
@@ -377,6 +403,8 @@ def _point_rows(db: Session) -> list[dict]:
                    count(*) FILTER (WHERE kind = 'hydrant') AS hydrants_total,
                    count(*) FILTER (WHERE kind = 'hydrant' AND status = 'broken') AS hydrants_broken,
                    count(*) FILTER (WHERE kind = 'callout') AS callouts_90d,
+                   percentile_cont(0.5) WITHIN GROUP (ORDER BY response_sec)
+                       FILTER (WHERE kind = 'callout') AS median_response_sec,
                    percentile_cont(0.5) WITHIN GROUP (ORDER BY travel_sec)
                        FILTER (WHERE kind = 'callout') AS median_travel_sec
               FROM placed
@@ -539,7 +567,8 @@ def summary(db: Session = Depends(get_db)) -> dict:
     return {
         **_envelope(db),
         "method": SUMMARY_METHOD,
-        "arrival_method": ARRIVAL_METHOD,
+        "response_method": RESPONSE_METHOD,
+        "travel_method": TRAVEL_METHOD,
         "normative_min": settings.arrival_normative_min,
         "hydrant_radius_m": coverage.HYDRANT_RADIUS_M,
         "callout_window_days": CALLOUT_WINDOW_DAYS,
@@ -555,13 +584,15 @@ def districts_geojson(db: Session = Depends(get_db)) -> dict:
     """Полигоны районов для хороплета: ранг и «здания внимания» из той же сводки."""
     _without_jit(db)
     by_name = {d["name"]: d for d in _summary_data(db)["districts"]}
+    # Без упрощения: ST_SimplifyPreserveTopology упрощает каждый полигон
+    # отдельно, и общие границы соседних районов расходятся — на хороплете
+    # появляются щели и наложения. Полные контуры пяти районов — десятки КБ;
+    # 6 знаков после запятой — ~10 см, точнее не нужно.
     rows = db.execute(
         text(
-            "SELECT name, name_kk, name_en, "
-            "ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom, :tol), 6) AS geom "
+            "SELECT name, name_kk, name_en, ST_AsGeoJSON(geom, 6) AS geom "
             "FROM districts ORDER BY id"
-        ),
-        {"tol": SIMPLIFY_DEG},
+        )
     ).mappings().all()
     features = [
         {

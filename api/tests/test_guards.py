@@ -335,6 +335,33 @@ def test_akimat_boundary_covers_every_route(client):
     assert AKIMAT_ALLOWED <= seen, AKIMAT_ALLOWED - seen
 
 
+# --- /infra/routing/health: сырой текст ошибки роутера — только admin ----------
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        ("akimat", "Дорожный роутер не отвечает"),
+        ("leadership", "Дорожный роутер не отвечает"),
+        ("dispatcher", "Дорожный роутер не отвечает"),
+        ("admin", "connect to http://osrm.internal:5000 refused"),
+    ],
+)
+def test_routing_health_hides_raw_error_from_non_admin(client, monkeypatch, role, expected):
+    from app import routing
+
+    monkeypatch.setattr(
+        routing,
+        "health",
+        lambda: {"configured": True, "ok": False,
+                 "detail": "connect to http://osrm.internal:5000 refused"},
+    )
+    _ROLE["value"] = role
+    body = client.get("/infra/routing/health").json()
+    assert body["ok"] is False
+    assert body["detail"] == expected
+
+
 # --- require_roles factory (pure, no app) -------------------------------------
 
 

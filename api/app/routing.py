@@ -84,8 +84,11 @@ def health() -> dict:
             timeout=REQUEST_TIMEOUT_SEC,
         )
         ok = r.status_code == 200 and r.json().get("code") == "Ok"
+        if not ok:
+            log.warning("routing: health-check не прошёл: HTTP %s %s", r.status_code, r.text[:200])
         return {"configured": True, "ok": ok, "detail": None if ok else r.text[:200]}
     except Exception as err:  # noqa: BLE001 — диагностика не должна падать
+        log.warning("routing: health-check не прошёл: %s", err)
         return {"configured": True, "ok": False, "detail": str(err)[:200]}
 
 

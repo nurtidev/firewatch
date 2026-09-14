@@ -25,6 +25,19 @@ def test_high_or_above_is_built_from_risk_bands():
     assert f"BETWEEN {city.HIGH_MIN_SCORE} AND" in RISK_BANDS["high"]
 
 
+def test_timing_definitions_name_their_endpoints():
+    assert "регистрации вызова" in city.RESPONSE_METHOD and "норматив" in city.RESPONSE_METHOD
+    assert "«выезд»" in city.TRAVEL_METHOD
+
+
+def test_city_api_roles_are_distinct_from_assignable_city_roles():
+    from app.routers import auth
+
+    assert city.CITY_API_ROLES == ("akimat", "leadership", "admin")
+    assert auth.CITY_ROLES == ("akimat",)
+    assert not hasattr(city, "CITY_ROLES")
+
+
 def test_method_strings_match_the_contract():
     assert city.SUMMARY_METHOD == (
         "Внимание = здания с оценкой ≥40 в слепой зоне прибытия "
@@ -119,7 +132,7 @@ def _buildings(district, total, scored, score_sum, bands, attention, blind, gap)
     }
 
 
-def _points(district, stations, hydrants, broken, callouts, median, is_total=False):
+def _points(district, stations, hydrants, broken, callouts, travel, response=None, is_total=False):
     return {
         "district": district,
         "is_total": is_total,
@@ -127,7 +140,8 @@ def _points(district, stations, hydrants, broken, callouts, median, is_total=Fal
         "hydrants_total": hydrants,
         "hydrants_broken": broken,
         "callouts_90d": callouts,
-        "median_travel_sec": median,
+        "median_response_sec": response,
+        "median_travel_sec": travel,
     }
 
 
@@ -138,10 +152,10 @@ BUILDINGS = [
     _buildings("Гамма", 5, 0, 0, (0, 0, 0, 0), 0, 5, 5),
 ]
 POINTS = [
-    _points("Альфа", 2, 30, 2, 5, 420.0),
+    _points("Альфа", 2, 30, 2, 5, 420.0, response=540.0),
     _points("Бета", 0, 10, 1, 0, None),
-    _points("Гамма", 1, 0, 0, 1, 600.0),
-    _points(None, 3, 40, 3, 6, 450.0, is_total=True),
+    _points("Гамма", 1, 0, 0, 1, 600.0, response=None),
+    _points(None, 3, 40, 3, 6, 450.0, response=555.0, is_total=True),
 ]
 PRESCRIPTIONS = [{"district": "Бета", "open_prescriptions": 4}]
 
@@ -164,12 +178,19 @@ def test_summary_metrics_are_derived_honestly():
     by_name = {d["name"]: d for d in out["districts"]}
     assert by_name["Альфа"]["avg_score"] == 50
     assert by_name["Альфа"]["blind_pct"] == 50.0
-    assert by_name["Альфа"]["median_arrival_min"] == 7.0
+    assert by_name["Альфа"]["median_travel_min"] == 7.0
+    assert by_name["Альфа"]["median_response_min"] == 9.0
     # Нет оценённых зданий / нет отметок времени — «нет данных», а не ноль.
     assert by_name["Гамма"]["avg_score"] is None
-    assert by_name["Бета"]["median_arrival_min"] is None
-    # Медиана города — из строки итога, а не среднее медиан районов.
-    assert out["city"]["median_arrival_min"] == 7.5
+    assert by_name["Бета"]["median_travel_min"] is None
+    assert by_name["Бета"]["median_response_min"] is None
+    # Ход есть, а время регистрации → прибытия не посчитано — поля независимы.
+    assert by_name["Гамма"]["median_travel_min"] == 10.0
+    assert by_name["Гамма"]["median_response_min"] is None
+    # Медианы города — из строки итога, а не среднее медиан районов.
+    assert out["city"]["median_travel_min"] == 7.5
+    assert out["city"]["median_response_min"] == 9.2
+    assert all("median_arrival_min" not in d for d in [out["city"], *out["districts"]])
     assert out["city"]["avg_score"] == 37  # 1040 / 28 = 37.1
     assert out["city"]["open_prescriptions"] == 4
 
