@@ -8,6 +8,7 @@ from app.access import enforce_building_scope, has_full_access
 from app.auth import create_token, decode_token, hash_password, verify_password
 from app.chat import ChatError, validate_sql
 from app.routers.forces import ForcesRequest, calc
+from app.routers.infra import _resolve_coverage_source
 from app.routers.routes import (
     VisitRequest,
     Violation,
@@ -229,7 +230,9 @@ def test_calibration_drops_broken_marks(monkeypatch):
     """Отметка, проставленная задним числом, не должна двигать коэффициент."""
     monkeypatch.setattr(R.settings, "routing_url", "http://osrm:5000")
     monkeypatch.setattr(
-        R, "route", lambda a, b: R.RouteResult(distance_m=5000, duration_s=300, geometry=None)
+        R,
+        "route",
+        lambda a, b, timeout=None: R.RouteResult(distance_m=5000, duration_s=300, geometry=None),
     )
     p = R.Point(71.4, 51.1)
     samples = [
@@ -247,7 +250,7 @@ def test_calibration_drops_broken_marks(monkeypatch):
 
 def test_calibration_without_samples_suggests_nothing(monkeypatch):
     monkeypatch.setattr(R.settings, "routing_url", "http://osrm:5000")
-    monkeypatch.setattr(R, "route", lambda a, b: None)
+    monkeypatch.setattr(R, "route", lambda a, b, timeout=None: None)
     out = R.calibration([(R.Point(71.4, 51.1), R.Point(71.5, 51.2), 300.0)])
     assert out["samples"] == 0
     assert out["suggested_factor"] is None
@@ -263,7 +266,7 @@ def test_calibration_stops_at_deadline(monkeypatch):
     monkeypatch.setattr(R.settings, "routing_url", "http://osrm:5000")
     monkeypatch.setattr(R, "CALIBRATION_DEADLINE_SEC", 0.05)
 
-    def _slow_route(a, b):
+    def _slow_route(a, b, timeout=None):
         time.sleep(0.03)
         return R.RouteResult(distance_m=1000, duration_s=300, geometry=None)
 
@@ -278,12 +281,40 @@ def test_calibration_stops_at_deadline(monkeypatch):
 def test_calibration_not_truncated_within_deadline(monkeypatch):
     monkeypatch.setattr(R.settings, "routing_url", "http://osrm:5000")
     monkeypatch.setattr(
-        R, "route", lambda a, b: R.RouteResult(distance_m=1000, duration_s=300, geometry=None)
+        R,
+        "route",
+        lambda a, b, timeout=None: R.RouteResult(distance_m=1000, duration_s=300, geometry=None),
     )
     p = R.Point(71.4, 51.1)
     out = R.calibration([(p, p, 300.0), (p, p, 300.0)])
     assert out["truncated"] is False
     assert out["attempted"] == 2
+
+
+def test_calibration_clamps_per_request_timeout_to_remaining_budget(monkeypatch):
+    """Таймаут КАЖДОГО /route — min(REQUEST_TIMEOUT_SEC, остаток бюджета), а не
+    всегда полные REQUEST_TIMEOUT_SEC. Иначе один зависший запрос под конец
+    CALIBRATION_DEADLINE_SEC всё ещё способен растянуть ручку на лишние
+    REQUEST_TIMEOUT_SEC секунд сверх заявленного бюджета."""
+    monkeypatch.setattr(R.settings, "routing_url", "http://osrm:5000")
+    monkeypatch.setattr(R, "CALIBRATION_DEADLINE_SEC", 1.0)
+
+    seen_timeouts: list[float] = []
+
+    def _fake_route(a, b, timeout=None):
+        seen_timeouts.append(timeout)
+        return R.RouteResult(distance_m=1000, duration_s=300, geometry=None)
+
+    monkeypatch.setattr(R, "route", _fake_route)
+    p = R.Point(71.4, 51.1)
+    R.calibration([(p, p, 300.0), (p, p, 300.0)])
+
+    assert seen_timeouts, "route() должен был быть вызван хотя бы раз"
+    for t in seen_timeouts:
+        # Бюджет — 1с на всю калибровку; ни один отдельный запрос не должен
+        # получить полный REQUEST_TIMEOUT_SEC=20с — иначе клэмпинга нет.
+        assert 0 < t <= 1.0
+        assert t <= R.REQUEST_TIMEOUT_SEC
 
 
 # --- дорожная маршрутизация: сетка для матрицы /table ------------------------
@@ -330,10 +361,35 @@ def test_reachable_points_thins_grid_quadratically(monkeypatch):
     # Тот же радиус сетки, что rebuild_coverage берёт для реального норматива
     # (полуторный от coverage_radius_m=3500) — на шаге 100 м сырая сетка в разы
     # больше MAX_GRID_POINTS, прореживание обязано сработать.
-    points = R.reachable_points(R.Point(71.43, 51.13), seconds=600, radius_m=5250)
+    result = R.reachable_points(R.Point(71.43, 51.13), seconds=600, radius_m=5250)
 
-    assert points is not None
+    assert result is not None
+    points, eff_step = result
     assert captured["n"] <= R.MAX_GRID_POINTS + 1  # +1 — сам центр
+    # Прореживание сработало — значит, эффективный шаг обязан быть КРУПНЕЕ
+    # настроенного: rebuild_coverage рисует круги радиусом eff_step*0.75, и
+    # если бы он использовал настроенный шаг (100 м) вместо фактического, на
+    # прореженной сетке между кругами остались бы дыры (item 4).
+    assert eff_step > 100
+
+
+def test_reachable_points_returns_configured_step_without_thinning(monkeypatch):
+    """Без прореживания (достаточно крупный шаг) эффективный шаг не должен
+    отличаться от настроенного — иначе rebuild_coverage рисовал бы круги
+    крупнее нужного и без надобности раздувал бы зону."""
+    monkeypatch.setattr(R.settings, "routing_url", "http://osrm:5000")
+    monkeypatch.setattr(R.settings, "routing_grid_step_m", 400)
+
+    def _fake_get(url, params=None, timeout=None):
+        coords = _coords_from_table_url(url)
+        return _FakeTableResp(len(coords))
+
+    monkeypatch.setattr(R.httpx, "get", _fake_get)
+
+    result = R.reachable_points(R.Point(71.43, 51.13), seconds=600, radius_m=1000)
+    assert result is not None
+    _points, eff_step = result
+    assert eff_step == 400
 
 
 def test_reachable_points_rounds_coordinates(monkeypatch):
@@ -355,3 +411,45 @@ def test_reachable_points_rounds_coordinates(monkeypatch):
         for s in (lng_s, lat_s):
             frac = s.split(".")[1] if "." in s else ""
             assert len(frac) <= 6, f"координата не округлена: {s}"
+
+
+# --- infra: единый источник coverage_source (osrm/buffer/mixed) -------------
+#
+# /infra/stats, /infra/coverage и /infra/blind-zones раньше каждая по-своему
+# решала, что показать пользователю про источник зоны покрытия — только
+# /stats вообще выставляла coverage_source, и только "osrm"/"buffer", без
+# "mixed". _resolve_coverage_source — теперь единственное место, где эта
+# логика написана; ручки лишь передают в неё счётчики. Здесь — чистая
+# функция от чисел, без БД: проверяет все комбинации разом.
+
+
+def test_coverage_source_buffer_when_no_stations():
+    assert _resolve_coverage_source(total=0, missing=0, stale=0) == "buffer"
+
+
+def test_coverage_source_buffer_when_all_missing():
+    assert _resolve_coverage_source(total=5, missing=5, stale=0) == "buffer"
+
+
+def test_coverage_source_buffer_when_missing_exceeds_total():
+    # Не должно случаться в реальных данных, но функция не должна падать —
+    # >= в сравнении, а не ==, специально ради этого.
+    assert _resolve_coverage_source(total=3, missing=4, stale=0) == "buffer"
+
+
+def test_coverage_source_osrm_when_all_fresh():
+    assert _resolve_coverage_source(total=5, missing=0, stale=0) == "osrm"
+
+
+def test_coverage_source_mixed_when_some_missing():
+    assert _resolve_coverage_source(total=5, missing=2, stale=0) == "mixed"
+
+
+def test_coverage_source_mixed_when_some_stale_even_if_none_missing():
+    # Все части хотя бы раз посчитаны (missing=0), но часть — устарела: это
+    # всё ещё смешанная картина, не "osrm" — карта не вся свежая по дорогам.
+    assert _resolve_coverage_source(total=4, missing=0, stale=1) == "mixed"
+
+
+def test_coverage_source_mixed_when_both_missing_and_stale():
+    assert _resolve_coverage_source(total=5, missing=1, stale=1) == "mixed"

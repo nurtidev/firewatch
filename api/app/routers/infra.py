@@ -128,6 +128,68 @@ def _stations_total(db: Session) -> int:
     return db.execute(text("SELECT count(*) FROM fire_stations")).scalar() or 0
 
 
+# Порог, на который изохрона части должна отстать от самой свежей в таблице,
+# чтобы считаться устаревшей, а не просто «пересчитана на пару секунд раньше
+# остальных в том же проходе». rebuild_coverage проходит по ВСЕМ частям одним
+# запросом — матрица на часть считается десятки миллисекунд (см. routing.py),
+# так что полностью успешный проход укладывается в секунды, даже для города с
+# несколькими десятками частей. Пятиминутный запас с большим отрывом отделяет
+# «тот же проход» от «эта часть не пересчиталась в последнем проходе, потому
+# что тогда для неё не ответил OSRM» — а перерасчёт запускается вручную и
+# редко (см. миграцию 0022), так что «устаревшая» изохрона обычно старше на
+# часы или дни, не на минуты.
+_STALE_AFTER = "interval '5 minutes'"
+
+
+def _stations_stale_isochrones(db: Session, seconds: int) -> list[dict]:
+    """Части, чья изохрона заметно отстала от самой свежей в таблице.
+
+    rebuild_coverage больше не удаляет изохрону части при неудачном
+    пересчёте (см. rebuild_coverage) — она остаётся как была, и её
+    `computed_at` не сдвигается. На фоне частей, обновившихся в этом же
+    проходе, такая изохрона выделяется разрывом в `computed_at` — это и есть
+    признак «устарела», без отдельного флага в схеме (см. миграцию 0022:
+    там только `computed_at`, `source`, `points`).
+    """
+    return db.execute(
+        text(
+            f"""
+            SELECT s.id, s.name
+              FROM fire_stations s
+              JOIN station_isochrones i
+                ON i.station_id = s.id AND i.seconds = :sec
+             WHERE i.computed_at < (
+                 SELECT max(computed_at) FROM station_isochrones WHERE seconds = :sec
+             ) - {_STALE_AFTER}
+            """
+        ),
+        {"sec": seconds},
+    ).mappings().all()
+
+
+def _resolve_coverage_source(total: int, missing: int, stale: int = 0) -> str:
+    """Единственный источник значения `coverage_source` для /stats, /coverage
+    и /blind-zones — иначе три ручки неизбежно разъедутся в трактовке.
+
+    Чистая функция от счётчиков, без запроса к БД — так её тривиально
+    проверить юнит-тестом на все комбинации, не поднимая PostGIS.
+
+    • "buffer" — по дорогам не посчитана НИ ОДНА часть (`missing >= total`,
+      включая вырожденный случай `total == 0`): вся карта — прямолинейные
+      круги, и это касается всего города одинаково.
+    • "osrm" — у каждой части есть изохрона, и ни одна не устарела: вся
+      карта — по дорогам.
+    • "mixed" — где-то по дорогам, где-то нет (часть частей без изохроны)
+      или не свежо (часть — с устаревшей изохроной): единого утверждения
+      про весь город сделать нельзя, выдача покрывает оба случая сразу.
+    """
+    if total <= 0 or missing >= total:
+        return "buffer"
+    if missing == 0 and stale == 0:
+        return "osrm"
+    return "mixed"
+
+
 @router.get("/coverage")
 def coverage(db: Session = Depends(get_db)) -> dict:
     """Зона прибытия каждой части под норматив (10 минут в городе).
@@ -193,8 +255,18 @@ def coverage(db: Session = Depends(get_db)) -> dict:
                 ]
             )
 
-        fc["approximate"] = bool(missing)
+        # Устаревшая изохрона (см. rebuild_coverage) уже нарисована выше как
+        # часть основного запроса — это настоящая, дорожная геометрия, просто
+        # не пересчитанная в последнем проходе. Здесь она только считается,
+        # чтобы coverage_source и approximate знали о ней.
+        stale = _stations_stale_isochrones(db, seconds)
+
+        fc["approximate"] = bool(missing) or bool(stale)
         fc["stations_missing_isochrones"] = len(missing)
+        fc["stations_stale_isochrones"] = len(stale)
+        fc["coverage_source"] = _resolve_coverage_source(
+            _stations_total(db), len(missing), len(stale)
+        )
         fc["normative_sec"] = seconds
         # Роутер считает по свободному потоку: заторы, гололёд и разъезд во
         # дворе в это время не входят. Зона по дорогам точнее круга по форме
@@ -216,6 +288,8 @@ def coverage(db: Session = Depends(get_db)) -> dict:
     fc = _fc(rows, "geom", lambda r: {"name": r["name"], "source": "buffer"})
     fc["approximate"] = True  # straight-line buffer, not a road isochrone
     fc["stations_missing_isochrones"] = _stations_total(db)
+    fc["stations_stale_isochrones"] = 0
+    fc["coverage_source"] = "buffer"
     fc["normative_sec"] = seconds
     return fc
 
@@ -280,8 +354,13 @@ def routing_calibration(
     result = routing.calibration(samples)
     result["days"] = days
     # Меньше десяти выездов — это не статистика, а несколько случаев;
-    # предлагать по ним коэффициент для всего города нельзя.
-    result["enough_data"] = result["samples"] >= 10
+    # предлагать по ним коэффициент для всего города нельзя. А при
+    # `truncated` калибровка не дошла до конца списка (оборвалась по
+    # дедлайну) — обработанные выезды всегда самые свежие (ORDER BY
+    # created_at DESC), то есть не случайная выборка по всему запрошенному
+    # периоду `days`, и даже 10+ таких ratio не повод предлагать коэффициент
+    # для всего города как окончательный.
+    result["enough_data"] = result["samples"] >= 10 and not result["truncated"]
     return result
 
 
@@ -306,11 +385,23 @@ def rebuild_coverage(
     if not routing.is_configured():
         raise HTTPException(503, "Дорожный роутер не настроен (FW_ROUTING_URL)")
 
+    # OSRM недоступен целиком — проверяем ДО цикла и ничего не трогаем. Раньше
+    # неудачный пересчёт станции удалял её изохрону (см. историю ниже), а при
+    # упавшем OSRM это происходило для КАЖДОЙ части подряд — весь город тихо
+    # откатывался на прямолинейные круги, которые завышают покрытие сильнее,
+    # чем устаревшая, но настоящая зона по дорогам. Явный отказ здесь честнее
+    # молчаливой деградации всего города в опасную сторону.
+    health = routing.health()
+    if not health["ok"]:
+        raise HTTPException(
+            503,
+            f"Дорожный роутер недоступен: {health.get('detail') or 'нет ответа'}",
+        )
+
     seconds = _normative_seconds()
     # Радиус сетки с запасом: по дорогам путь всегда длиннее прямой, но не в
     # разы — полуторный радиус покрывает объезды, не раздувая матрицу.
     grid_radius_m = int(settings.coverage_radius_m * 1.5)
-    step = max(100, settings.routing_grid_step_m)
 
     stations = db.execute(
         text("SELECT id, name, ST_Y(geom) AS lat, ST_X(geom) AS lng FROM fire_stations")
@@ -318,28 +409,26 @@ def rebuild_coverage(
 
     built, failed = 0, []
     for st in stations:
-        points = routing.reachable_points(
+        result = routing.reachable_points(
             routing.Point(lng=st["lng"], lat=st["lat"]),
             seconds=seconds,
             radius_m=grid_radius_m,
         )
-        if not points:
+        if result is None or not result[0]:
             failed.append(st["name"])
-            # Не оставляем прошлую изохрону висеть как будто актуальную:
-            # /coverage, /blind-zones и /stats отличают «зона посчитана» от
-            # «нет строки» и сами подставляют буфер для второго случая —
-            # это тот же честный фолбэк, что и для новой части, у которой
-            # изохроны никогда не было. Простое удаление (а не новый флаг
-            # is_stale в схеме) переиспользует этот путь, а не добавляет
-            # второй источник правды о свежести данных.
-            db.execute(
-                text(
-                    "DELETE FROM station_isochrones WHERE station_id = :sid AND seconds = :sec"
-                ),
-                {"sid": st["id"], "sec": seconds},
-            )
+            # OSRM в целом жив (проверили выше), но для ЭТОЙ части запрос не
+            # удался (единичный сбой, таймаут). Прошлую изохрону НЕ удаляем —
+            # часть остаётся на последней успешной зоне по дорогам, а не
+            # откатывается на прямолинейный круг. /stats, /coverage и
+            # /blind-zones находят такую часть через
+            # _stations_stale_isochrones (её computed_at отстанет от только
+            # что пересчитанных соседей) и честно поднимают approximate —
+            # устаревшая зона по дорогам всё ещё точнее круга (не игнорирует
+            # реку и закрытые кварталы), просто не отражает последние
+            # изменения сети.
             continue
 
+        points, eff_step = result
         wkt = "MULTIPOINT(" + ",".join(f"{p.lng} {p.lat}" for p in points) + ")"
         db.execute(
             text(
@@ -367,12 +456,23 @@ def rebuild_coverage(
                        computed_at = now()
                 """
             ),
-            # Кружок чуть больше половины шага сетки: соседние точки смыкаются
-            # в сплошную зону, но зона не расползается за пределы посчитанного.
-            {"sid": st["id"], "sec": seconds, "wkt": wkt, "radius": step * 0.75,
+            # Кружок чуть больше половины шага сетки — но именно того шага,
+            # который reachable_points ФАКТИЧЕСКИ использовал для этой части
+            # (при прореживании он крупнее настроенного FW_ROUTING_GRID_STEP_M,
+            # см. routing.py). Радиус по настроенному, а не по эффективному
+            # шагу на прореженной сетке был бы меньше расстояния между
+            # соседними точками — в зоне оставались бы дыры 50–90 м.
+            {"sid": st["id"], "sec": seconds, "wkt": wkt, "radius": eff_step * 0.75,
              "n": len(points)},
         )
         built += 1
+
+    if built == 0:
+        # Нечего коммитить (ни одна INSERT/UPDATE не выполнилась) — и коммит
+        # пустой транзакции с audit-записью выглядел бы как прошедший
+        # пересчёт, хотя по факту не обновилась ни одна часть.
+        db.rollback()
+        return {"built": 0, "failed": failed, "seconds": seconds}
 
     db.commit()
 
@@ -384,8 +484,7 @@ def rebuild_coverage(
         path="/infra/coverage/rebuild",
         status_code=200,
         ip=client_ip(request),
-        detail={"stations": built, "failed": failed, "seconds": seconds,
-                "grid_step_m": step},
+        detail={"stations": built, "failed": failed, "seconds": seconds},
     )
     return {"built": built, "failed": failed, "seconds": seconds}
 
@@ -431,6 +530,7 @@ def blind_zones(db: Session = Depends(get_db)) -> dict:
     """
     seconds = _normative_seconds()
     missing = _stations_missing_isochrones(db, seconds)
+    stale = _stations_stale_isochrones(db, seconds)
     rows = db.execute(
         text(
             f"""
@@ -449,8 +549,12 @@ def blind_zones(db: Session = Depends(get_db)) -> dict:
         "geom",
         lambda r: {"id": r["id"], "address": r["address"], "score": r["score"]},
     )
-    fc["approximate"] = bool(missing)
+    fc["approximate"] = bool(missing) or bool(stale)
     fc["stations_missing_isochrones"] = len(missing)
+    fc["stations_stale_isochrones"] = len(stale)
+    fc["coverage_source"] = _resolve_coverage_source(
+        _stations_total(db), len(missing), len(stale)
+    )
     return fc
 
 
@@ -458,6 +562,7 @@ def blind_zones(db: Session = Depends(get_db)) -> dict:
 def stats(db: Session = Depends(get_db)) -> dict:
     seconds = _normative_seconds()
     missing = _stations_missing_isochrones(db, seconds)
+    stale = _stations_stale_isochrones(db, seconds)
     road = _has_isochrones(db)
     row = db.execute(
         text(
@@ -491,11 +596,14 @@ def stats(db: Session = Depends(get_db)) -> dict:
         "coverage_radius_m": settings.coverage_radius_m,
         "normative_min": settings.arrival_normative_min,
         # Приблизительно, если изохрон нет вообще (круг завышает покрытие —
-        # см. /coverage) ИЛИ они есть не у всех частей: тогда часть слепых
-        # зданий на самом деле лишь «не посчитаны», а не «недостижимы».
-        "approximate": (not road) or bool(missing),
+        # см. /coverage), ИЛИ они есть не у всех частей, ИЛИ у части —
+        # устарели (OSRM не ответил для них в последнем проходе): тогда часть
+        # слепых зданий на самом деле лишь «не посчитаны» или «посчитаны не
+        # по последней сети дорог», а не «недостижимы».
+        "approximate": (not road) or bool(missing) or bool(stale),
         "stations_missing_isochrones": len(missing),
-        "coverage_source": "osrm" if road else "buffer",
+        "stations_stale_isochrones": len(stale),
+        "coverage_source": _resolve_coverage_source(row["stations"], len(missing), len(stale)),
         "coverage_computed_at": computed_at.isoformat() if computed_at else None,
         # Оба источника завышают покрытие, но по-разному: круг — потому что
         # не знает реки и закрытых кварталов, изохрона — потому что не знает

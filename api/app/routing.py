@@ -43,8 +43,8 @@ log = logging.getLogger(__name__)
 REQUEST_TIMEOUT_SEC = 20.0
 
 # Потолок точек в одном запросе матрицы: у OSRM свой лимит (`--max-table-size`,
-# по умолчанию 100 — мы поднимаем его в compose), и большой квадрат считается
-# заметно дольше, чем полезен.
+# по умолчанию 100 — мы поднимаем его в compose до 4000, см. docker-compose.yml),
+# и большой квадрат считается заметно дольше, чем полезен.
 MAX_GRID_POINTS = 2500
 
 # Калибровка перебирает до 200 выездов последовательно, по одному /route на
@@ -97,8 +97,15 @@ class RouteResult:
     geometry: dict | None
 
 
-def route(origin: Point, dest: Point) -> RouteResult | None:
-    """Маршрут по дорогам. None — роутер не настроен или не ответил."""
+def route(
+    origin: Point, dest: Point, timeout: float = REQUEST_TIMEOUT_SEC
+) -> RouteResult | None:
+    """Маршрут по дорогам. None — роутер не настроен или не ответил.
+
+    `timeout` по умолчанию REQUEST_TIMEOUT_SEC; `calibration` передаёт остаток
+    своего общего бюджета, чтобы один зависший запрос не съел времени сверх
+    выделенного (см. CALIBRATION_DEADLINE_SEC).
+    """
     if not is_configured():
         return None
     url = (
@@ -109,7 +116,7 @@ def route(origin: Point, dest: Point) -> RouteResult | None:
         r = httpx.get(
             url,
             params={"overview": "full", "geometries": "geojson", "alternatives": "false"},
-            timeout=REQUEST_TIMEOUT_SEC,
+            timeout=timeout,
         )
         r.raise_for_status()
         data = r.json()
@@ -148,8 +155,17 @@ def _grid(center: Point, radius_m: float, step_m: float) -> list[Point]:
     return points
 
 
-def reachable_points(center: Point, seconds: float, radius_m: float) -> list[Point] | None:
+def reachable_points(
+    center: Point, seconds: float, radius_m: float
+) -> tuple[list[Point], float] | None:
     """Точки сетки, до которых от центра доезжают за `seconds`.
+
+    Возвращает `(точки, эффективный_шаг_м)`. Эффективный шаг может быть
+    крупнее настроенного `FW_ROUTING_GRID_STEP_M`: при прореживании (см.
+    выше) сетка пересчитывается с большим шагом, и вызывающий обязан рисовать
+    круги вокруг точек радиусом, связанным именно с ЭТИМ шагом — иначе на
+    прореженной сетке круги меньше расстояния между соседними точками, и в
+    зоне остаются дыры 50–90 м (см. rebuild_coverage).
 
     Возвращает None, если роутер не настроен или не ответил, — вызывающий
     откатывается на прямолинейный буфер и помечает результат приблизительным.
@@ -168,12 +184,14 @@ def reachable_points(center: Point, seconds: float, radius_m: float) -> list[Poi
         # это линейное прореживание, а нужно квадратичное. При мелком шаге
         # (< ~170 м на радиусе 3.5 км×1.5) исходная сетка в разы больше
         # MAX_GRID_POINTS, factor линейно её не догоняет, и итоговый запрос
-        # всё ещё превышает `--max-table-size` OSRM (по умолчанию 4000).
+        # всё ещё превышает лимит OSRM, который мы задаём в compose (4000; сам
+        # OSRM по умолчанию ограничивается 100, см. MAX_GRID_POINTS выше).
         # Пересчитываем сетку с шагом, увеличенным в factor раз по каждой оси
         # — площадь ячейки растёт как factor², итоговое число точек уже
         # укладывается в лимит.
         factor = math.ceil(math.sqrt(len(grid) / MAX_GRID_POINTS))
-        grid = _grid(center, radius_m, step * factor)
+        step = step * factor
+        grid = _grid(center, radius_m, step)
 
     # Полная точность float (до ~17 значащих цифр) на координатах раздувает GET
     # URL матрицы (до ~18 КБ на MAX_GRID_POINTS точек) без пользы: OSRM всё
@@ -205,7 +223,7 @@ def reachable_points(center: Point, seconds: float, radius_m: float) -> list[Poi
         # свободному потоку, а караул едет в трафике (см. config).
         if duration is not None and duration * factor <= seconds:
             out.append(point)
-    return out
+    return out, step
 
 
 def calibration(samples: list[tuple[Point, Point, float]]) -> dict:
@@ -227,13 +245,18 @@ def calibration(samples: list[tuple[Point, Point, float]]) -> dict:
     truncated = False
     deadline = time.monotonic() + CALIBRATION_DEADLINE_SEC
     for origin, dest, actual_sec in samples:
-        if time.monotonic() >= deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
             # Завис или тормозит OSRM — не ждём оставшиеся выезды по 20 с
             # каждый, отдаём то, что успели посчитать, и честно помечаем это.
             truncated = True
             break
         attempted += 1
-        r = route(origin, dest)
+        # Таймаут ЭТОГО запроса — не полные REQUEST_TIMEOUT_SEC, а то, что
+        # реально осталось от общего бюджета: иначе один зависший запрос под
+        # конец бюджета всё равно способен растянуть ручку на лишние секунды
+        # сверх CALIBRATION_DEADLINE_SEC.
+        r = route(origin, dest, timeout=min(REQUEST_TIMEOUT_SEC, remaining))
         if r is None or r.duration_s <= 0 or actual_sec <= 0:
             continue
         ratio = actual_sec / r.duration_s
