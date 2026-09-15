@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Архив донесений — закрытые выезды и печатные донесения о пожарах.
+ * Донесения о пожарах — закрытые выезды и печатные донесения.
  *
  * «Боевой выезд» (/callout) показывает только активные вызовы — как только
  * диспетчер закрывает выезд, он выпадает из этого списка и печатное
@@ -15,7 +15,7 @@
  * список выездов и боевой пакет сегодня, архив — то же чтение по закрытым
  * выездам.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Archive,
   Search,
@@ -31,6 +31,7 @@ import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/auth";
 import { useT, useLocale, intlLocale } from "@/lib/i18n";
 import { SEVERITY } from "@/lib/risk";
+import { cn } from "@/lib/cn";
 import {
   Card,
   PageHeader,
@@ -45,22 +46,33 @@ import {
   Banner,
   StatusChip,
 } from "@/components/ui";
-import {
-  CALLOUT_TYPES,
-  CALLOUT_TYPE_META,
-  formatDuration,
-  type Callout,
-  type CalloutType,
-} from "@/lib/dispatch";
+import { CALLOUT_TYPES, CALLOUT_TYPE_META, formatDuration, type CalloutType } from "@/lib/dispatch";
 
 const PAGE_SIZE = 20;
 const PERIODS = [7, 30, 90] as const;
+
+/** Минимизированная строка архива (см. `_archive_dict` в dispatch.py) — не
+ *  полный `Callout`: архив читается по всему городу и ищется текстом, поэтому
+ *  сервер отдаёт только то, что эта страница показывает (плюс id для ссылок
+ *  «Донесение»/«Пакет»), без текста сообщения, комментария закрытия и логинов. */
+type ArchiveCallout = {
+  id: number;
+  address: string | null;
+  district: string | null;
+  callout_type: CalloutType;
+  status: "active" | "closed";
+  lat: number;
+  lng: number;
+  created_at: string | null;
+  rank_declared: string | null;
+  response_sec: number | null;
+};
 
 type ArchiveResponse = {
   matched: number;
   offset: number;
   limit: number;
-  callouts: Callout[];
+  callouts: ArchiveCallout[];
 };
 
 type StationOption = { station_id: number; station_name: string | null };
@@ -78,7 +90,13 @@ export default function CalloutArchivePage() {
 
   const [stations, setStations] = useState<StationOption[]>([]);
   const [data, setData] = useState<ArchiveResponse | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Растущий id запроса: ответ применяется, только если он всё ещё последний
+  // отправленный — иначе быстрая смена фильтра/страницы даёт ответу за #1
+  // прийти позже ответа за #2 и перезаписать актуальные данные устаревшими
+  // (та же защита, что у useCalloutPack в lib/dispatch.ts).
+  const requestIdRef = useRef(0);
 
   // Список частей для фильтра — берём из справочника техники (тот же
   // VIEW_ROLES), а не заводим отдельный эндпоинт ради имён.
@@ -92,6 +110,7 @@ export default function CalloutArchivePage() {
   }, []);
 
   const load = useCallback(() => {
+    const requestId = ++requestIdRef.current;
     const qs = new URLSearchParams({
       status: "closed",
       limit: String(PAGE_SIZE),
@@ -101,11 +120,24 @@ export default function CalloutArchivePage() {
     if (stationId != null) qs.set("station_id", String(stationId));
     if (calloutType) qs.set("callout_type", calloutType);
     if (q) qs.set("q", q);
-    setError(null);
+    setLoading(true);
     apiFetch(`/dispatch/archive?${qs.toString()}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("archive"))))
-      .then((d: ArchiveResponse) => setData(d))
-      .catch(() => setError(t("Не удалось загрузить выезды. Проверьте связь.")));
+      .then((d: ArchiveResponse) => {
+        if (requestIdRef.current !== requestId) return; // ответ устарел
+        setData(d);
+        setError(null);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (requestIdRef.current !== requestId) return;
+        // Ошибку показываем всегда, даже если на экране ещё лежат строки
+        // предыдущей успешной страницы: иначе неудачный переход на
+        // страницу 2 молча оставляет строки страницы 1 под подписью
+        // «21–40 из N» — расхождение видно только по счёту, не по тексту.
+        setError(t("Не удалось загрузить выезды. Проверьте связь."));
+        setLoading(false);
+      });
   }, [days, stationId, calloutType, q, offset, t]);
 
   useEffect(() => {
@@ -118,8 +150,6 @@ export default function CalloutArchivePage() {
     fn();
     setOffset(0);
   };
-
-  const loading = !data && !error;
 
   const fmtDateTime = (iso: string | null) =>
     iso
@@ -136,11 +166,17 @@ export default function CalloutArchivePage() {
     <AppShell>
       <div className="mx-auto max-w-[1400px] p-5 sm:p-7 lg:p-8">
         <PageHeader
-          title={t("Архив донесений")}
+          title={t("Донесения о пожарах")}
           subtitle={t("Закрытые выезды и печатные донесения о пожарах")}
           actions={
-            <Button variant="secondary" size="sm" onClick={load} aria-label={t("Обновить")}>
-              <RefreshCw className="h-4 w-4" />
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={load}
+              disabled={loading}
+              aria-label={t("Обновить")}
+            >
+              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
               <span className="hidden sm:inline">{t("Обновить")}</span>
             </Button>
           }
@@ -164,6 +200,7 @@ export default function CalloutArchivePage() {
                   placeholder={t("Поиск по адресу (Enter — найти)")}
                   className="pl-8"
                   aria-label={t("Поиск по адресу")}
+                  maxLength={100}
                 />
               </div>
             </Field>
@@ -215,7 +252,7 @@ export default function CalloutArchivePage() {
                 ))}
               </Select>
             </Field>
-            <Button type="submit" variant="secondary">
+            <Button type="submit" variant="secondary" disabled={loading}>
               <Search className="h-4 w-4" /> {t("Найти")}
             </Button>
           </form>
@@ -228,12 +265,6 @@ export default function CalloutArchivePage() {
             <SectionLabel>{t("Закрытые выезды · от новых к старым")}</SectionLabel>
           </div>
 
-          {error && !data && (
-            <Banner tone="critical" className="m-4">
-              {error}
-            </Banner>
-          )}
-
           {loading ? (
             <div className="divide-y divide-border">
               {Array.from({ length: 6 }).map((_, i) => (
@@ -245,15 +276,21 @@ export default function CalloutArchivePage() {
                 </div>
               ))}
             </div>
+          ) : error ? (
+            // Ошибку — вместо списка целиком, не поверх устаревших строк:
+            // строки прошлой успешной страницы под текущими фильтрами/
+            // офсетом ничего не доказывают, а подпись пагинации к ним не
+            // подходит (см. комментарий в load()).
+            <Banner tone="critical" className="m-4">
+              {error}
+            </Banner>
           ) : !data || data.callouts.length === 0 ? (
-            !error && (
-              <EmptyState
-                className="m-4 border-0 bg-transparent"
-                icon={Archive}
-                title={t("Донесений в архиве нет")}
-                description={t("Закрытых выездов по текущим фильтрам не найдено.")}
-              />
-            )
+            <EmptyState
+              className="m-4 border-0 bg-transparent"
+              icon={Archive}
+              title={t("Донесений в архиве нет")}
+              description={t("Закрытых выездов по текущим фильтрам не найдено.")}
+            />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -288,7 +325,9 @@ export default function CalloutArchivePage() {
                         <td className="px-4 py-2.5">
                           <div className="flex items-center gap-1.5">
                             <MapPin className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
-                            <span className="max-w-[18rem] truncate text-fg">
+                            <span
+                              className={cn("max-w-[18rem] truncate text-fg", !c.address && "tabular")}
+                            >
                               {c.address || `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`}
                             </span>
                           </div>
@@ -302,10 +341,10 @@ export default function CalloutArchivePage() {
                           <StatusChip severity={typeMeta.severity} label={t(typeMeta.label)} />
                         </td>
                         <td className="hidden whitespace-nowrap px-4 py-2.5 tabular md:table-cell">
-                          {c.timeline.rank_declared ?? "—"}
+                          {c.rank_declared ?? "—"}
                         </td>
                         <td className="hidden whitespace-nowrap px-4 py-2.5 text-right tabular md:table-cell">
-                          {formatDuration(c.timeline.response_sec)}
+                          {formatDuration(c.response_sec)}
                         </td>
                         <td className="whitespace-nowrap px-4 py-2.5">
                           <StatusChip severity={SEVERITY.info} label={t("Закрыт")} />
@@ -342,12 +381,16 @@ export default function CalloutArchivePage() {
             </div>
           )}
 
-          {data && data.matched > 0 && (
+          {/* Пагинация читается из ответа (`data.offset`/`data.limit`), а не
+              из фильтра `offset` состояния: пока следующая страница ещё не
+              подтверждена успешным ответом, подпись обязана описывать именно
+              то, что показано в таблице выше, а не то, что запрошено. */}
+          {!loading && !error && data && data.matched > 0 && (
             <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
               <span className="text-2xs text-faint">
-                <span className="tabular">{offset + 1}</span>
+                <span className="tabular">{data.offset + 1}</span>
                 {"–"}
-                <span className="tabular">{offset + data.callouts.length}</span> {t("из")}{" "}
+                <span className="tabular">{data.offset + data.callouts.length}</span> {t("из")}{" "}
                 <span className="tabular">{data.matched.toLocaleString(intlLocale(locale))}</span>
               </span>
               <div className="flex items-center gap-2">
@@ -355,7 +398,7 @@ export default function CalloutArchivePage() {
                   variant="secondary"
                   size="sm"
                   onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
-                  disabled={offset === 0}
+                  disabled={loading || data.offset === 0}
                   aria-label={t("Предыдущая страница")}
                 >
                   <ChevronLeft className="h-4 w-4" />
@@ -364,7 +407,7 @@ export default function CalloutArchivePage() {
                   variant="secondary"
                   size="sm"
                   onClick={() => setOffset((o) => o + PAGE_SIZE)}
-                  disabled={offset + data.callouts.length >= data.matched}
+                  disabled={loading || data.offset + data.callouts.length >= data.matched}
                   aria-label={t("Следующая страница")}
                 >
                   <ChevronRight className="h-4 w-4" />

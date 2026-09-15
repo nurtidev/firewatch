@@ -10,6 +10,7 @@ from app.audit import audit, client_ip
 from app.db import get_db
 from app.districts import district_of
 from app.routers.auth import current_user, require_roles
+from app.routers.cards import CARD_READ_ROLES
 from app.routers.routes import _PHOTO_NAME
 
 # Field-report categories / statuses — the frontend uses the same keys
@@ -302,6 +303,13 @@ def list_reports(
         params,
     ).mappings().all()
 
+    # card_id ведёт на /cards — отдаём его только ролям, которым бэкенд
+    # вообще открывает эту страницу (CARD_READ в api/app/routers/cards.py);
+    # leadership донесения читает, но карточки нет, и «мёртвый» id в ответе
+    # был бы бесполезной подсказкой на страницу, куда его тут же развернёт
+    # guard AppShell.
+    can_see_card = user.get("role") in CARD_READ_ROLES
+
     return [
         {
             "id": r["id"],
@@ -319,7 +327,7 @@ def list_reports(
             "resolved_by": r["resolved_by"],
             "resolved_at": r["resolved_at"].isoformat() if r["resolved_at"] else None,
             "resolution_note": r["resolution_note"],
-            "card_id": r["card_id"],
+            "card_id": r["card_id"] if can_see_card else None,
         }
         for r in rows
     ]

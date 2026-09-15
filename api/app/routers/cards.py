@@ -46,9 +46,13 @@ from app.routers.auth import current_user, require_roles
 # существует и заполняется сидами, а для загруженных вручную PDF без привязки
 # район фиксируется в `operational_cards.district` при загрузке
 # (миграция 0013_scoping_links).
-CARD_READ = require_roles(
-    "inspector", "supervisor", "admin", "dispatcher", "responder"
-)
+# Как plain-кортеж — отдельно от require_roles(...), чтобы другой роутер
+# (reports.py: card_id в GET /reports виден только тому, кто вообще может
+# открыть /cards) мог сверяться с тем же списком ролей, не разбирая замыкание
+# require_roles. Держать в одном месте — иначе список ролей CARD_READ и
+# проверка в reports.py разъедутся при следующей правке.
+CARD_READ_ROLES = ("inspector", "supervisor", "admin", "dispatcher", "responder")
+CARD_READ = require_roles(*CARD_READ_ROLES)
 CARD_WRITE = require_roles("inspector", "supervisor", "admin")
 
 

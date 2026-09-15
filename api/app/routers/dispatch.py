@@ -769,7 +769,52 @@ def list_callouts(
 # Верхняя граница страницы архива — печатная форма и пакет открываются по
 # одному выезду за раз, большая страница только замедлила бы список.
 ARCHIVE_LIMIT_MAX = 100
+# Верхняя граница OFFSET — без неё ILIKE-скан по всей таблице плюс огромный
+# OFFSET на явно бессмысленной странице (сотни тысяч) — лишняя нагрузка ради
+# запроса, который всё равно вернёт пустую страницу; страница архива листает
+# кнопками «вперёд/назад», а не произвольным прыжком, столько не нужно.
+ARCHIVE_OFFSET_MAX = 100_000
+# Текст адреса — то, что диспетчер печатает руками; длиннее реального адреса
+# запрос быть не может, а без ограничения ILIKE '%...%' на несуразной строке
+# бессмысленно нагружает сканом.
+ARCHIVE_Q_MAX_LEN = 100
 ARCHIVE_DAYS = (7, 30, 90)
+
+# Строка архива — минимум, который реально показывает /callout/archive
+# (дата, адрес/район, тип, ранг, время прибытия, статус) плюс id для ссылок
+# «Донесение»/«Пакет». Архив открыт supervisor/leadership по всему городу и
+# ищется текстом — в отличие от `_callout_dict` (боевой пакет одного
+# конкретного выезда, который открывает тот, кто на него уже попал), здесь
+# незачем отдавать текст сообщения о пожаре, комментарий закрытия и логины
+# диспетчера/закрывшего — это не читается со страницы и не нужно для ссылок.
+_ARCHIVE_SELECT = """
+    SELECT c.id, b.district, c.address, c.callout_type, c.status,
+           ST_Y(c.geom) AS lat, ST_X(c.geom) AS lng,
+           c.created_at, c.arrived_at, c.rank_declared
+    FROM callouts c
+    LEFT JOIN buildings b ON b.id = c.building_id
+"""
+
+
+def _archive_dict(r: dict) -> dict:
+    created, arrived = r.get("created_at"), r.get("arrived_at")
+    response_sec = (
+        max(0, round((arrived - created).total_seconds()))
+        if created is not None and arrived is not None
+        else None
+    )
+    return {
+        "id": r["id"],
+        "address": r["address"],
+        "district": r["district"],
+        "callout_type": r["callout_type"],
+        "status": r["status"],
+        "lat": r["lat"],
+        "lng": r["lng"],
+        "created_at": _iso(created),
+        "rank_declared": r["rank_declared"],
+        "response_sec": response_sec,
+    }
 
 
 @router.get("/archive")
@@ -779,20 +824,22 @@ def list_callouts_archive(
     status: str = "closed",
     station_id: int | None = None,
     callout_type: str | None = None,
-    q: str | None = None,
+    q: str | None = Query(None, max_length=ARCHIVE_Q_MAX_LEN),
     days: int | None = None,
     limit: int = Query(20, ge=1, le=ARCHIVE_LIMIT_MAX),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=ARCHIVE_OFFSET_MAX),
 ) -> dict:
     """Архив выездов — постранично, с фильтрами, для печатных донесений и
-    пакетов по уже закрытым выездам («Архив донесений», /callout/archive).
+    пакетов по уже закрытым выездам («Донесения о пожарах», /callout/archive).
 
     Отдельный эндпоинт, а не расширение `list_callouts`: тот отдаёт плоский
     список без пагинации, и на этой форме ответа уже стоят /dispatch (пульт
     ЦОУ) и /callout (планшет РТП) — менять её ради архива значило бы чинить
     их заодно без нужды. Скоупинг тот же, что у `list_callouts`: выезды —
     общегородская сущность, районного среза для боевого модуля нет (см.
-    докстринг модуля).
+    докстринг модуля). Строка ответа — минимизированная (`_archive_dict`),
+    не полный `_callout_dict`: архив читается по всему городу и ищется
+    текстом, поэтому отдаёт только то, что страница показывает.
     """
     if status not in ("active", "closed", "all"):
         raise HTTPException(422, "status должен быть active, closed или all")
@@ -827,8 +874,11 @@ def list_callouts_archive(
 
     rows = db.execute(
         text(
-            _CALLOUT_SELECT
-            + f" {where} ORDER BY c.created_at DESC LIMIT :limit OFFSET :offset"
+            _ARCHIVE_SELECT
+            # id — тай-брейкер: у демо-сидов и у выездов, заведённых скопом,
+            # created_at может совпадать до микросекунды — без второго ключа
+            # LIMIT/OFFSET между страницами дублирует и пропускает строки.
+            + f" {where} ORDER BY c.created_at DESC, c.id DESC LIMIT :limit OFFSET :offset"
         ),
         {**params, "limit": limit, "offset": offset},
     ).mappings().all()
@@ -837,7 +887,7 @@ def list_callouts_archive(
         "matched": matched,
         "offset": offset,
         "limit": limit,
-        "callouts": [_callout_dict(dict(r)) for r in rows],
+        "callouts": [_archive_dict(dict(r)) for r in rows],
     }
 
 

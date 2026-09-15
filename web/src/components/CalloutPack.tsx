@@ -20,7 +20,7 @@ import {
   X,
   RefreshCw,
 } from "lucide-react";
-import { apiFetch, apiSrc } from "@/lib/auth";
+import { apiFetch, apiSrc, useAuth, type Role } from "@/lib/auth";
 import { useLocale, useT } from "@/lib/i18n";
 import { scoreSeverity, SEVERITY } from "@/lib/risk";
 import { CATEGORY_META } from "@/lib/reports";
@@ -46,6 +46,15 @@ import {
   EmptyState,
 } from "@/components/ui";
 import { cn } from "@/lib/cn";
+
+// Пакет открывают роли шире, чем те, кому открыты сами /cards и /forces (см.
+// nav.ts): supervisor/leadership доходят сюда через архив закрытых выездов
+// на чтение, но leadership не видит ни /cards (backend CARD_READ), ни
+// /forces (нет ни в roles, ни в extraAccessRoles) — AppShell тут же отправит
+// её на /city. Ссылки на эти экраны показываются только ролям, которые их
+// реально откроют — те же списки, что в reports/page.tsx и forces/page.tsx.
+const CARD_LINK_ROLES: readonly Role[] = ["inspector", "supervisor", "admin", "dispatcher", "responder"];
+const FORCES_LINK_ROLES: readonly Role[] = ["supervisor", "admin", "dispatcher", "responder"];
 
 /**
  * Ссылка на калькулятор с параметрами объекта. Раньше вела на голый `/forces`,
@@ -92,9 +101,12 @@ export default function CalloutPack({
 }) {
   const t = useT();
   const { locale } = useLocale();
+  const { user } = useAuth();
   const { callout, building, station, reports, forces_hint } = pack;
   const typeMeta = CALLOUT_TYPE_META[callout.callout_type];
   const TypeIcon = typeMeta.icon;
+  const showCardLink = !!user && CARD_LINK_ROLES.includes(user.role);
+  const showForcesLink = !!user && FORCES_LINK_ROLES.includes(user.role);
 
   // Hydrant statuses are mutated in place by canMarkHydrant actions below; the
   // effect re-syncs from the parent whenever it hands us a fresh pack (poll /
@@ -213,7 +225,7 @@ export default function CalloutPack({
                 <ScoreBadge score={building.risk_score} severity={scoreSeverity(building.risk_score)} />
               )}
             </div>
-            {building.card_id != null && (
+            {building.card_id != null && showCardLink && (
               <LinkButton href={`/cards?id=${building.card_id}`} size="lg" className="mt-3.5 w-full sm:w-auto">
                 <ScanLine className="h-4 w-4" />
                 {t("Открыть ПТП")}
@@ -280,17 +292,24 @@ export default function CalloutPack({
       <section>
         <SectionLabel className="mb-2">{t("Силы и средства")}</SectionLabel>
         {forces_hint ? (
-          <ForcesBlock hint={forces_hint} href={forcesHref(pack)} />
+          <ForcesBlock
+            hint={forces_hint}
+            href={forcesHref(pack)}
+            showForcesLink={showForcesLink}
+            showCardLink={showCardLink}
+          />
         ) : (
           <EmptyState
             icon={Calculator}
             title={t("Рекомендации нет")}
             description={t("Выезд без привязки к объекту — параметры пожара подберите вручную.")}
             action={
-              <LinkButton href={forcesHref(pack)} variant="secondary" size="sm">
-                <Calculator className="h-3.5 w-3.5" />
-                {t("Открыть расчёт")}
-              </LinkButton>
+              showForcesLink ? (
+                <LinkButton href={forcesHref(pack)} variant="secondary" size="sm">
+                  <Calculator className="h-3.5 w-3.5" />
+                  {t("Открыть расчёт")}
+                </LinkButton>
+              ) : undefined
             }
           />
         )}
@@ -318,7 +337,17 @@ function Figure({ label, value }: { label: string; value: string }) {
  * и три ствола меньше фактической потребности. Теперь пакет показывает цифры
  * из ПТП, а эвристика прямо называется черновой.
  */
-function ForcesBlock({ hint, href }: { hint: ForcesHint; href: string }) {
+function ForcesBlock({
+  hint,
+  href,
+  showForcesLink,
+  showCardLink,
+}: {
+  hint: ForcesHint;
+  href: string;
+  showForcesLink: boolean;
+  showCardLink: boolean;
+}) {
   const t = useT();
   const fromCard = hint.source === "card";
   const barrels =
@@ -360,22 +389,26 @@ function ForcesBlock({ hint, href }: { hint: ForcesHint; href: string }) {
         </p>
       )}
 
-      <div className="mt-3.5 flex flex-wrap gap-2">
-        <LinkButton href={href} variant="secondary" size="sm">
-          <Calculator className="h-3.5 w-3.5" />
-          {fromCard ? t("Уточнить расчёт") : t("Открыть расчёт")}
-        </LinkButton>
-        {fromCard && hint.card_id != null && (
-          <LinkButton
-            href={`/cards?id=${hint.card_id}`}
-            variant="ghost"
-            size="sm"
-          >
-            <ScanLine className="h-3.5 w-3.5" />
-            {t("Расчёт в карточке ПТП")}
-          </LinkButton>
-        )}
-      </div>
+      {(showForcesLink || (fromCard && hint.card_id != null && showCardLink)) && (
+        <div className="mt-3.5 flex flex-wrap gap-2">
+          {showForcesLink && (
+            <LinkButton href={href} variant="secondary" size="sm">
+              <Calculator className="h-3.5 w-3.5" />
+              {fromCard ? t("Уточнить расчёт") : t("Открыть расчёт")}
+            </LinkButton>
+          )}
+          {fromCard && hint.card_id != null && showCardLink && (
+            <LinkButton
+              href={`/cards?id=${hint.card_id}`}
+              variant="ghost"
+              size="sm"
+            >
+              <ScanLine className="h-3.5 w-3.5" />
+              {t("Расчёт в карточке ПТП")}
+            </LinkButton>
+          )}
+        </div>
+      )}
     </Card>
   );
 }
