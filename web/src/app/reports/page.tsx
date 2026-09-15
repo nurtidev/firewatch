@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Plus,
   ArrowLeft,
@@ -16,6 +17,8 @@ import {
   Siren,
   AlertOctagon,
   CloudOff,
+  ScanLine,
+  Filter as FilterIcon,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch, apiSrc, useAuth } from "@/lib/auth";
@@ -24,6 +27,7 @@ import {
   PageHeader,
   Card,
   Button,
+  LinkButton,
   Field,
   Input,
   Textarea,
@@ -66,9 +70,28 @@ type Filter = "all" | ReportStatus;
 
 /* ───────────────────────────── Page ────────────────────────────── */
 
+/** /reports?building_id=&category= arrives from «Открыть карточку ПТП» on
+ *  /cards (the ptp_mismatch notice) — narrows the list to just that
+ *  object's reports on top of the status tabs, instead of dropping the
+ *  supervisor into the full citywide queue. useSearchParams requires a
+ *  Suspense boundary (Next.js CSR bailout rule) — same convention as
+ *  /cards and /callout. */
 export default function ReportsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ReportsPageInner />
+    </Suspense>
+  );
+}
+
+function ReportsPageInner() {
   const t = useT();
   const { user } = useAuth();
+  const searchParams = useSearchParams();
+  const buildingIdParam = searchParams.get("building_id");
+  const categoryParam = searchParams.get("category");
+  const hasLinkFilter = buildingIdParam != null;
+
   const canCreate =
     user?.role === "inspector" ||
     user?.role === "supervisor" ||
@@ -76,6 +99,14 @@ export default function ReportsPage() {
     user?.role === "dispatcher" ||
     user?.role === "responder";
   const canModerate = user?.role === "supervisor" || user?.role === "admin";
+  // Роли, которым бэкенд (CARD_READ в api/app/routers/cards.py) вообще
+  // открывает /cards — leadership донесения читает, но карточки ПТП нет.
+  const canOpenCards =
+    user?.role === "inspector" ||
+    user?.role === "supervisor" ||
+    user?.role === "admin" ||
+    user?.role === "dispatcher" ||
+    user?.role === "responder";
 
   const [reports, setReports] = useState<Report[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -144,9 +175,23 @@ export default function ReportsPage() {
     return c;
   }, [safeReports]);
 
-  const visible = useMemo(
+  const byStatus = useMemo(
     () => (filter === "all" ? safeReports : safeReports.filter((r) => r.status === filter)),
     [safeReports, filter],
+  );
+  // Deep-link narrowing (?building_id=&category=) on top of the status tab —
+  // client-side, same source list, no extra round trip: /reports already
+  // fetches every report the role can see.
+  const visible = useMemo(
+    () =>
+      hasLinkFilter
+        ? byStatus.filter(
+            (r) =>
+              String(r.building_id) === buildingIdParam &&
+              (!categoryParam || r.category === categoryParam),
+          )
+        : byStatus,
+    [byStatus, hasLinkFilter, buildingIdParam, categoryParam],
   );
 
   return (
@@ -168,6 +213,19 @@ export default function ReportsPage() {
         {error && (
           <Banner tone="critical" className="mt-4">
             {error}
+          </Banner>
+        )}
+
+        {/* Deep-link filter from «Открыть карточку ПТП» → /cards — visible and
+            removable, so it never reads as "these are all the reports". */}
+        {hasLinkFilter && (
+          <Banner tone="info" icon={FilterIcon} className="mt-4">
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              {t("Показаны донесения по объекту из карточки ПТП.")}
+              <LinkButton href="/reports" variant="ghost" size="sm">
+                {t("Сбросить фильтр")}
+              </LinkButton>
+            </span>
           </Banner>
         )}
 
@@ -216,17 +274,31 @@ export default function ReportsPage() {
             {visible.length === 0 ? (
               <EmptyState
                 icon={Siren}
-                title={filter === "all" ? t("Донесений пока нет") : t("Нет донесений с этим статусом")}
+                title={
+                  hasLinkFilter
+                    ? t("По этому объекту донесений с этим статусом нет")
+                    : filter === "all"
+                      ? t("Донесений пока нет")
+                      : t("Нет донесений с этим статусом")
+                }
                 description={
-                  filter === "all"
-                    ? t("Полевые донесения о препятствиях пожаротушению появятся здесь.")
-                    : t("Переключите фильтр, чтобы увидеть остальные донесения.")
+                  hasLinkFilter
+                    ? t("Переключите вкладку статуса или сбросьте фильтр по объекту выше.")
+                    : filter === "all"
+                      ? t("Полевые донесения о препятствиях пожаротушению появятся здесь.")
+                      : t("Переключите фильтр, чтобы увидеть остальные донесения.")
                 }
               />
             ) : (
               <div className="space-y-3">
                 {visible.map((r) => (
-                  <ReportCard key={r.id} report={r} canModerate={canModerate} onChanged={load} />
+                  <ReportCard
+                    key={r.id}
+                    report={r}
+                    canModerate={canModerate}
+                    canOpenCards={canOpenCards}
+                    onChanged={load}
+                  />
                 ))}
               </div>
             )}
@@ -258,10 +330,14 @@ export default function ReportsPage() {
 function ReportCard({
   report,
   canModerate,
+  canOpenCards,
   onChanged,
 }: {
   report: Report;
   canModerate: boolean;
+  /** Роль может открыть /cards (бэкенд CARD_READ) — без него «Открыть
+   *  карточку ПТП» вело бы на страницу, которую AppShell тут же закрывает. */
+  canOpenCards: boolean;
   onChanged: () => void;
 }) {
   const t = useT();
@@ -270,6 +346,11 @@ function ReportCard({
   const CatIcon = cat.icon;
   const status = STATUS_META[report.status];
   const actionable = canModerate && (report.status === "open" || report.status === "in_progress");
+  // «Расхождение с ПТП» ведёт к пересмотру самой оперкарточки объекта — тот
+  // же переход, что боевой пакет делает для «Расчёт в карточке ПТП»
+  // (CalloutPack.tsx). Карточка не переоткрывается за донесение автоматически
+  // (workflow draft → on_review → approved остаётся ручным) — только ссылка.
+  const showOpenCard = report.category === "ptp_mismatch" && report.card_id != null && canOpenCards;
 
   const created = new Date(report.created_at).toLocaleString(intlLocale(locale), {
     day: "2-digit",
@@ -317,6 +398,13 @@ function ReportCard({
 
       {report.description && (
         <p className="mt-3 text-sm leading-relaxed text-muted">{report.description}</p>
+      )}
+
+      {showOpenCard && (
+        <LinkButton href={`/cards?id=${report.card_id}`} size="sm" className="mt-3">
+          <ScanLine className="h-3.5 w-3.5" />
+          {t("Открыть карточку ПТП")}
+        </LinkButton>
       )}
 
       {report.photos.length > 0 && (

@@ -233,7 +233,11 @@ def create_report(
 
 
 def _list_filters(
-    status: str | None, category: str | None, user: dict, alias: str
+    status: str | None,
+    category: str | None,
+    user: dict,
+    alias: str,
+    building_id: int | None = None,
 ) -> tuple[list[str], dict]:
     if status is not None and status not in STATUSES:
         raise HTTPException(422, "Неизвестный статус")
@@ -248,6 +252,11 @@ def _list_filters(
     if category:
         clauses.append(f"{alias}.category = :category")
         params["category"] = category
+    if building_id is not None:
+        # Обратная ссылка «карточка ПТП → донесения о расхождении», не
+        # районный срез — район уже покрыт enforce_building_scope ниже.
+        clauses.append(f"{alias}.building_id = :building_id")
+        params["building_id"] = building_id
     # Server-side district confinement for scoped roles (same helper used for
     # buildings — field_reports carries its own district column).
     enforce_building_scope(clauses, params, user, alias=alias)
@@ -258,10 +267,11 @@ def _list_filters(
 def list_reports(
     status: str | None = None,
     category: str | None = None,
+    building_id: int | None = None,
     db: Session = Depends(get_db),
     user: dict = Depends(READ_ROLES),
 ) -> list[dict]:
-    clauses, params = _list_filters(status, category, user, "fr")
+    clauses, params = _list_filters(status, category, user, "fr", building_id)
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
 
     rows = db.execute(
@@ -272,9 +282,19 @@ def list_reports(
                 ST_Y(fr.geom) AS lat, ST_X(fr.geom) AS lng,
                 fr.building_id, b.address AS building_address, fr.district,
                 fr.photos, fr.created_by, fr.created_at,
-                fr.resolved_by, fr.resolved_at, fr.resolution_note
+                fr.resolved_by, fr.resolved_at, fr.resolution_note,
+                oc.id AS card_id
             FROM field_reports fr
             LEFT JOIN buildings b ON b.id = fr.building_id
+            -- Актуальная карточка ПТП объекта, если есть — та же логика
+            -- «последняя по id», что у боевого пакета (_build_pack): ссылка
+            -- «Открыть карточку ПТП» на /reports должна вести туда же, куда
+            -- ведёт боевой пакет по этому же зданию.
+            LEFT JOIN LATERAL (
+                SELECT id FROM operational_cards
+                WHERE building_id = fr.building_id
+                ORDER BY id DESC LIMIT 1
+            ) oc ON fr.building_id IS NOT NULL
             {where}
             ORDER BY (fr.status = 'open') DESC, fr.created_at DESC
             """
@@ -299,6 +319,7 @@ def list_reports(
             "resolved_by": r["resolved_by"],
             "resolved_at": r["resolved_at"].isoformat() if r["resolved_at"] else None,
             "resolution_note": r["resolution_note"],
+            "card_id": r["card_id"],
         }
         for r in rows
     ]

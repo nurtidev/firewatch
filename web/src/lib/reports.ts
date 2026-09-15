@@ -35,6 +35,11 @@ export type Report = {
   resolved_by: string | null;
   resolved_at: string | null;
   resolution_note: string | null;
+  /** Актуальная карточка ПТП здания донесения, если есть (последняя по id —
+   *  та же карточка, что боевой пакет открывает по этому же зданию). null
+   *  без здания или когда карточки ещё нет — «Открыть карточку ПТП» тогда
+   *  не показывается. */
+  card_id: number | null;
 };
 
 export const REPORT_CATEGORIES: ReportCategory[] = [

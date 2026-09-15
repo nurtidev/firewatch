@@ -197,6 +197,10 @@ export const dict: { en: Record<string, string>; kk: Record<string, string> } = 
     "Отмена": "Cancel",
     "Подтвердить устранение": "Confirm remediation",
 
+    // ── cards/page.tsx — ptp_mismatch notice (Phase 3) ────────────────────
+    "Донесения о расхождении с ПТП": "Reports of a mismatch with the fire plan",
+    "Открыть донесения": "Open the reports",
+
     // ── forces/page.tsx ───────────────────────────────────────────────────
     "Методика МЧС РК · «Есеп Евразия» — время развития, геометрия пожара, расход воды, стволы, машины, личный состав, ранг":
       "MES RK methodology · “Esep Eurasia” — growth time, fire geometry, water flow, nozzles, trucks, personnel, rank",
@@ -541,6 +545,10 @@ export const dict: { en: Record<string, string>; kk: Record<string, string> } = 
     "Отклонить заявку": "Өтінішті қабылдамау",
     "Отмена": "Бас тарту",
     "Подтвердить устранение": "Жоюды растау",
+
+    // ── cards/page.tsx — ptp_mismatch notice (Phase 3) ────────────────────
+    "Донесения о расхождении с ПТП": "ӨСЖ-мен сәйкессіздік туралы баянаттар",
+    "Открыть донесения": "Баянаттарды ашу",
 
     // ── forces/page.tsx ───────────────────────────────────────────────────
     "Методика МЧС РК · «Есеп Евразия» — время развития, геометрия пожара, расход воды, стволы, машины, личный состав, ранг":

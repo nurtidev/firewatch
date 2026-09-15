@@ -33,6 +33,7 @@ import {
   ClipboardList,
   RefreshCw,
   CalendarDays,
+  FileWarning,
   type LucideIcon,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
@@ -55,8 +56,10 @@ import {
   PageHeader,
   SectionLabel,
   Button,
+  LinkButton,
   Badge,
   StatusChip,
+  Banner,
   Skeleton,
   EmptyState,
   Tabs,
@@ -111,6 +114,10 @@ type ProcessedCard = {
   extracted: Record<string, unknown>;
   prescriptions: Prescription[];
   has_file?: boolean;
+  /** Здание карточки, если оно привязано (null для загруженного вручную PDF
+   *  без объекта) — источник для уведомления «Донесения о расхождении с
+   *  ПТП» (GET /reports?building_id=&category=ptp_mismatch). */
+  building_id?: number | null;
   /** Согласование и авторство правки (миграция 0018). Карточки, созданные до
    *  редактора, приходят со статусом `approved` — они уже в работе. */
   review_status?: CardReviewStatus;
@@ -491,6 +498,14 @@ function CardsPageInner() {
           }
         />
 
+        {/* Обратная ссылка «Расхождение с ПТП» → карточка: инспектор/РТП,
+            открывший карточку, должен сразу видеть, что по этому объекту уже
+            есть полевые донесения о несовпадении с документом — до того, как
+            он начнёт делать вывод по устаревшим данным. */}
+        {card && card.building_id != null && (
+          <PtpMismatchNotice buildingId={card.building_id} />
+        )}
+
         {/* ── Upload zone — folds away once a plan is on screen ── */}
         {canManageCards && (
           card ? (
@@ -728,6 +743,61 @@ function CardsPageInner() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+/* ─── PtpMismatchNotice: обратная ссылка «Расхождение с ПТП» → карточка ──── */
+
+type MismatchReportLite = { id: number; created_at: string; status: string };
+
+/** Сколько донесений «Расхождение с ПТП» есть по зданию этой карточки —
+ *  тот же API-фильтр (`GET /reports?building_id=&category=ptp_mismatch`),
+ *  что «Сбросить фильтр» на /reports использует в обратную сторону. Роль
+ *  всегда может читать /reports здесь: CARD_READ ⊆ READ_ROLES на бэкенде
+ *  (см. api/app/routers/{cards,reports}.py) — кто видит эту страницу, тот
+ *  видит и донесения. */
+function PtpMismatchNotice({ buildingId }: { buildingId: number }) {
+  const t = useT();
+  const [reports, setReports] = useState<MismatchReportLite[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setReports(null);
+    apiFetch(`/reports?building_id=${buildingId}&category=ptp_mismatch`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: MismatchReportLite[]) => {
+        if (!cancelled) setReports(data);
+      })
+      .catch(() => {
+        if (!cancelled) setReports([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [buildingId]);
+
+  // Показываем только незакрытые донесения — уже решённые/отклонённые не
+  // требуют внимания прямо сейчас, тот же смысл, что у STATUS_META (open/
+  // in_progress — активная урgency, resolved/dismissed — закрытый исход).
+  const active = (reports ?? []).filter((r) => r.status === "open" || r.status === "in_progress");
+  if (reports === null || active.length === 0) return null;
+
+  return (
+    <Banner tone="warning" icon={FileWarning} className="mt-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span>
+          {t("Донесения о расхождении с ПТП")}:{" "}
+          <span className="tabular font-semibold">{active.length}</span>
+        </span>
+        <LinkButton
+          href={`/reports?building_id=${buildingId}&category=ptp_mismatch`}
+          variant="secondary"
+          size="sm"
+        >
+          {t("Открыть донесения")}
+        </LinkButton>
+      </div>
+    </Banner>
   );
 }
 

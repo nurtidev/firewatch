@@ -311,6 +311,10 @@ def _card_detail(card_id: int, db: Session, user: dict) -> dict:
         "media_type": card["media_type"],
         "status": card["status"],
         "created_at": card["created_at"].isoformat(),
+        # Обратная ссылка «карточка → донесения о расхождении с ПТП» (/reports
+        # ?building_id=) — без привязки к зданию (загруженный PDF без
+        # объекта) остаётся null, и уведомление на /cards не показывается.
+        "building_id": card["building_id"],
         "extracted": card["extracted"],
         "prescriptions": [_prescription_row(p) for p in presc],
         "has_file": has_file,

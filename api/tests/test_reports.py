@@ -190,3 +190,24 @@ def test_update_status_rejects_open_as_a_transition(client):
 def test_update_status_valid_values_pass_validation(client, status):
     resp = client.post("/reports/1/status", json={"status": status})
     assert resp.status_code not in (401, 403, 422)
+
+
+# --- GET /reports: building_id filter (карточка ПТП → донесения) -----------
+#
+# Обратная ссылка для уведомления «Донесения о расхождении с ПТП: N» на
+# /cards — список донесений по конкретному зданию.
+
+
+def test_list_reports_building_id_passes_validation(client):
+    resp = client.get("/reports?building_id=1")
+    assert resp.status_code not in (401, 403, 422)
+
+
+def test_list_reports_building_id_with_category_passes_validation(client):
+    resp = client.get("/reports?building_id=1&category=ptp_mismatch")
+    assert resp.status_code not in (401, 403, 422)
+
+
+def test_list_reports_rejects_non_integer_building_id(client):
+    resp = client.get("/reports?building_id=abc")
+    assert resp.status_code == 422
