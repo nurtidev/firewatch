@@ -11,6 +11,13 @@ import {
   Lock,
   BarChart3,
   FileCheck,
+  Map,
+  Wallet,
+  ClipboardList,
+  LayoutDashboard,
+  Layers,
+  Target,
+  Printer,
   type LucideIcon,
 } from "lucide-react";
 import { HAYVILL_FLOORPLANS, type RealFloorPlan } from "@/data/floorplans/hayvill";
@@ -113,6 +120,88 @@ const TRUST: { icon: LucideIcon; title: string; text: string }[] = [
   },
 ];
 
+/* ── Akimat track ────────────────────────────────────────────────────────── */
+
+const AKIMAT_PROBLEMS: { icon: LucideIcon; title: string; text: string }[] = [
+  {
+    icon: Map,
+    title: "Нет единой картины уязвимости по районам",
+    text: "У акимата нет карты, где сразу видно, какие районы и объекты требуют внимания в первую очередь — только отдельные сводки от ДЧС.",
+  },
+  {
+    icon: Wallet,
+    title: "Бюджет на гидранты и части — без карты покрытия",
+    text: "Заявки на новые гидранты и пожарные части формируются без единой картины «слепых зон» прибытия — сложно обосновать, где вложения дадут наибольший эффект.",
+  },
+  {
+    icon: ClipboardList,
+    title: "Отчёт акиму и в облсобрание — вручную из писем ДЧС",
+    text: "Сводка о пожарной безопасности района собирается вручную из переписки и служебных писем ДЧС — подготовка занимает дни, а актуальность данных не гарантирована.",
+  },
+];
+
+/** The four "Город" screens — plain-language value, one sentence each. Titles reuse the
+ *  exact nav labels from lib/i18n/common.ts (single source with AppShell nav). */
+const AKIMAT_SCREENS: {
+  k: string;
+  icon: LucideIcon;
+  title: string;
+  pain: string;
+  text: string;
+}[] = [
+  {
+    k: "01 · ГОРОД",
+    icon: LayoutDashboard,
+    title: "Обзор города",
+    pain: "Где смотреть в первую очередь?",
+    text: "Районы ранжированы по вниманию: здания высокого риска в слепых зонах прибытия или без исправного гидранта в радиусе 800 м — видно сразу, без объезда районов.",
+  },
+  {
+    k: "02 · ГОРОД",
+    icon: Layers,
+    title: "Карта уязвимости",
+    pain: "Как выглядит риск на карте?",
+    text: "Слои одной картой: районы, здания по оценке уязвимости, зона прибытия по нормативу 10 минут и слепые зоны, гидранты и пожарные части.",
+  },
+  {
+    k: "03 · ГОРОД",
+    icon: Target,
+    title: "Приоритеты вложений",
+    pain: "Где гидрант или часть закроют больше риска?",
+    text: "Где новый гидрант или пожарная часть закрыли бы больше всего зданий высокого риска без покрытия — оценка по плотности, ориентир для выезда на обследование, а не готовое проектное решение.",
+  },
+  {
+    k: "04 · ГОРОД",
+    icon: Printer,
+    title: "Отчёт для акимата",
+    pain: "Что показать акиму и в облсобрание?",
+    text: "Печатная сводка на одну страницу A4: районы, показатели покрытия и приоритеты вложений — сохраняется как PDF прямо из браузера.",
+  },
+];
+
+const AKIMAT_PILOT: { tag: string; title: string; text: string }[] = [
+  {
+    tag: "Данные",
+    title: "Границы районов и реестр гидрантов",
+    text: "Контуры районов (используем открытые границы OSM или ваши) и реестр гидрантов и пожарных частей — основа карты покрытия города.",
+  },
+  {
+    tag: "Карта",
+    title: "Уязвимость на данных региона",
+    text: "Пересчёт оценки, зон прибытия и слепых зон на данных вашего региона — вместо демонстрационных данных на этой странице.",
+  },
+  {
+    tag: "Отчётность",
+    title: "Ежемесячный отчёт акиму",
+    text: "«Отчёт для акимата» каждый месяц: районы, покрытие и приоритеты вложений на одной странице — без ручной сборки из писем ДЧС.",
+  },
+  {
+    tag: "Бюджет",
+    title: "Вход в планирование вложений",
+    text: "Приоритеты вложений — один из ориентиров при формировании заявки на гидранты и пожарные части, наравне с полевым обследованием.",
+  },
+];
+
 /** Цена вопроса: только факты с надёжным первоисточником (см. docs/commercial/06_economic_effect.md).
  *  ROI-сценарии сознательно не выносим на публичную страницу — они живут в КП. */
 const STAKES: {
@@ -150,6 +239,7 @@ export default function GovLanding() {
   const navLinks: NavLink[] = [
     { href: "#modules", label: t("Платформа") },
     { href: "#pilot", label: t("Пилот") },
+    { href: "#akimat", label: t("Для акимата") },
     { href: "#trust", label: t("Безопасность") },
     { href: "/business", label: t("Для бизнеса") },
   ];
@@ -218,12 +308,32 @@ export default function GovLanding() {
         </div>
       </Section>
 
-      {/* ── Problems ── */}
-      <div className="bg-surface-2">
+      {/* ── Audience switch: two clearly titled tracks share this page ── */}
+      <div className="border-b border-border">
+        <div className="mx-auto flex max-w-[1180px] flex-wrap items-center justify-center gap-3 px-5 py-5 sm:px-6">
+          <span className="text-[13px] font-medium text-muted">{t("Выберите свою роль:")}</span>
+          <a
+            href="#dchs"
+            className="rounded-lg border border-border-strong bg-surface px-4 py-2 text-[13.5px] font-semibold text-fg shadow-card transition-colors hover:border-faint"
+          >
+            {t("Для ДЧС")}
+          </a>
+          <a
+            href="#akimat"
+            className="rounded-lg border border-border-strong bg-surface px-4 py-2 text-[13.5px] font-semibold text-fg shadow-card transition-colors hover:border-faint"
+          >
+            {t("Для акимата")}
+          </a>
+        </div>
+      </div>
+
+      {/* ── Problems (ДЧС track) ── */}
+      <div id="dchs" className="bg-surface-2">
         <Section id="problems">
           <Reveal>
             <SectionHead
               center
+              eyebrow={t("Для ДЧС")}
               title={t("Надзор за городом — вручную не масштабируется")}
               sub={t(
                 "Объём объектов и разрозненные документы не дают увидеть риск целиком. FireWatch собирает эту картину в одном контуре.",
@@ -349,6 +459,138 @@ export default function GovLanding() {
           </p>
         </Section>
       </div>
+
+      {/* ── Akimat track: problems ── */}
+      <div id="akimat">
+        <Section id="akimat-problems">
+          <Reveal>
+            <SectionHead
+              center
+              eyebrow={t("Для акимата")}
+              title={t("Картина уязвимости по районам — без ручной сборки")}
+              sub={t(
+                "Городской трек платформы — агрегированная картина по районам вместо карточек объектов: для бюджетных решений и отчётности акима.",
+              )}
+            />
+          </Reveal>
+          <div className="mt-12 grid gap-5 md:grid-cols-3">
+            {AKIMAT_PROBLEMS.map((p, i) => (
+              <Reveal key={p.title} delay={i * 70}>
+                <div className="flex flex-col rounded-xl border border-border bg-surface p-6 shadow-card">
+                  <span className="grid h-[46px] w-[46px] place-items-center rounded-lg border border-border bg-surface-2 text-fg">
+                    <p.icon className="h-5 w-5" strokeWidth={1.9} />
+                  </span>
+                  <h3 className="mt-5 text-[17px] font-bold tracking-tight">{t(p.title)}</h3>
+                  <p className="mt-2.5 text-[14px] leading-relaxed text-muted">{t(p.text)}</p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </Section>
+      </div>
+
+      {/* ── Akimat track: what the platform gives ── */}
+      <div className="bg-surface-2">
+        <Section id="akimat-screens">
+          <Reveal>
+            <SectionHead
+              center
+              title={t("Что получает акимат")}
+              sub={t("Четыре экрана городского трека платформы — коротко, что даёт каждый.")}
+            />
+          </Reveal>
+          <div className="mt-12 grid gap-[18px] sm:grid-cols-2">
+            {AKIMAT_SCREENS.map((s, i) => (
+              <Reveal key={s.k} delay={i * 70}>
+                <div className="group rounded-xl border border-border bg-surface p-6 shadow-card transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-pop">
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-[42px] w-[42px] place-items-center rounded-lg border border-border bg-surface-2 text-fg transition-colors group-hover:border-border-strong">
+                      <s.icon className="h-5 w-5" strokeWidth={1.9} />
+                    </span>
+                    <span className="text-[11px] font-bold tracking-[0.1em] text-faint">{s.k}</span>
+                  </div>
+                  <h3 className="mt-4 text-[16.5px] font-bold tracking-tight">{t(s.title)}</h3>
+                  <p className="mt-2.5 text-[12.5px] font-semibold text-accent">{t(s.pain)}</p>
+                  <p className="mt-1.5 text-[14px] leading-relaxed text-muted">{t(s.text)}</p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+
+          {/* Role boundary — the trust point specific to a read-only city role. */}
+          <Reveal delay={AKIMAT_SCREENS.length * 70}>
+            <div className="mx-auto mt-8 flex max-w-[820px] items-start gap-4 rounded-xl border border-border bg-surface p-5 shadow-card sm:gap-5 sm:p-6">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-border bg-surface-2 text-accent">
+                <EyeOff className="h-5 w-5" strokeWidth={1.9} />
+              </span>
+              <div>
+                <h3 className="text-[16px] font-bold tracking-tight">
+                  {t("Только агрегаты — без персональных данных")}
+                </h3>
+                <p className="mt-1 text-[14px] leading-relaxed text-muted">
+                  {t(
+                    "Акимату доступно чтение районных показателей и зданий по оценке уязвимости — без персональных данных, донесений о происшествиях и карточек ПТП. Те же принципы разграничения по ролям, что и для остальных пользователей платформы.",
+                  )}
+                </p>
+              </div>
+            </div>
+          </Reveal>
+
+          {/* Honest caveats — demo data, priorities as a heuristic, not a design decision. */}
+          <div className="mx-auto mt-8 max-w-[720px] space-y-2 text-center">
+            <p className="text-[12.5px] leading-relaxed text-faint">
+              {t(
+                "Все цифры на этой странице — демонстрационные данные: риск-оценки рассчитаны на синтетических признаках и не отражают реальное состояние объектов, пока не подключены исторические данные ДЧС и реестр водоканала.",
+              )}
+            </p>
+            <p className="text-[12.5px] leading-relaxed text-faint">
+              {t(
+                "Приоритеты вложений — оценка по плотности объектов: ориентир для выезда на обследование, а не готовое проектное решение о размещении гидранта или части.",
+              )}
+            </p>
+          </div>
+        </Section>
+      </div>
+
+      {/* ── Akimat track: pilot path ── */}
+      <Section id="akimat-pilot">
+        <Reveal>
+          <SectionHead
+            center
+            eyebrow={t("Для акимата")}
+            title={t("Как подключается акимат")}
+            sub={t(
+              "Как городской трек платформы подключается к данным акимата — от границ районов до входа приоритетов в бюджетное планирование.",
+            )}
+          />
+        </Reveal>
+        <div className="mt-14 grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
+          {AKIMAT_PILOT.map((s, i) => (
+            <Reveal key={s.tag} delay={i * 70}>
+              <div className="relative">
+                <div className="flex items-center gap-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent text-[13px] font-extrabold text-accent-fg tabular">
+                    {i + 1}
+                  </span>
+                  {i < AKIMAT_PILOT.length - 1 && (
+                    <span className="hidden h-px flex-1 bg-border lg:block" aria-hidden />
+                  )}
+                </div>
+                <span className="mt-4 block text-[12px] font-bold uppercase tracking-[0.1em] text-accent">
+                  {t(s.tag)}
+                </span>
+                <h3 className="mt-1.5 text-[16px] font-bold tracking-tight">{t(s.title)}</h3>
+                <p className="mt-2 text-[13.5px] leading-relaxed text-muted">{t(s.text)}</p>
+              </div>
+            </Reveal>
+          ))}
+        </div>
+        <p className="mt-6 text-center text-[12.5px] text-faint">
+          {t(
+            "Что нужно от акимата: доступ к границам районов (свои контуры или открытые данные OSM), доступ к реестру гидрантов и пожарных частей, контактное лицо для согласования отчёта.",
+          )}
+        </p>
+      </Section>
 
       {/* ── Trust / security (the differentiator) ── */}
       <Section id="trust">
