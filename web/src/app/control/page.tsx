@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ClipboardCheck, AlertTriangle, Users, Activity, Lock } from "lucide-react";
+import { ClipboardCheck, AlertTriangle, Users, Activity, Lock, Route } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/auth";
 import { intlLocale, useLocale, useT } from "@/lib/i18n";
@@ -17,6 +17,7 @@ import {
   Skeleton,
   EmptyState,
   LiveIndicator,
+  LinkButton,
 } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
@@ -295,6 +296,19 @@ function InspectorCard({ progress: p }: { progress: Progress }) {
           })}
         </div>
       )}
+
+      {/* /control — только supervisor/admin (nav.ts), а /routes открыт и им
+          обоим (roles), так что ссылка не нуждается в дополнительном
+          ролевом гейте — тот, кто видит эту карточку, видит и /routes. */}
+      <LinkButton
+        href={`/routes?inspector_id=${p.inspector.id}`}
+        variant="ghost"
+        size="sm"
+        className="mt-3 self-start"
+      >
+        <Route className="h-3.5 w-3.5" />
+        {t("Открыть маршрут")}
+      </LinkButton>
     </Card>
   );
 }

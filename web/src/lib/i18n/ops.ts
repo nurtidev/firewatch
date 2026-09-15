@@ -425,6 +425,9 @@ export const dict: {
       "Removal time unknown — the position was not removed after the callout was closed",
     "Позиция снята после закрытия выезда — снятие не записано":
       "The position was removed after the callout was closed — the removal was not recorded",
+
+    // ── control/page.tsx (Phase 3 — route link) ───────────────────────────
+    "Открыть маршрут": "Open route",
   },
   kk: {
     // ── routes/page.tsx ──────────────────────────────────────────────────
@@ -829,5 +832,8 @@ export const dict: {
       "Алып тастау уақыты белгісіз — шығу жабылғаннан кейін позиция алынбады",
     "Позиция снята после закрытия выезда — снятие не записано":
       "Позиция шығу жабылғаннан кейін алынған — алып тастау жазылмады",
+
+    // ── control/page.tsx (Phase 3 — route link) ───────────────────────────
+    "Открыть маршрут": "Маршрутты ашу",
   },
 };

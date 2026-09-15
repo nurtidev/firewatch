@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   MapPin,
   ChevronRight,
@@ -125,10 +126,26 @@ function groupHeaderAt(list: ChecklistItem[], i: number): string | null {
 
 /* ───────────────────────────── Page ────────────────────────────── */
 
+/** /routes?inspector_id=NN приходит с «Открыть маршрут» на /control
+ *  (supervisor/admin) и предвыбирает инспектора вместо первого в списке.
+ *  useSearchParams требует Suspense-границы — та же обёртка, что в /cards,
+ *  /callout, /forces. */
 export default function RoutesPage() {
+  return (
+    <Suspense fallback={null}>
+      <RoutesPageInner />
+    </Suspense>
+  );
+}
+
+function RoutesPageInner() {
   const t = useT();
   const { locale } = useLocale();
   const { user } = useAuth();
+  const searchParams = useSearchParams();
+  // Роль inspector маршрут не выбирает — сервер сам сопоставляет аккаунт с
+  // инспектором (scopeId ниже), параметр из ссылки ей не нужен.
+  const inspectorIdParam = searchParams.get("inspector_id");
   const isInspector = user?.role === "inspector";
 
   const [inspectors, setInspectors] = useState<Inspector[]>([]);
@@ -193,9 +210,18 @@ export default function RoutesPage() {
       .then((r) => (r.ok ? r.json() : []))
       .then((list: Inspector[]) => {
         setInspectors(list);
-        setSelected(list[0]?.id ?? null);
+        // ?inspector_id= с /control («Открыть маршрут») предвыбирает
+        // инспектора — но только если он есть в списке, который эта роль
+        // реально видит (супервайзер своего района не может открыть чужого
+        // инспектора чужим id из ссылки); иначе — как раньше, первый в списке.
+        const fromLink = inspectorIdParam ? Number(inspectorIdParam) : null;
+        const valid = fromLink != null && list.some((i) => i.id === fromLink);
+        setSelected(valid ? fromLink : (list[0]?.id ?? null));
       })
       .catch(() => {});
+    // inspectorIdParam применяется только на первую загрузку списка —
+    // дальше супервайзер переключает инспектора сам через Select.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isInspector]);
 
   const loadRoute = useCallback(() => {
