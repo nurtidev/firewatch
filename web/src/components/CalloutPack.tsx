@@ -29,6 +29,7 @@ import {
   HYDRANT_STATUS_META,
   BLOCKING_REPORT_CATEGORIES,
   relativeTimeRu,
+  useNow,
   type CalloutPackData,
   type ForcesHint,
   type PackHydrant,
@@ -101,6 +102,7 @@ export default function CalloutPack({
 }) {
   const t = useT();
   const { locale } = useLocale();
+  const now = useNow();
   const { user } = useAuth();
   const { callout, building, station, reports, forces_hint } = pack;
   const typeMeta = CALLOUT_TYPE_META[callout.callout_type];
@@ -167,7 +169,7 @@ export default function CalloutPack({
                 doesn't emit whitespace between adjacent elements. */}
             <p className="flex items-center justify-end gap-1 tabular">
               <Clock3 className="h-3.5 w-3.5" aria-hidden />
-              {relativeTimeRu(callout.created_at, locale, t)}
+              {relativeTimeRu(callout.created_at, now, locale, t)}
             </p>
             {station && (
               <p className="flex items-center justify-end gap-1">

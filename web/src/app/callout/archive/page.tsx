@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/auth";
-import { useT, useLocale, intlLocale } from "@/lib/i18n";
+import { useT, useLocale, intlLocale, FW_TIME_ZONE } from "@/lib/i18n";
 import { SEVERITY } from "@/lib/risk";
 import { cn } from "@/lib/cn";
 import {
@@ -165,6 +165,7 @@ export default function CalloutArchivePage() {
   const fmtDateTime = (iso: string | null) =>
     iso
       ? new Date(iso).toLocaleString(intlLocale(locale), {
+          timeZone: FW_TIME_ZONE,
           day: "2-digit",
           month: "2-digit",
           year: "numeric",

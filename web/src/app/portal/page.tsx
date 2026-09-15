@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch, apiSrc } from "@/lib/auth";
-import { intlLocale, useLocale, useT } from "@/lib/i18n";
+import { FW_TIME_ZONE, intlLocale, useLocale, useT } from "@/lib/i18n";
 import { apiErrorText } from "@/lib/api-error";
 import { scoreSeverity, SCORE_HINT } from "@/lib/risk";
 import {
@@ -273,6 +273,7 @@ function PrescriptionRow({
 
   const dueLabel = p.due_date
     ? new Date(p.due_date).toLocaleDateString(intlLocale(locale), {
+        timeZone: FW_TIME_ZONE,
         day: "2-digit",
         month: "2-digit",
         year: "numeric",
@@ -322,7 +323,9 @@ function PrescriptionRow({
             {t("Подтвердил")}
             {p.remediation.reviewed_by_name ? `: ${p.remediation.reviewed_by_name}` : ""}
             {p.remediation.reviewed_at &&
-              ` · ${new Date(p.remediation.reviewed_at).toLocaleDateString(intlLocale(locale))}`}
+              ` · ${new Date(p.remediation.reviewed_at).toLocaleDateString(intlLocale(locale), {
+                timeZone: FW_TIME_ZONE,
+              })}`}
           </p>
         )}
 

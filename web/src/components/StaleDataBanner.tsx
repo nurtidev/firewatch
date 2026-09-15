@@ -16,7 +16,7 @@
 import type { ReactNode } from "react";
 import { WifiOff } from "lucide-react";
 import { Banner } from "@/components/ui";
-import { intlLocale, useLocale, useT, type Locale } from "@/lib/i18n";
+import { FW_TIME_ZONE, fwDateKey, intlLocale, useLocale, useT, type Locale } from "@/lib/i18n";
 
 type Kind = "list" | "pack" | "deployment" | "report";
 
@@ -49,8 +49,9 @@ const MESSAGES: Record<Kind, { withTime: string; noTime: string }> = {
 function snapshotTime(iso: string, locale: Locale): string | null {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  const sameDay = d.toDateString() === new Date().toDateString();
+  const sameDay = fwDateKey(d) === fwDateKey(new Date());
   return d.toLocaleString(intlLocale(locale), {
+    timeZone: FW_TIME_ZONE,
     ...(sameDay ? {} : { day: "2-digit", month: "2-digit" }),
     hour: "2-digit",
     minute: "2-digit",

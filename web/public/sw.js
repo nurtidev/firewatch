@@ -56,13 +56,28 @@
 // связи: обновление приложения прямо перед выездом не должно их стирать. Кэш
 // данных прошлых версий (`fw-api-v1`, `fw-api-v2`) при активации переносится в
 // `fw-api`, а не удаляется (см. adoptLegacyApiCaches).
-const VERSION = "v2";
+// v3: PAGES_CACHE больше не делится с RSC-пейлоадами (см. RSC_CACHE ниже) —
+// версия сменена, чтобы у уже установленных воркеров оболочка снеслась и
+// старые смешанные записи fw-pages-v2 (могли содержать RSC-пейлоад под
+// ключом страницы) не пережили обновление.
+const VERSION = "v3";
 const PRECACHE = `fw-precache-${VERSION}`;
 const STATIC_CACHE = `fw-static-${VERSION}`;
 const PAGES_CACHE = `fw-pages-${VERSION}`;
+// RSC-пейлоады клиентских переходов (`?_rsc=…`) — отдельно от PAGES_CACHE.
+// Раньше жили в одном кэше: matchPage() ищет по странице с ignoreSearch
+// (без учёта query), и promise, отданный под навигацию (`/dispatch`), мог
+// получить в ответ чужой RSC-пейлоад, записанный под `/dispatch?_rsc=…`
+// (React-сериализация, не HTML) — тот же путь, ignoreSearch их не различал.
+// Хвост навигации попадает сюда только при медленной/упавшей сети
+// (handleNavigation: race с 10-секундным таймером или catch), поэтому в
+// быстрой локальной сети не проявлялось — только в поле и при гонке двух
+// навигаций подряд. Итог — гидратация валилась на #418, потому что клиенту
+// вместо HTML доставался сериализованный RSC-поток.
+const RSC_CACHE = `fw-rsc-${VERSION}`;
 const API_CACHE = "fw-api";
 const LEGACY_API_PREFIX = "fw-api-";
-const CURRENT_CACHES = [PRECACHE, STATIC_CACHE, PAGES_CACHE, API_CACHE];
+const CURRENT_CACHES = [PRECACHE, STATIC_CACHE, PAGES_CACHE, RSC_CACHE, API_CACHE];
 /** Кэш данных API — текущий или прошлой версии. */
 const isApiCache = (name) => name === API_CACHE || name.startsWith(LEGACY_API_PREFIX);
 const OFFLINE_URL = "/offline.html";
@@ -110,7 +125,7 @@ const API_NEVER = [/\/photo/, /^\/auth/, /^\/audit/, /^\/chat/, /^\/model/, /^\/
  * Статика: с запасом на две-три сборки приложения; страницы и API — рабочий
  * набор смены.
  */
-const CACHE_LIMITS = { [STATIC_CACHE]: 400, [PAGES_CACHE]: 60, [API_CACHE]: 60 };
+const CACHE_LIMITS = { [STATIC_CACHE]: 400, [PAGES_CACHE]: 60, [RSC_CACHE]: 60, [API_CACHE]: 60 };
 
 /**
  * Эпоха кэша API. Растёт при смене учётной записи: ответ, запрошенный до
@@ -331,7 +346,10 @@ self.addEventListener("fetch", (event) => {
     // Переходы внутри приложения идут не навигацией, а запросом RSC-пейлоада
     // (`?_rsc=…`). Без него офлайн открывался бы только тот экран, который
     // успели загрузить: с боевого пакета нельзя было бы уйти в карточку.
-    event.respondWith(staleWhileRevalidate(event, PAGES_CACHE));
+    // Отдельный кэш от PAGES_CACHE: это React-сериализация, не HTML — если
+    // бы они делили один кэш, ignoreSearch в matchPage() (см. handleNavigation)
+    // мог бы подставить RSC-пейлоад под навигацию на ту же страницу.
+    event.respondWith(staleWhileRevalidate(event, RSC_CACHE));
     return;
   }
 

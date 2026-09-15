@@ -29,6 +29,34 @@ export function intlLocale(locale: Locale): string {
   return locale === "en" ? "en-US" : locale === "kk" ? "kk-KZ" : "ru-RU";
 }
 
+/**
+ * Fixed IANA zone for every date/time formatted in the app — the pilot is
+ * Astana, and every user (ДЧС, акимат) is in this zone regardless of a given
+ * device's own clock/timezone setting. Passing this explicitly to every
+ * `toLocaleString`/`toLocaleDateString`/`Intl.DateTimeFormat` call makes the
+ * formatted text a pure function of the ISO timestamp: without it, the
+ * runtime's OS timezone decides the output, and a build/serve container
+ * (commonly UTC) formatting the same instant differently from a browser in
+ * Asia/Almaty is a hydration mismatch (React error #418) waiting to happen —
+ * near a day boundary, the calendar date itself can differ.
+ */
+export const FW_TIME_ZONE = "Asia/Almaty";
+
+/** Calendar day (`YYYY-MM-DD`) of an instant in `FW_TIME_ZONE` — for "is this
+ *  the same day as X" checks that must agree between server and client (a
+ *  plain `Date#toDateString()` compare uses the runtime's own timezone, which
+ *  differs between a server container and a browser in Astana). */
+export function fwDateKey(d: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: FW_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
 /* Inline, render-blocking: runs before first paint so <html lang> is correct
    from the very first render (no flash, correct hyphenation/spellcheck/AT). No
    default is persisted — a first visit reads as "ru". Kept in sync with

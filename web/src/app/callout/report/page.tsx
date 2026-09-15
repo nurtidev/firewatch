@@ -34,7 +34,7 @@ import PrintToolbar from "@/components/report/PrintToolbar";
 import Watermark from "@/components/report/Watermark";
 import { Skeleton, Banner } from "@/components/ui";
 import { apiFetch, type Role } from "@/lib/auth";
-import { useT } from "@/lib/i18n";
+import { FW_TIME_ZONE, useT } from "@/lib/i18n";
 import { NAV } from "@/lib/nav";
 import { useRoleGuard } from "@/lib/useRoleGuard";
 import { realPlanForFloor } from "@/lib/realgeom";
@@ -155,7 +155,14 @@ function ReportInner() {
 /* ───────────────────────────── Документ ───────────────────────────── */
 
 const dateRu = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" }) : "—";
+  iso
+    ? new Date(iso).toLocaleDateString("ru-RU", {
+        timeZone: FW_TIME_ZONE,
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
+    : "—";
 
 function Report({
   pack,
@@ -542,6 +549,13 @@ function Signatures({
   callout: CalloutPackData["callout"];
   compact?: boolean;
 }) {
+  // "Составлено" — момент, когда этот лист открыли, не момент последнего
+  // рендера: `pack` перерисовывается на каждый poll (см. useCalloutPack), а
+  // `new Date()` прямо в JSX сдвигал бы штамп на каждый такой ре-рендер —
+  // плохо для печатного документа, и вдобавок нечистый рендер (значение
+  // меняется без изменения входных данных). Ленивый инициализатор читает
+  // часы один раз, при монтировании.
+  const [composedAt] = useState(() => new Date());
   return (
     <footer className={`fw-keep ${compact ? "mt-4" : "mt-6"} grid grid-cols-2 gap-6 text-2xs`}>
       <div>
@@ -555,7 +569,12 @@ function Signatures({
           <span className="text-fg">{author}</span>
         </div>
         <div className="mt-0.5 text-faint">
-          Составил · {new Date().toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" })}
+          Составил ·{" "}
+          {composedAt.toLocaleString("ru-RU", {
+            timeZone: FW_TIME_ZONE,
+            dateStyle: "short",
+            timeStyle: "short",
+          })}
           {callout.closed_by ? ` · выезд закрыл: ${callout.closed_by}` : ""}
         </div>
       </div>

@@ -7,7 +7,7 @@
  * marker, which used to only appear on the dispatcher's list).
  */
 import { cn } from "@/lib/cn";
-import { CALLOUT_TYPE_META, LATE_SYNC_ICON, relativeTimeRu, type Callout } from "@/lib/dispatch";
+import { CALLOUT_TYPE_META, LATE_SYNC_ICON, relativeTimeRu, useNow, type Callout } from "@/lib/dispatch";
 import { useLocale, useT } from "@/lib/i18n";
 
 export default function CalloutRow({
@@ -25,6 +25,7 @@ export default function CalloutRow({
 }) {
   const t = useT();
   const { locale } = useLocale();
+  const now = useNow();
   const meta = CALLOUT_TYPE_META[callout.callout_type];
   const Icon = meta.icon;
   const LateIcon = LATE_SYNC_ICON;
@@ -70,7 +71,7 @@ export default function CalloutRow({
           )}
         >
           <span className={cn(large && "font-medium", meta.severity.text)}>{t(meta.label)}</span>
-          <span className="tabular">· {relativeTimeRu(callout.created_at, locale, t)}</span>
+          <span className="tabular">· {relativeTimeRu(callout.created_at, now, locale, t)}</span>
           {callout.station && <span className="truncate">· {callout.station.name}</span>}
           {callout.status === "closed" && <span>· {t("закрыт")}</span>}
           {/* Закрытый выезд, в который после закрытия дошла расстановка с
