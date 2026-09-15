@@ -12,7 +12,8 @@
  * (supervisor/leadership) видят обе вкладки только на чтение: состояние
  * техники — это оперативная информация, а не предмет надзорных решений.
  */
-import { useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Truck,
   Plus,
@@ -21,6 +22,7 @@ import {
   Timer,
   Loader2,
   AlertTriangle,
+  Calculator,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import {
@@ -28,6 +30,7 @@ import {
   Card,
   SectionLabel,
   Button,
+  LinkButton,
   Badge,
   StatusChip,
   Banner,
@@ -40,7 +43,7 @@ import {
   Select,
 } from "@/components/ui";
 import { useT } from "@/lib/i18n";
-import { useAuth } from "@/lib/auth";
+import { useAuth, type Role } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { SEVERITY } from "@/lib/risk";
 import {
@@ -65,9 +68,28 @@ const POLL_MS = 30000;
 /** Норматив прибытия в городской черте — 10 минут. */
 const RESPONSE_NORM_SEC = 600;
 
+// Роли, которым открыт /forces (nav.ts: roles ["supervisor","admin"] +
+// extraAccessRoles ["dispatcher","responder"]) — обратная ссылка «Расчёт сил
+// и средств» показывается только им. leadership видит /vehicles, но не
+// /forces, поэтому ссылки не получает.
+const CAN_OPEN_FORCES: readonly Role[] = ["supervisor", "admin", "dispatcher", "responder"];
+
+/** /vehicles?station_id=NN приходит с /forces («Проверить наличие техники»,
+ *  через боевой пакет) и предвыбирает часть в списке. useSearchParams
+ *  требует Suspense-границы — та же обёртка, что в /forces и /callout. */
 export default function VehiclesPage() {
+  return (
+    <Suspense fallback={null}>
+      <VehiclesPageInner />
+    </Suspense>
+  );
+}
+
+function VehiclesPageInner() {
   const t = useT();
   const { user } = useAuth();
+  const searchParams = useSearchParams();
+  const stationIdParam = searchParams.get("station_id");
   const [tab, setTab] = useState("fleet");
 
   // Диспетчер и админ распределяют силы по городу — правят любую часть.
@@ -86,6 +108,14 @@ export default function VehiclesPage() {
           subtitle={t(
             "Состояние машин по частям и сводка выездов — чем расчёт сил обеспечен фактически",
           )}
+          actions={
+            user && CAN_OPEN_FORCES.includes(user.role) ? (
+              <LinkButton href="/forces" variant="secondary" size="sm">
+                <Calculator className="h-4 w-4" />
+                <span className="hidden sm:inline">{t("Расчёт сил и средств")}</span>
+              </LinkButton>
+            ) : undefined
+          }
         />
 
         <Tabs
@@ -100,7 +130,11 @@ export default function VehiclesPage() {
 
         <div className="mt-5">
           {tab === "fleet" ? (
-            <FleetTab canEdit={canEdit} ownStationId={ownStationId} />
+            <FleetTab
+              canEdit={canEdit}
+              ownStationId={ownStationId}
+              initialStationId={stationIdParam ? Number(stationIdParam) : null}
+            />
           ) : (
             <StatsTab />
           )}
@@ -115,16 +149,31 @@ export default function VehiclesPage() {
 function FleetTab({
   canEdit,
   ownStationId,
+  initialStationId,
 }: {
   canEdit: boolean;
   /** Не null только у начальника караула — тогда правится лишь эта часть. */
   ownStationId: number | null;
+  /** Из ?station_id= (ссылка с /forces через боевой пакет) — предвыбирает
+   *  часть в фильтре ниже, если она есть в списке видимых пользователю. */
+  initialStationId: number | null;
 }) {
   const t = useT();
   const { data, error, reload } = useVehicles(null, POLL_MS);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
   const [adding, setAdding] = useState<number | null>(null);
+  const [stationFilter, setStationFilter] = useState<number | null>(initialStationId);
+  // Валидация против списка, который реально видит пользователь: неизвестный
+  // (или больше не существующий) id из ссылки тихо откатывается на «все
+  // части» вместо пустого списка без объяснения. Once — только пока пришёл
+  // из URL и список ещё не проверялся.
+  const validatedRef = useRef(initialStationId == null);
+  useEffect(() => {
+    if (validatedRef.current || !data) return;
+    validatedRef.current = true;
+    if (!data.by_station.some((s) => s.station_id === stationFilter)) setStationFilter(null);
+  }, [data, stationFilter]);
 
   const run = async (id: number, fn: () => Promise<unknown>) => {
     setBusy(id);
@@ -209,7 +258,26 @@ function FleetTab({
         />
       </div>
 
-      {data.by_station.map((st) => {
+      {data.by_station.length > 1 && (
+        <Field label={t("Часть")} className="max-w-xs">
+          <Select
+            value={stationFilter ?? ""}
+            onChange={(e) => setStationFilter(e.target.value ? Number(e.target.value) : null)}
+          >
+            <option value="">{t("Все части")}</option>
+            {data.by_station.map((s) => (
+              <option key={s.station_id} value={s.station_id}>
+                {s.station_name ?? `${t("Часть")} #${s.station_id}`}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
+
+      {(stationFilter != null
+        ? data.by_station.filter((s) => s.station_id === stationFilter)
+        : data.by_station
+      ).map((st) => {
         const vehicles = data.vehicles.filter((v) => v.station_id === st.station_id);
         return (
           <Card key={st.station_id} className="p-4">

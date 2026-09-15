@@ -17,7 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
-import { apiFetch } from "@/lib/auth";
+import { apiFetch, useAuth } from "@/lib/auth";
 import { SEVERITY } from "@/lib/risk";
 import { useT, useLocale, intlLocale } from "@/lib/i18n";
 import type { CalloutPackData, ForcesHint } from "@/lib/dispatch";
@@ -34,6 +34,7 @@ import {
   Field,
   EmptyState,
 } from "@/components/ui";
+import type { Role } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 
 /* ── Types ── */
@@ -170,9 +171,18 @@ export default function ForcesPage() {
   );
 }
 
+// Роли, которым бэкенд (VIEW_ROLES/list_vehicles в api/app/routers/dispatch.py)
+// вообще открывает /dispatch/vehicles — то есть могут открыть /vehicles.
+// Совпадает с nav.ts (roles + extraAccessRoles суммарно), кроме leadership:
+// у него /vehicles есть в сайдбаре, но /forces — нет ни в roles, ни в
+// extraAccessRoles, так что обратная ссылка с /vehicles на /forces ему не
+// положена (см. VehiclesPage).
+const CAN_OPEN_VEHICLES: readonly Role[] = ["responder", "dispatcher", "supervisor", "admin"];
+
 function ForcesCalculator() {
   const t = useT();
   const { locale } = useLocale();
+  const { user } = useAuth();
   const params = useSearchParams();
   const [presets, setPresets] = useState<Preset[]>([]);
   const [barrels, setBarrels] = useState<Barrel[]>([]);
@@ -188,6 +198,9 @@ function ForcesCalculator() {
   const packSource = params.get("source");
   const packCardId = params.get("card");
   const packCalloutId = params.get("callout");
+  // Часть выезда (CalloutPack.forcesHref) — предвыбирает часть на /vehicles,
+  // когда расчёт открыт из конкретного боевого пакета.
+  const packStationId = params.get("station");
   const [ptp, setPtp] = useState<ForcesHint | null>(null);
 
   // Цифры расчёта по ПТП того же вызова — рядом с результатом калькулятора.
@@ -493,6 +506,21 @@ function ForcesCalculator() {
                     hint={t("чел. на тушение")}
                   />
                 </div>
+
+                {/* N отделений/машин по расчёту — рядом сразу ссылка сверить с
+                    фактом: расчёт не знает, есть ли эта техника в строю. */}
+                {user && CAN_OPEN_VEHICLES.includes(user.role) && (
+                  <div className="flex justify-end">
+                    <LinkButton
+                      href={packStationId ? `/vehicles?station_id=${packStationId}` : "/vehicles"}
+                      variant="secondary"
+                      size="sm"
+                    >
+                      <Truck className="h-3.5 w-3.5" />
+                      {t("Проверить наличие техники")}
+                    </LinkButton>
+                  </div>
+                )}
 
                 {/* Three detail groups */}
                 <div className="grid gap-3 md:grid-cols-3">

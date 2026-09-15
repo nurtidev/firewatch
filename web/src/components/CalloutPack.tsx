@@ -65,6 +65,9 @@ function forcesHref(pack: CalloutPackData): string {
   if (pack.station?.distance_m != null) {
     p.set("distance_km", (pack.station.distance_m / 1000).toFixed(1));
   }
+  // Часть выезда — так «Проверить наличие техники» на /forces открывает
+  // /vehicles уже с предвыбранной частью вместо всего города.
+  if (pack.station?.id != null) p.set("station", String(pack.station.id));
   const object = pack.building?.address ?? pack.callout.address;
   if (object) p.set("object", object);
   // По id вызова калькулятор дотягивает цифры расчёта по ПТП и показывает их
