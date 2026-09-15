@@ -62,6 +62,19 @@
  * отправка не повторяется. Окончательны только 404/409/422 для батча и
  * поимённые отказы сервера.
  *
+ * ─── Закрытый выезд ──────────────────────────────────────────────────────
+ *
+ * Выезд могли закрыть, пока РТП работал без связи. Сервер больше не
+ * отвергает такую очередь целиком: позиции, поставленные до закрытия
+ * (+5 мин), принимаются и помечаются `synced_after_close_at`, а поставленное
+ * позже, чужое и пришедшее спустя 7 дней возвращается поимённым отказом — и
+ * попадает в «Не принято» как любой другой. 409 на весь батч остаётся только
+ * у API до этой версии, и он по-прежнему окончательный: бесконечный повтор
+ * истёк бы по сроку очереди и потерял расстановку молча, а «Не принято» РТП
+ * видит и переносит в донесение. Очередь уходит, только когда выезд открыт на
+ * экране, поэтому список выездов подсказывает выезды с неотправленной
+ * расстановкой (`pendingCallouts`) — закрытый из списка активных пропадает.
+ *
  * Ключи: fw_deployment_queue:<username>, fw_deployment_rejected:<username>.
  */
 
@@ -148,6 +161,8 @@ export type PlanPosition = {
   vehicle_callsign: string | null;
   /** Когда поставили (часы устройства), если известно. */
   placed_at: string | null;
+  /** Досинхронизирована после закрытия выезда (серверная пометка). */
+  synced_after_close_at: string | null;
 };
 
 /** Отвергнутое сервером. Не удаляется само: РТП должен увидеть, что именно
@@ -203,7 +218,8 @@ const REJECTED_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SYNC_MAX_ITEMS = 200;
 
 /** Отказ всему батчу, который не пройдёт и в следующий раз: выезд не найден,
- *  закрыт, батч не прошёл проверку. Всё прочее — повтор. */
+ *  батч не прошёл проверку, выезд закрыт (409 — только у API до досинхронизации
+ *  после закрытия; новый отвечает поимённо). Всё прочее — повтор. */
 const TERMINAL_STATUSES = new Set([404, 409, 422]);
 
 type QueueStore = Record<string, Record<string, Pending>>;
@@ -412,6 +428,19 @@ export function pendingCount(calloutId: number): number {
   return pendingFor(calloutId).length;
 }
 
+/** Выезды, по которым у текущей учётной записи лежит неотправленная
+ *  расстановка. Очередь уходит, только когда выезд открыт на экране, а
+ *  закрытый выезд из списка активных пропадает: без подсказки его очередь
+ *  пролежала бы на планшете до истечения срока и не дошла до донесения. */
+export function pendingCallouts(): { calloutId: number; count: number }[] {
+  sweepExpired();
+  const owner = currentOwner();
+  if (!owner) return [];
+  return Object.entries(readQueue(owner))
+    .map(([cid, entries]) => ({ calloutId: Number(cid), count: Object.keys(entries ?? {}).length }))
+    .filter((q) => Number.isInteger(q.calloutId) && q.count > 0);
+}
+
 /** id из ключа позиции с пульта; null — ключ позиции с плана (client_uid). */
 function serverIdOfKey(key: string): number | null {
   if (!key.startsWith(SRV_PREFIX)) return null;
@@ -572,6 +601,7 @@ function planFromServer(p: DeploymentPosition, key: string): PlanPosition {
     lng: p.lng,
     vehicle_callsign: p.vehicle_callsign,
     placed_at: p.placed_at ?? p.created_at,
+    synced_after_close_at: p.synced_after_close_at ?? null,
   };
 }
 
@@ -593,6 +623,7 @@ function planFromDraft(entry: Extract<Pending, { op: "create" }>): PlanPosition 
     lng: null,
     vehicle_callsign: null,
     placed_at: entry.placedAt,
+    synced_after_close_at: null,
   };
 }
 
@@ -795,7 +826,8 @@ async function runFlush(owner: string, calloutId: number): Promise<FlushOutcome>
       return { applied: 0, rejected: 0, forbidden: true, retryReason: reason };
     }
     if (!TERMINAL_STATUSES.has(status)) return { applied: 0, rejected: 0, retryReason: reason };
-    // Сервер отказал окончательно (выезд закрыли, пока связи не было):
+    // Сервер отказал окончательно (выезд не найден, батч не прошёл проверку;
+    // API до досинхронизации после закрытия — ещё и закрытый выезд):
     // отправленное уходит в отвергнутое — с именами позиций, чтобы РТП мог
     // перенести их в донесение. То, что успели изменить в полёте, остаётся:
     // следующая отправка получит свой ответ.

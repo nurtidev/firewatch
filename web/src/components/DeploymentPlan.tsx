@@ -26,12 +26,14 @@
 import { useCallback, useRef, useState } from "react";
 import { RotateCw, Trash2, MousePointer2, CloudUpload } from "lucide-react";
 import { Button, SectionLabel, StatusChip } from "@/components/ui";
-import { useT } from "@/lib/i18n";
+import { useLocale, useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { SEVERITY } from "@/lib/risk";
 import {
+  LATE_SYNC_ICON,
   POSITION_KIND_META,
   POSITION_TOOL_KINDS,
+  lateSyncStamp,
   type PositionKind,
   type PositionPhase,
 } from "@/lib/dispatch";
@@ -42,6 +44,7 @@ export default function DeploymentPlan({
   floor,
   phase,
   editable,
+  closedAt = null,
   onAdd,
   onMove,
   onRotate,
@@ -53,6 +56,8 @@ export default function DeploymentPlan({
   floor: string;
   phase: PositionPhase;
   editable: boolean;
+  /** Когда закрыт выезд: время досинхронизации на другие сутки — с датой. */
+  closedAt?: string | null;
   onAdd: (kind: PositionKind, x: number, y: number) => void;
   onMove: (key: string, x: number, y: number) => void;
   onRotate: (key: string, heading: number) => void;
@@ -61,6 +66,7 @@ export default function DeploymentPlan({
   children: React.ReactNode;
 }) {
   const t = useT();
+  const { locale } = useLocale();
   const boxRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState<PositionKind | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -70,6 +76,15 @@ export default function DeploymentPlan({
     (p) => p.plan_x != null && p.plan_y != null && (p.floor ?? "") === floor && p.phase === phase,
   );
   const pendingHere = onFloor.filter((p) => p.pending).length;
+  // Позиции, дошедшие с планшета уже после закрытия выезда: на схеме они те
+  // же самые, но разбор обязан видеть, что строка пришла позже закрытия.
+  const lateHere = onFloor.filter((p) => p.synced_after_close_at).length;
+  const lateText = (p: PlanPosition) =>
+    t("досинхронизировано после закрытия, {time}").replace(
+      "{time}",
+      lateSyncStamp(p.synced_after_close_at, closedAt, locale),
+    );
+  const LateIcon = LATE_SYNC_ICON;
 
   /** Точка события → доля от габарита плана, с зажимом в границы: маркер,
    *  утащенный за край, иначе сохранился бы с координатой вне 0..1 и был бы
@@ -188,7 +203,7 @@ export default function DeploymentPlan({
               )}
               title={`${t(POSITION_KIND_META[p.kind].label)}${p.sector ? ` · ${p.sector}` : ""}${
                 p.pending ? ` · ${t("ждёт отправки")}` : ""
-              }`}
+              }${p.synced_after_close_at ? ` · ${lateText(p)}` : ""}`}
             >
               {/* Направление работы: стрелка от маркера. Рисуется только там,
                   где направление осмысленно и задано. */}
@@ -224,6 +239,15 @@ export default function DeploymentPlan({
                     <CloudUpload className="h-2.5 w-2.5 text-muted" aria-hidden />
                   </span>
                 )}
+                {p.synced_after_close_at && (
+                  <span
+                    className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-info/40 bg-surface-2"
+                    role="img"
+                    aria-label={lateText(p)}
+                  >
+                    <LateIcon className="h-2.5 w-2.5 text-info" aria-hidden />
+                  </span>
+                )}
               </span>
             </div>
           );
@@ -235,6 +259,17 @@ export default function DeploymentPlan({
               {editable
                 ? t("Выберите инструмент и коснитесь плана, чтобы поставить позицию")
                 : t("Расстановка на этом этаже не зафиксирована")}
+            </span>
+          </div>
+        )}
+
+        {lateHere > 0 && (
+          <div className="pointer-events-none absolute left-2 top-2">
+            <span className="flex items-center gap-1.5 rounded-md bg-surface-2/90 px-2 py-1 text-2xs text-info">
+              <LateIcon className="h-3 w-3" aria-hidden />
+              <span className="tabular">
+                {t("Досинхронизировано после закрытия: {n}").replace("{n}", String(lateHere))}
+              </span>
             </span>
           </div>
         )}
@@ -269,6 +304,12 @@ export default function DeploymentPlan({
               <span className="flex items-center gap-1 text-xs text-muted">
                 <CloudUpload className="h-3.5 w-3.5" aria-hidden />
                 {t("ждёт отправки")}
+              </span>
+            )}
+            {current.synced_after_close_at && (
+              <span className="flex items-center gap-1 text-xs text-info">
+                <LateIcon className="h-3.5 w-3.5" aria-hidden />
+                {lateText(current)}
               </span>
             )}
           </div>

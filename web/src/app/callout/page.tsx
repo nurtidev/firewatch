@@ -8,7 +8,7 @@
  */
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Siren } from "lucide-react";
+import { ArrowLeft, CloudUpload, Siren } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import CalloutPack from "@/components/CalloutPack";
 import CalloutOps from "@/components/CalloutOps";
@@ -18,6 +18,7 @@ import { PageHeader, Button, Skeleton, EmptyState, Banner } from "@/components/u
 import { useT } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth";
 import { useCalloutList, useCalloutPack } from "@/lib/dispatch";
+import { pendingCallouts } from "@/lib/deploymentQueue";
 
 const POLL_MS = 15000;
 
@@ -78,6 +79,17 @@ function CalloutPageInner() {
 
   const showList = selectedId == null;
 
+  // Неотправленная расстановка по выездам, которых нет в списке активных —
+  // как правило, закрытым, пока РТП был без связи. Очередь уходит только из
+  // открытого выезда, а сервер принимает поставленное до закрытия: без этой
+  // подсказки расстановка пролежала бы на планшете до истечения срока.
+  const [orphanQueues, setOrphanQueues] = useState<{ calloutId: number; count: number }[]>([]);
+  useEffect(() => {
+    if (!showList || !callouts) return;
+    const active = new Set(callouts.map((c) => c.id));
+    setOrphanQueues(pendingCallouts().filter((q) => !active.has(q.calloutId)));
+  }, [showList, callouts, user?.username]);
+
   return (
     <AppShell>
       <div className="mx-auto max-w-[1400px] p-5 sm:p-7 lg:p-8">
@@ -94,6 +106,28 @@ function CalloutPageInner() {
               </Banner>
             )}
             <StaleDataBanner className="mt-4" cachedAt={listCachedAt} kind="list" />
+            {orphanQueues.map((q) => (
+              <Banner
+                key={q.calloutId}
+                tone="warning"
+                icon={CloudUpload}
+                className="mt-4"
+                title={t("Расстановка по закрытому выезду ждёт отправки")}
+              >
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className="tabular">
+                    {t(
+                      "Выезд № {id}: позиций на устройстве — {n}. Откройте выезд — расстановка уйдёт на сервер и попадёт в донесение.",
+                    )
+                      .replace("{id}", String(q.calloutId))
+                      .replace("{n}", String(q.count))}
+                  </span>
+                  <Button size="sm" variant="secondary" onClick={() => selectCallout(q.calloutId)}>
+                    {t("Открыть выезд")}
+                  </Button>
+                </span>
+              </Banner>
+            ))}
 
             {callouts === null && !listError ? (
               <div className="mt-5 space-y-3">

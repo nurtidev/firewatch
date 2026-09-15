@@ -23,24 +23,56 @@
  */
 
 import FloorPlan2D from "@/components/FloorPlan2D";
-import { POSITION_KIND_META, formatClock, type DeploymentPosition } from "@/lib/dispatch";
+import {
+  LATE_SYNC_ICON,
+  POSITION_KIND_META,
+  formatClock,
+  lateSyncStamp,
+  type DeploymentPosition,
+} from "@/lib/dispatch";
 import type { RealFloorPlan } from "@/data/floorplans/hayvill";
 
 /** Позиция с номером, под которым она стоит в таблице листа. */
 export type NumberedPosition = DeploymentPosition & { no: number };
 
+/** Пометка строки: позиция дошла с планшета РТП уже после закрытия выезда.
+ *  Значок и текст, а не цвет: лист читают в чёрно-белой копии. */
+export function LateSyncMark({
+  position,
+  closedAt,
+}: {
+  position: DeploymentPosition;
+  closedAt: string | null;
+}) {
+  if (!position.synced_after_close_at) return null;
+  const Icon = LATE_SYNC_ICON;
+  return (
+    <span className="mt-0.5 flex items-center gap-1 text-2xs text-muted">
+      <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden />
+      <span className="tabular">
+        досинхронизировано после закрытия, {lateSyncStamp(position.synced_after_close_at, closedAt)}
+      </span>
+    </span>
+  );
+}
+
 export default function DeploymentSheet({
   plan,
   positions,
+  closedAt = null,
 }: {
   plan: RealFloorPlan;
   /** Позиции одного этажа и одного этапа, уже пронумерованные. */
   positions: NumberedPosition[];
+  /** Когда закрыт выезд — для даты у пометки досинхронизации. */
+  closedAt?: string | null;
 }) {
   // Легенда — только те типы, что есть на этом листе: перечислять шесть
   // условных обозначений там, где стоят два ствола, значит заставлять читателя
   // искать нужное среди лишнего.
   const kinds = [...new Set(positions.map((p) => p.kind))];
+  const hasLate = positions.some((p) => p.synced_after_close_at);
+  const LateIcon = LATE_SYNC_ICON;
 
   return (
     <div className="space-y-3">
@@ -78,6 +110,14 @@ export default function DeploymentSheet({
                 >
                   {p.no}
                 </span>
+                {p.synced_after_close_at && (
+                  <span
+                    className="absolute -left-2 -top-2 flex h-4 w-4 items-center justify-center rounded-full border border-border bg-surface text-fg"
+                    aria-hidden
+                  >
+                    <LateIcon className="h-2.5 w-2.5" />
+                  </span>
+                )}
               </span>
             </div>
           );
@@ -100,6 +140,14 @@ export default function DeploymentSheet({
             </span>
           );
         })}
+        {hasLate && (
+          <span className="flex items-center gap-1.5 text-2xs text-muted">
+            <span className="flex h-4 w-4 items-center justify-center rounded-full border border-border text-fg">
+              <LateIcon className="h-2.5 w-2.5" aria-hidden />
+            </span>
+            досинхронизировано после закрытия выезда
+          </span>
+        )}
       </div>
 
       <table className="w-full border-collapse text-2xs">
@@ -119,7 +167,10 @@ export default function DeploymentSheet({
             return (
               <tr key={p.id} className="border-b border-border/60">
                 <td className="tabular py-1 font-semibold">{p.no}</td>
-                <td className="py-1">{meta.label}</td>
+                <td className="py-1">
+                  {meta.label}
+                  <LateSyncMark position={p} closedAt={closedAt} />
+                </td>
                 <td className="py-1">{p.sector || "—"}</td>
                 <td className="tabular py-1">
                   {meta.directional && p.heading != null ? `${p.heading}°` : "—"}

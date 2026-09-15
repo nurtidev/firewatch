@@ -24,7 +24,7 @@ import CalloutPack from "@/components/CalloutPack";
 import CalloutRow from "@/components/CalloutRow";
 import StaleDataBanner from "@/components/StaleDataBanner";
 import { apiFetch } from "@/lib/auth";
-import { useT } from "@/lib/i18n";
+import { useLocale, useT } from "@/lib/i18n";
 import { apiErrorText } from "@/lib/api-error";
 import { scoreSeverity } from "@/lib/risk";
 import {
@@ -45,6 +45,8 @@ import { cn } from "@/lib/cn";
 import {
   CALLOUT_TYPES,
   CALLOUT_TYPE_META,
+  LATE_SYNC_ICON,
+  lateSyncStamp,
   useCalloutList,
   useCalloutPack,
   type CalloutType,
@@ -64,6 +66,7 @@ type ListFilter = "active" | "closed" | "all";
 
 export default function DispatchPage() {
   const t = useT();
+  const { locale } = useLocale();
   const [tab, setTab] = useState<ListFilter>("active");
   const {
     callouts,
@@ -201,6 +204,31 @@ export default function DispatchPage() {
             {!packLoading && !packError && pack && (
               <div className="fw-fade-in space-y-4">
                 <StaleDataBanner cachedAt={packCachedAt} kind="pack" />
+                {/* Закрытый выезд получил расстановку с планшета РТП: поставлена
+                    до закрытия без связи, дошла позже. Диспетчер должен знать,
+                    что донесение по нему изменилось после закрытия. */}
+                {pack.callout.status === "closed" && pack.callout.late_sync && (
+                  <Banner
+                    tone="info"
+                    icon={LATE_SYNC_ICON}
+                    title={t("Закрытый выезд получил расстановку с планшета")}
+                  >
+                    <span className="tabular">
+                      {t(
+                        "Позиций досинхронизировано после закрытия: {n}, последняя — {time}. Они поставлены до закрытия без связи; в донесении строки помечены.",
+                      )
+                        .replace("{n}", String(pack.callout.late_sync.positions))
+                        .replace(
+                          "{time}",
+                          lateSyncStamp(
+                            pack.callout.late_sync.last_synced_at,
+                            pack.callout.closed_at,
+                            locale,
+                          ),
+                        )}
+                    </span>
+                  </Banner>
+                )}
                 {pack.callout.status === "active" && (
                   <CalloutActions
                     key={pack.callout.id}

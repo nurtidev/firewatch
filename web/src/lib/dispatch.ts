@@ -19,6 +19,7 @@ import {
   Minus,
   Radio,
   Users,
+  History,
 } from "lucide-react";
 import { apiFetch } from "./auth";
 import { cachedAtOf } from "./sw";
@@ -109,6 +110,10 @@ export type Callout = {
   closed_at: string | null;
   close_note: string | null;
   timeline: CalloutTimeline;
+  /** Расстановка, дошедшая с планшета уже после закрытия выезда: сколько
+   *  позиций помечено и когда пришла последняя. null — не приходило ничего.
+   *  Необязательное: пакет из офлайн-кэша старой версии API его не содержит. */
+  late_sync?: { positions: number; last_synced_at: string | null } | null;
 };
 
 /* ───────────────────────────── Search ──────────────────────────── */
@@ -410,6 +415,10 @@ export type DeploymentPosition = {
   /** Когда позицию поставили (часы устройства). Отличается от created_at
    *  только там, где связь пропадала: «подан в 14:32, записан в 14:51». */
   placed_at: string | null;
+  /** Не null — позиция дошла из очереди планшета уже после закрытия выезда
+   *  (поставлена до закрытия, без связи). Донесение и схема помечают такие
+   *  позиции значком и текстом. Необязательное — старый API поля не отдаёт. */
+  synced_after_close_at?: string | null;
   created_by: string;
   created_at: string | null;
 };
@@ -719,6 +728,31 @@ export function formatClock(iso: string | null, locale: Locale = "ru"): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/** Значок пометки «досинхронизировано после закрытия» — один на схеме,
+ *  в списке, в донесении и на пульте: цвет пометки не единственный сигнал,
+ *  и разойтись по поверхностям она не должна. */
+export const LATE_SYNC_ICON: LucideIcon = History;
+
+/** Время досинхронизации после закрытия: ЧЧ:ММ, а если это уже другие сутки,
+ *  чем закрытие выезда, — с датой («16.09 08:12»). Без даты «08:12» на
+ *  следующий день читалось бы как время того же боевого дня. */
+export function lateSyncStamp(
+  iso: string | null | undefined,
+  closedAt: string | null | undefined,
+  locale: Locale = "ru",
+): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const clock = formatClock(iso, locale);
+  const closed = closedAt ? new Date(closedAt) : null;
+  if (!closed || Number.isNaN(closed.getTime()) || d.toDateString() === closed.toDateString()) {
+    return clock;
+  }
+  const day = d.toLocaleDateString(intlLocale(locale), { day: "2-digit", month: "2-digit" });
+  return `${day} ${clock}`;
 }
 
 export type TimelinePatch = Partial<Record<TimelineStep, string | null>> & {

@@ -48,7 +48,7 @@ import {
   Select,
   Field,
 } from "@/components/ui";
-import { useT } from "@/lib/i18n";
+import { useLocale, useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { SEVERITY } from "@/lib/risk";
 import { apiFetch, useAuth } from "@/lib/auth";
@@ -75,7 +75,9 @@ import {
   POSITION_KIND_META,
   POSITION_PHASES,
   POSITION_PHASE_LABEL,
+  LATE_SYNC_ICON,
   addPosition,
+  lateSyncStamp,
   type CalloutPackData,
   type DeploymentPosition,
   type TimelineStep,
@@ -131,6 +133,9 @@ export default function CalloutOps({
   // силами закрытого выезда уже не распоряжаются. Документальные (хронология,
   // расход) он разрешает: их уточняют позже, когда РТП садится составлять
   // донесение о пожаре. Интерфейс обязан повторять ровно это различие.
+  // Исключение одно — очередь планшета: то, что РТП поставил без связи до
+  // закрытия, сервер принимает и после него (с пометкой), поэтому очередь
+  // закрытого выезда отправляется и её состояние видно (DeploymentSection).
   const editable = canEdit && !closed;
   const documentEditable = canEdit;
 
@@ -602,6 +607,7 @@ function DeploymentSection({
   onChanged: () => void;
 }) {
   const t = useT();
+  const { locale } = useLocale();
   const router = useRouter();
   const [adding, setAdding] = useState(false);
   const [kind, setKind] = useState<PositionKind>("barrel_ext");
@@ -641,6 +647,12 @@ function DeploymentSection({
   const calloutId = pack.callout.id;
   const queue = useDeploymentQueue(calloutId, onChanged);
   const { setSynced, online } = queue;
+  // Состояние очереди видно и на закрытом выезде, пока на устройстве что-то
+  // лежит: сервер досинхронизирует поставленное до закрытия, и РТП должен
+  // знать, что расстановка ещё не ушла. Ставить новое там по-прежнему нельзя.
+  const showQueue = editable || queue.pending.length > 0;
+  const closedAt = pack.callout.closed_at;
+  const LateIcon = LATE_SYNC_ICON;
   // Свежий боевой пакет главнее ответа синхронизации — он приходит позже и
   // видит в том числе то, что сделали с пульта.
   const serverPositions = pack.deployment ?? [];
@@ -787,7 +799,7 @@ function DeploymentSection({
           от этого зависит, доложит РТП по радио или положится на схему.
           Кнопка нужна там, где navigator.onLine врёт: Wi-Fi точки есть,
           интернета за ней нет — в подземном паркинге это обычное дело. */}
-      {editable && !online && (
+      {showQueue && !online && (
         <Banner tone="warning" icon={WifiOff} className="mt-3">
           {queue.pending.length > 0
             ? t("Связи нет. Расстановка сохранена на устройстве ({n}) и уйдёт на пульт, когда связь появится.")
@@ -798,7 +810,7 @@ function DeploymentSection({
       {/* 401 при отправке — не отказ расстановке: токен истёк за смену без
           связи. Очередь цела, и человек должен знать, что для отправки нужен
           вход, а не повтор нажатия «Отправить». */}
-      {editable && queue.authRequired && queue.pending.length > 0 && (
+      {showQueue && queue.authRequired && queue.pending.length > 0 && (
         <Banner tone="warning" icon={KeyRound} className="mt-3">
           <span className="flex flex-wrap items-center gap-2">
             <span>
@@ -817,7 +829,7 @@ function DeploymentSection({
           Повторный вход тут не поможет, а повтор отправки даст тот же отказ,
           поэтому очередь сама не уходит. Кнопка — на случай, когда диспетчер
           уже выдал права. */}
-      {editable && queue.forbidden && !queue.authRequired && queue.pending.length > 0 && (
+      {showQueue && queue.forbidden && !queue.authRequired && queue.pending.length > 0 && (
         <Banner
           tone="warning"
           icon={ShieldAlert}
@@ -847,7 +859,7 @@ function DeploymentSection({
           </span>
         </Banner>
       )}
-      {editable &&
+      {showQueue &&
         online &&
         !queue.authRequired &&
         !queue.forbidden &&
@@ -876,9 +888,9 @@ function DeploymentSection({
       )}
 
       {/* Отвергнутое сервером. Само не исчезает: расстановка, которую не
-          приняли (выезд закрыли, пока связи не было), — это то, что РТП
-          должен перенести в донесение руками, а не обнаружить пропажу через
-          неделю на разборе. */}
+          приняли (например, поставленная уже после закрытия выезда), — это
+          то, что РТП должен перенести в донесение руками, а не обнаружить
+          пропажу через неделю на разборе. */}
       {queue.rejected.length > 0 && (
         <Banner
           tone="critical"
@@ -889,7 +901,7 @@ function DeploymentSection({
           <ul className="space-y-0.5">
             {queue.rejected.slice(0, 6).map((r) => (
               <li key={r.key}>
-                {rejectedLabel(r, t)} — {r.reason}
+                {rejectedLabel(r, t)} — {t(r.reason)}
               </li>
             ))}
             {queue.rejected.length > 6 && (
@@ -938,6 +950,7 @@ function DeploymentSection({
               floor={activeFloor}
               phase={phase}
               editable={editable}
+              closedAt={closedAt}
               onAdd={(k, x, y) =>
                 queue.apply(() =>
                   queueCreate(calloutId, {
@@ -996,6 +1009,16 @@ function DeploymentSection({
                         <span className="flex items-center gap-1 text-2xs text-muted">
                           <CloudOff className="h-3 w-3" aria-hidden />
                           {t("ждёт отправки")}
+                        </span>
+                      )}
+                      {/* Дошла с планшета уже после закрытия выезда. */}
+                      {p.synced_after_close_at && (
+                        <span className="flex items-center gap-1 text-2xs text-info">
+                          <LateIcon className="h-3 w-3" aria-hidden />
+                          {t("досинхронизировано после закрытия, {time}").replace(
+                            "{time}",
+                            lateSyncStamp(p.synced_after_close_at, closedAt, locale),
+                          )}
                         </span>
                       )}
                       {p.lat != null && (

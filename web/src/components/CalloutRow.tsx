@@ -7,7 +7,7 @@
  * marker, which used to only appear on the dispatcher's list).
  */
 import { cn } from "@/lib/cn";
-import { CALLOUT_TYPE_META, relativeTimeRu, type Callout } from "@/lib/dispatch";
+import { CALLOUT_TYPE_META, LATE_SYNC_ICON, relativeTimeRu, type Callout } from "@/lib/dispatch";
 import { useLocale, useT } from "@/lib/i18n";
 
 export default function CalloutRow({
@@ -27,6 +27,7 @@ export default function CalloutRow({
   const { locale } = useLocale();
   const meta = CALLOUT_TYPE_META[callout.callout_type];
   const Icon = meta.icon;
+  const LateIcon = LATE_SYNC_ICON;
   const large = size === "lg";
 
   return (
@@ -72,6 +73,14 @@ export default function CalloutRow({
           <span className="tabular">· {relativeTimeRu(callout.created_at, locale, t)}</span>
           {callout.station && <span className="truncate">· {callout.station.name}</span>}
           {callout.status === "closed" && <span>· {t("закрыт")}</span>}
+          {/* Закрытый выезд, в который после закрытия дошла расстановка с
+              планшета: видно прямо в списке, без открытия пакета. */}
+          {callout.status === "closed" && callout.late_sync && (
+            <span className="inline-flex items-center gap-1 text-info">
+              <LateIcon className={large ? "h-4 w-4" : "h-3 w-3"} aria-hidden />
+              {t("досинхронизировано после закрытия")}
+            </span>
+          )}
         </p>
       </div>
     </button>

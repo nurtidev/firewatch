@@ -28,13 +28,14 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Printer, ArrowLeft, Loader2, AlertTriangle } from "lucide-react";
-import DeploymentSheet, { type NumberedPosition } from "@/components/DeploymentSheet";
+import DeploymentSheet, { LateSyncMark, type NumberedPosition } from "@/components/DeploymentSheet";
 import StaleDataBanner from "@/components/StaleDataBanner";
 import { Button, Skeleton, Banner } from "@/components/ui";
 import { apiFetch, useAuth } from "@/lib/auth";
 import { realPlanForFloor } from "@/lib/realgeom";
 import {
   CALLOUT_TYPE_META,
+  LATE_SYNC_ICON,
   POSITION_KIND_META,
   POSITION_PHASES,
   POSITION_PHASE_LABEL,
@@ -187,6 +188,12 @@ function Report({
     }
     return out;
   }, [numbered]);
+
+  // Позиции, дошедшие с планшета РТП уже после закрытия выезда: поставлены до
+  // закрытия без связи, записаны позже. Документ говорит это сам — и строкой
+  // таблицы, и примечанием к разделу.
+  const lateCount = numbered.filter((p) => p.synced_after_close_at).length;
+  const LateIcon = LATE_SYNC_ICON;
 
   return (
     <>
@@ -354,7 +361,10 @@ function Report({
                     <tr key={p.id} className="border-b border-border/60">
                       <td className="tabular py-1 font-semibold">{p.no}</td>
                       <td className="py-1">{POSITION_PHASE_LABEL[p.phase]}</td>
-                      <td className="py-1">{POSITION_KIND_META[p.kind].label}</td>
+                      <td className="py-1">
+                        {POSITION_KIND_META[p.kind].label}
+                        <LateSyncMark position={p} closedAt={callout.closed_at} />
+                      </td>
                       <td className="py-1">{p.sector || p.floor || "—"}</td>
                       <td className="tabular py-1">
                         {POSITION_KIND_META[p.kind].directional && p.heading != null
@@ -366,6 +376,23 @@ function Report({
                   ))}
                 </tbody>
               </table>
+              {lateCount > 0 && (
+                <p className="fw-keep mt-1.5 flex items-start gap-1 text-2xs text-fg">
+                  <LateIcon className="mt-px h-3 w-3 shrink-0" aria-hidden />
+                  <span>
+                    Досинхронизировано после закрытия выезда:{" "}
+                    <span className="tabular font-semibold">{lateCount}</span> поз. Позиции
+                    поставлены до закрытия выезда
+                    {callout.closed_at ? (
+                      <>
+                        {" "}
+                        (<span className="tabular">{formatClock(callout.closed_at)}</span>)
+                      </>
+                    ) : null}{" "}
+                    без связи и переданы с планшета позже; в таблице и на схемах помечены.
+                  </span>
+                </p>
+              )}
               {sheets.length > 0 && (
                 <p className="mt-1.5 text-2xs text-faint">
                   Схемы расстановки — на отдельных листах, приложение к настоящему донесению
@@ -399,7 +426,11 @@ function Report({
             </header>
             <div className="mt-3">
               {plan ? (
-                <DeploymentSheet plan={plan} positions={sheet.positions} />
+                <DeploymentSheet
+                  plan={plan}
+                  positions={sheet.positions}
+                  closedAt={pack.callout.closed_at}
+                />
               ) : (
                 <p className="text-2xs text-muted">
                   Поэтажный план объекта не оцифрован — позиции этого этажа приведены таблицей в
