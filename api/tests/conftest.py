@@ -13,8 +13,20 @@ files when FW_RUN_DB_TESTS isn't set at all, which this fixture doesn't do).
 """
 
 import os
+import tempfile
 
 import pytest
+
+# `settings.uploads_dir` defaults to `/app/uploads` — the writable path inside
+# the Docker image. On a bare CI runner (and on a dev machine without the
+# container) `/app` doesn't exist and isn't writable, so any test that
+# actually exercises a file-upload endpoint (e.g. POST /routes/visit/photo)
+# fails with an OSError as soon as it tries to mkdir it. Point uploads at a
+# throwaway temp dir instead — this must run at conftest import time, before
+# `app.config` is imported anywhere, since `Settings()` is instantiated once
+# at module load. `setdefault` still lets an explicit UPLOADS_DIR (e.g. to
+# inspect what a test wrote) win.
+os.environ.setdefault("UPLOADS_DIR", tempfile.mkdtemp(prefix="fw-uploads-test-"))
 
 
 def _db_name(url: str) -> str:
