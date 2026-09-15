@@ -194,16 +194,23 @@ _CALLOUT_SELECT = """
            c.created_by, c.created_at, c.closed_by, c.closed_at, c.close_note,
            c.dispatched_at, c.arrived_at, c.first_jet_at, c.localized_at,
            c.extinguished_at, c.rank_declared,
-           late.positions AS late_sync_positions, late.last_at AS late_sync_last_at
+           late.positions AS late_sync_positions, late.removed AS late_sync_removed,
+           late.last_at AS late_sync_last_at
     FROM callouts c
     LEFT JOIN buildings b ON b.id = c.building_id
     LEFT JOIN fire_stations s ON s.id = c.station_id
-    -- Позиции, досинхронизированные с планшета уже после закрытия выезда
-    -- (миграция 0024): пульт должен видеть, что закрытый выезд получил данные.
+    -- Позиции, досинхронизированные с планшета уже после закрытия выезда, и
+    -- надгробия снятых после закрытия (миграция 0024): пульт должен видеть,
+    -- что закрытый выезд получил данные. Оба счёта — по индексу callout_id.
     LEFT JOIN LATERAL (
-        SELECT count(*) AS positions, max(p.synced_after_close_at) AS last_at
-          FROM deployment_positions p
-         WHERE p.callout_id = c.id AND p.synced_after_close_at IS NOT NULL
+        SELECT pos.n AS positions, rem.n AS removed,
+               GREATEST(pos.last_at, rem.last_at) AS last_at
+          FROM (SELECT count(*) AS n, max(p.synced_after_close_at) AS last_at
+                  FROM deployment_positions p
+                 WHERE p.callout_id = c.id AND p.synced_after_close_at IS NOT NULL) pos,
+               (SELECT count(*) AS n, max(r.synced_at) AS last_at
+                  FROM deployment_late_removals r
+                 WHERE r.callout_id = c.id) rem
     ) late ON true
 """
 
@@ -261,13 +268,15 @@ def _callout_dict(r: dict) -> dict:
         "closed_at": r["closed_at"].isoformat() if r["closed_at"] else None,
         "close_note": r["close_note"],
         "timeline": _timeline_dict(r),
-        # Расстановка, дошедшая с планшета после закрытия: сколько позиций и
-        # когда пришла последняя. None — после закрытия ничего не приходило.
+        # Расстановка, дошедшая с планшета после закрытия: сколько позиций
+        # записано или помечено, сколько снято и когда пришло последнее.
+        # None — после закрытия ничего не приходило.
         "late_sync": {
-            "positions": r["late_sync_positions"],
+            "positions": r.get("late_sync_positions") or 0,
+            "removed": r.get("late_sync_removed") or 0,
             "last_synced_at": _iso(r.get("late_sync_last_at")),
         }
-        if r.get("late_sync_positions")
+        if r.get("late_sync_positions") or r.get("late_sync_removed")
         else None,
     }
 
@@ -1658,11 +1667,15 @@ class PlacedAt:
 
     `problem` — причина не записывать позицию; `clock` — что пришлось сделать
     со временем (для журнала): None, если время записано как пришло.
+    `early` — время оказалось раньше регистрации выезда и прижато к ней:
+    в открытом выезде это безвредно, а закрытому (`_late_time_problem`) такое
+    время ничего не доказывает.
     """
 
     value: datetime | None
     problem: str | None = None
     clock: dict | None = None
+    early: bool = False
 
 
 def _reconcile_placed_at(
@@ -1731,7 +1744,7 @@ def _reconcile_placed_at(
             "clock_skew_sec": round(skew.total_seconds()) if skew is not None else None,
             "clamped": clamped,
         }
-    return PlacedAt(bounded, clock=clock)
+    return PlacedAt(bounded, clock=clock, early=too_early)
 
 
 # --- досинхронизация после закрытия выезда ------------------------------------
@@ -1741,16 +1754,23 @@ def _reconcile_placed_at(
 # до донесения и разбора она не доходила никогда. Но расстановка — факт боевых
 # действий, и то, что поставлено до закрытия, обязано попасть в дело.
 #
-# Правило (всё — поштучно, отказ одной позиции не отменяет остальные):
+# Правило (отказ — поимённый, отказ одной позиции не отменяет остальные):
 #   • окно — не дольше LATE_SYNC_WINDOW после закрытия (очередь живёт 48 ч,
 #     настоящие данные в него всегда укладываются);
-#   • постановка принимается, если её время, сведённое к часам сервера
-#     (`_reconcile_placed_at`), не позже закрытия + LATE_SYNC_TOLERANCE;
+#   • кто — только начальник караула (responder) части, участвовавшей в
+#     выезде: назначенной на выезд или приславшей машину в наряд
+#     (`_late_crew_problem`). Диспетчер, админ, караулы других частей и
+#     responder без привязки к части в закрытый выезд не пишут ничего;
+#   • постановка — если её время, сведённое к часам сервера
+#     (`_reconcile_placed_at`), не позже закрытия + LATE_SYNC_TOLERANCE.
+#     Время, прижатое к регистрации выезда, и отсутствующее время — отказ:
+#     постановку до закрытия они не доказывают;
 #   • правка и снятие — только своих позиций с плана (client_uid есть, автор —
-#     тот же пользователь), поставленных по тому же правилу. Позиции с пульта
-#     и чужие после закрытия не меняются, как и раньше;
-#   • принятое помечается `synced_after_close_at` и пишется в журнал с
-#     `after_close: true`.
+#     тот же пользователь) и только с временем жеста (`gesture_at`), которое
+#     после поправки часов не позже закрытия + допуск. Без времени жеста
+#     (старый клиент) — отказ, а не молчаливое принятие;
+#   • принятое помечается `synced_after_close_at`, снятое оставляет надгробие
+#     `deployment_late_removals`, всё пишется в журнал с `after_close: true`.
 
 # Допуск к моменту закрытия: РТП ставил ствол, пока диспетчер нажимал
 # «Закрыть», а часы планшета после поправки точны до канала связи.
@@ -1765,6 +1785,11 @@ LATE_NO_TIME = "Время постановки неизвестно — пос�
 LATE_NOT_OWN = (
     "Выезд закрыт — после закрытия принимаются только свои позиции, поставленные на плане"
 )
+LATE_NOT_CREW = "Досинхронизация после закрытия — только расчёт части, участвовавшей в выезде"
+LATE_MOVE_NO_TIME = "Время перемещения неизвестно — после закрытия выезда правка не записана"
+LATE_MOVED_AFTER_CLOSE = "Позиция перемещена после закрытия выезда — правка не записана"
+LATE_REMOVE_NO_TIME = "Время снятия неизвестно — после закрытия выезда позиция не снята"
+LATE_REMOVED_AFTER_CLOSE = "Позиция снята после закрытия выезда — снятие не записано"
 
 
 def _late_sync_window_problem(closed_at: datetime | None, now: datetime) -> str | None:
@@ -1782,13 +1807,18 @@ def _late_sync_window_problem(closed_at: datetime | None, now: datetime) -> str 
 
 
 def _late_sync_problem(
-    placed_at: datetime | None, closed_at: datetime | None, now: datetime
+    placed_at: datetime | None,
+    closed_at: datetime | None,
+    now: datetime,
+    *,
+    no_time: str = LATE_NO_TIME,
+    after_close: str = LATE_AFTER_CLOSE,
 ) -> str | None:
     """Можно ли записать позицию в уже закрытый выезд: None — можно.
 
-    `placed_at` — уже сведённое к часам сервера время постановки. Время без
-    пояса или без значения не доказывает, что позицию поставили до закрытия,
-    поэтому такая позиция не записывается.
+    `placed_at` — уже сведённое к часам сервера время постановки (или жеста —
+    тогда причины отказа передаются своими). Время без пояса или без значения
+    не доказывает, что действие было до закрытия, поэтому не записывается.
     """
     window = _late_sync_window_problem(closed_at, now)
     if window:
@@ -1796,10 +1826,66 @@ def _late_sync_problem(
     assert closed_at is not None  # проверено окном
     closed = closed_at if _aware(closed_at) else closed_at.replace(tzinfo=timezone.utc)
     if placed_at is None or not _aware(placed_at):
-        return LATE_NO_TIME
+        return no_time
     if placed_at > closed + LATE_SYNC_TOLERANCE:
-        return LATE_AFTER_CLOSE
+        return after_close
     return None
+
+
+def _late_time_problem(
+    fix: PlacedAt,
+    closed_at: datetime | None,
+    now: datetime,
+    *,
+    no_time: str = LATE_NO_TIME,
+    after_close: str = LATE_AFTER_CLOSE,
+) -> str | None:
+    """Время, уже сведённое `_reconcile_placed_at`, против закрытия выезда.
+
+    Прижатое к регистрации время (часы отставали, поправить не по чему) в
+    открытом выезде — безвредная неточность, а в закрытом превращало бы
+    недоказуемое время в принятое «в момент регистрации». Здесь это отказ.
+    """
+    if fix.problem or fix.early:
+        return _late_sync_window_problem(closed_at, now) or no_time
+    return _late_sync_problem(
+        fix.value, closed_at, now, no_time=no_time, after_close=after_close
+    )
+
+
+def _late_crew_problem(
+    role: str | None, own_station: int | None, crew_stations: set[int]
+) -> str | None:
+    """Кто досинхронизирует расстановку в закрытый выезд: None — можно.
+
+    Только начальник караула (`responder`) части, участвовавшей в выезде:
+    назначенной на выезд (`callouts.station_id`) либо приславшей машину в наряд
+    (`callout_vehicles`, в том числе уже снятую с выезда). Досинхронизация —
+    доставка того, что расчёт делал на пожаре без связи, а не второй вход в
+    закрытый выезд. Диспетчер и админ на пожаре позиций не ставят, караулы
+    других частей в выезде не участвовали, а у responder без привязки к части
+    (`users.station_id` пуст) участие не проверить — всем им отказ.
+    Правило одно для новых постановок, повторов, правок и снятий своих позиций.
+    """
+    if role != "responder" or own_station is None:
+        return LATE_NOT_CREW
+    return None if own_station in crew_stations else LATE_NOT_CREW
+
+
+def _callout_crew_stations(db: Session, callout_id: int, station_id: int | None) -> set[int]:
+    """Части, участвовавшие в выезде: назначенная и приславшие машины."""
+    stations = set(
+        db.execute(
+            text(
+                "SELECT DISTINCT v.station_id FROM callout_vehicles cv "
+                "JOIN station_vehicles v ON v.id = cv.vehicle_id WHERE cv.callout_id = :cid"
+            ),
+            {"cid": callout_id},
+        ).scalars().all()
+    )
+    if station_id is not None:
+        stations.add(station_id)
+    return stations
 
 
 def _late_target_problem(
@@ -1834,6 +1920,54 @@ def _late_target(
         params,
     ).mappings().first()
     return dict(row) if row is not None else None
+
+
+def _remove_position(
+    db: Session,
+    callout_id: int,
+    position_id: int | None,
+    client_uid: str | None,
+    *,
+    late: dict | None = None,
+) -> int | None:
+    """Снять позицию по id либо по client_uid: id снятой, None — её не было.
+
+    `late` — снятие пришло в закрытый выезд (`removed_at`, `removed_by`,
+    `synced_at`): вместе со строкой в той же операции пишется надгробие
+    `deployment_late_removals`. Без него снятие после закрытия осталось бы
+    только в журнале, и ни донесение, ни пульт его бы не увидели.
+    """
+    if position_id is not None:
+        where, params = "id = :pid", {"cid": callout_id, "pid": position_id}
+    else:
+        where, params = "client_uid = :uid", {"cid": callout_id, "uid": client_uid}
+    if late is None:
+        return db.execute(
+            text(
+                f"DELETE FROM deployment_positions WHERE callout_id = :cid AND {where} "
+                "RETURNING id"
+            ),
+            params,
+        ).scalar()
+    return db.execute(
+        text(
+            f"""
+            WITH gone AS (
+                DELETE FROM deployment_positions WHERE callout_id = :cid AND {where}
+                RETURNING id, callout_id, client_uid, kind, phase, floor, sector,
+                          COALESCE(placed_at, created_at) AS placed_at, created_by
+            )
+            INSERT INTO deployment_late_removals
+                (callout_id, position_id, client_uid, kind, phase, floor, sector,
+                 placed_at, created_by, removed_at, removed_by, synced_at)
+            SELECT callout_id, id, client_uid, kind, phase, floor, sector,
+                   placed_at, created_by, :removed_at, :removed_by, :synced_at
+              FROM gone
+            RETURNING position_id
+            """
+        ),
+        {**params, **late},
+    ).scalar()
 
 
 # Поля, которые повтор постановки может обновить (см. `_upsert_position`).
@@ -2254,6 +2388,8 @@ def _resolve_position(
 SYNC_MAX_ITEMS = 200
 
 SyncUid = Annotated[str, Field(min_length=1, max_length=64)]
+# Ключ ответа синхронизации: client_uid (до 64) или `srv:<id>`.
+SyncKey = Annotated[str, Field(min_length=1, max_length=80)]
 
 
 class DeploymentSync(BaseModel):
@@ -2277,6 +2413,14 @@ class DeploymentSync(BaseModel):
     # Часы устройства в момент отправки батча (см. `_reconcile_placed_at`).
     # Старые клиенты его не шлют — их время только прижимается к выезду.
     sent_at: datetime | None = None
+    # Время жеста по часам устройства для правок и снятий, по ключу ответа
+    # (`_sync_key`: client_uid или `srv:<id>`). Нужно закрытому выезду:
+    # перемещение и снятие, сделанные уже после закрытия, не записываются, а
+    # без времени их не отличить (`_late_time_problem`). Отдельной картой, а не
+    # полем в элементах `deletes` (это список id): такой батч старый API отверг
+    # бы 422, а 422 в очереди окончательный. Неизвестное поле верхнего уровня
+    # старый API просто не читает.
+    gesture_at: dict[SyncKey, datetime] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _bounded(self) -> "DeploymentSync":
@@ -2287,6 +2431,8 @@ class DeploymentSync(BaseModel):
             raise ValueError("пустая синхронизация")
         if total > SYNC_MAX_ITEMS:
             raise ValueError(f"за один раз не больше {SYNC_MAX_ITEMS} операций")
+        if len(self.gesture_at) > SYNC_MAX_ITEMS:
+            raise ValueError(f"времён жестов не больше {SYNC_MAX_ITEMS}")
         return self
 
 
@@ -2325,6 +2471,10 @@ def sync_deployment(
     планшета поправляются, а не отвергают позицию; отвергается только время
     без часового пояса — и тоже поштучно, а не батч.
     """
+    # Часы сервера для поправки часов планшета — до блокировки: ожидание
+    # закрытия, которое держит строку выезда, не должно попасть в разницу
+    # «сервер − sent_at» и сдвинуть время постановки.
+    now = datetime.now(timezone.utc)
     # Пока идёт синхронизация, выезд не закроют: UPDATE в `close_callout` ждёт
     # этой блокировки. Иначе позиция могла бы лечь в только что закрытый выезд
     # без пометки «после закрытия».
@@ -2334,16 +2484,24 @@ def sync_deployment(
     # `close_callout` вместе со status = 'closed'.
     closed = row["status"] != "active"
     closed_at = row["closed_at"] if closed else None
+    # Пометка и журнал — моментом записи, уже после блокировки: досинхронизация,
+    # дождавшаяся закрытия, не может быть помечена раньше него.
+    synced_at = datetime.now(timezone.utc)
 
     username = user.get("username")
     role = user.get("role")
     ip = client_ip(request)
     path = f"/dispatch/{callout_id}/deployment/sync"
-    now = datetime.now(timezone.utc)
-    # Всё, что принято в закрытый выезд, помечается моментом приёма. Окно
-    # проверяется один раз на батч, но отказ вне окна получает каждая позиция.
-    after_close_at = now if closed else None
-    window_problem = _late_sync_window_problem(closed_at, now) if closed else None
+    after_close_at = synced_at if closed else None
+    # Окно и участие в выезде решаются один раз на батч, но отказ получает
+    # каждая позиция поимённо — очередь планшета разбирает ответ по ключам.
+    batch_problem = None
+    if closed:
+        batch_problem = _late_sync_window_problem(closed_at, now) or _late_crew_problem(
+            role,
+            _user_station(db, user),
+            _callout_crew_stations(db, callout_id, row["station_id"]),
+        )
     applied: list[str] = []
     rejected: list[dict] = []
     # Только принятое и только aware — иначе min() ниже падает уже после коммита.
@@ -2352,17 +2510,29 @@ def sync_deployment(
     # коммита: запись о позиции, которую откатили, хуже отсутствия записи.
     events: list[tuple[str, dict]] = []
 
-    def after_close(placed_at: object) -> dict:
+    def after_close(placed_at: object, key: str | None = None, gesture: PlacedAt | None = None) -> dict:
         """Поля журнала для записи в закрытый выезд; для открытого — ничего."""
         if not closed:
             return {}
-        return {"after_close": True, "closed_at": _iso(closed_at),
-                "placed_at": _iso(placed_at), "synced_at": _iso(now),
-                "username": username}
+        out = {"after_close": True, "closed_at": _iso(closed_at),
+               "placed_at": _iso(placed_at), "synced_at": _iso(synced_at),
+               "username": username}
+        if gesture is not None:
+            out["gesture_at"] = _iso(gesture.value)
+            out["device_gesture_at"] = _iso(body.gesture_at.get(key or ""))
+        return out
+
+    def gesture_problem(key: str, no_time: str, after: str) -> tuple[str | None, PlacedAt | None]:
+        """Время жеста правки/снятия в закрытом выезде: (причина отказа, время)."""
+        raw = body.gesture_at.get(key)
+        if raw is None:
+            return no_time, None
+        fix = _reconcile_placed_at(raw, body.sent_at, row["created_at"], now)
+        return _late_time_problem(fix, closed_at, now, no_time=no_time, after_close=after), fix
 
     for item in body.creates:
-        if window_problem:
-            rejected.append({"key": item.client_uid, "reason": window_problem})
+        if batch_problem:
+            rejected.append({"key": item.client_uid, "reason": batch_problem})
             continue
         sent_at = body.sent_at if body.sent_at is not None else item.sent_at
         fix = _reconcile_placed_at(item.placed_at, sent_at, row["created_at"], now)
@@ -2370,7 +2540,7 @@ def sync_deployment(
             rejected.append({"key": item.client_uid, "reason": fix.problem})
             continue
         if closed:
-            late = _late_sync_problem(fix.value, closed_at, now)
+            late = _late_time_problem(fix, closed_at, now)
             if late:
                 rejected.append({"key": item.client_uid, "reason": late})
                 continue
@@ -2412,21 +2582,27 @@ def sync_deployment(
 
     for patch in body.patches:
         key = _sync_key(patch.client_uid, patch.id)
-        if window_problem:
-            rejected.append({"key": key, "reason": window_problem})
+        if batch_problem:
+            rejected.append({"key": key, "reason": batch_problem})
             continue
         target = None
         late = None
+        gesture = None
         changed = None
         try:
             with db.begin_nested():
                 position_id = _resolve_position(db, callout_id, patch.id, patch.client_uid)
                 # Закрытый выезд: править можно только свою позицию с плана,
-                # поставленную до закрытия. Позиции с пульта не меняются.
+                # поставленную до закрытия, и только перемещение, сделанное до
+                # закрытия (время жеста). Позиции с пульта не меняются.
                 if closed and position_id is not None:
                     target = _late_target(db, callout_id, position_id)
                     if target is not None:
                         late = _late_target_problem(target, username, closed_at, now)
+                        if late is None:
+                            late, gesture = gesture_problem(
+                                key, LATE_MOVE_NO_TIME, LATE_MOVED_AFTER_CLOSE
+                            )
                 if position_id is not None and late is None:
                     changed = _update_position_row(
                         db, callout_id, position_id, patch, after_close_at=after_close_at
@@ -2447,82 +2623,57 @@ def sync_deployment(
                 "callout.deployment_moved",
                 {"callout_id": callout_id, "position_id": position_id, "via": "sync",
                  "client_uid": patch.client_uid, "fields": changed,
-                 **after_close(target["placed_at"] if target else None)},
+                 **after_close(target["placed_at"] if target else None, key, gesture)},
             ))
 
-    for position_id in body.deletes:
-        key = f"srv:{position_id}"
-        if window_problem:
-            rejected.append({"key": key, "reason": window_problem})
+    # Снятие: `deletes` по серверному id, затем `delete_uids` по client_uid —
+    # порядок ключей в ответе прежний.
+    removals = [(f"srv:{pid}", pid, None) for pid in body.deletes] + [
+        (uid, None, uid) for uid in body.delete_uids
+    ]
+    for key, position_id, uid in removals:
+        if batch_problem:
+            rejected.append({"key": key, "reason": batch_problem})
             continue
         target = None
         late = None
+        gesture = None
         deleted = None
         try:
             with db.begin_nested():
                 if closed:
-                    target = _late_target(db, callout_id, position_id)
+                    target = _late_target(db, callout_id, position_id, uid)
                     if target is not None:
                         late = _late_target_problem(target, username, closed_at, now)
+                        if late is None:
+                            late, gesture = gesture_problem(
+                                key, LATE_REMOVE_NO_TIME, LATE_REMOVED_AFTER_CLOSE
+                            )
                 if late is None:
-                    deleted = db.execute(
-                        text(
-                            "DELETE FROM deployment_positions "
-                            "WHERE id = :pid AND callout_id = :cid RETURNING id"
-                        ),
-                        {"pid": position_id, "cid": callout_id},
-                    ).scalar()
+                    tombstone = (
+                        {"removed_at": gesture.value, "removed_by": username,
+                         "synced_at": synced_at}
+                        if closed and gesture is not None
+                        else None
+                    )
+                    deleted = _remove_position(
+                        db, callout_id, position_id, uid, late=tombstone
+                    )
         except SQLAlchemyError:
             rejected.append({"key": key, "reason": "Позиция не снята"})
             continue
         if late:
             rejected.append({"key": key, "reason": late})
             continue
-        # Позиции уже нет — цель снятия достигнута, повторять нечего.
+        # Позиции уже нет (сняли раньше или постановка до сервера так и не
+        # дошла) — цель снятия достигнута, повторять нечего.
         applied.append(key)
         if deleted is not None:
-            events.append((
-                "callout.deployment_removed",
-                {"callout_id": callout_id, "position_id": position_id, "via": "sync",
-                 **after_close(target["placed_at"] if target else None)},
-            ))
-
-    for uid in body.delete_uids:
-        if window_problem:
-            rejected.append({"key": uid, "reason": window_problem})
-            continue
-        target = None
-        late = None
-        deleted = None
-        try:
-            with db.begin_nested():
-                if closed:
-                    target = _late_target(db, callout_id, None, uid)
-                    if target is not None:
-                        late = _late_target_problem(target, username, closed_at, now)
-                if late is None:
-                    deleted = db.execute(
-                        text(
-                            "DELETE FROM deployment_positions "
-                            "WHERE callout_id = :cid AND client_uid = :uid RETURNING id"
-                        ),
-                        {"cid": callout_id, "uid": uid},
-                    ).scalar()
-        except SQLAlchemyError:
-            rejected.append({"key": uid, "reason": "Позиция не снята"})
-            continue
-        if late:
-            rejected.append({"key": uid, "reason": late})
-            continue
-        # Позиции с таким client_uid нет: её уже сняли или постановка до
-        # сервера так и не дошла. В обоих случаях цель снятия достигнута.
-        applied.append(uid)
-        if deleted is not None:
-            events.append((
-                "callout.deployment_removed",
-                {"callout_id": callout_id, "position_id": deleted, "via": "sync",
-                 "client_uid": uid, **after_close(target["placed_at"] if target else None)},
-            ))
+            detail = {"callout_id": callout_id, "position_id": deleted, "via": "sync"}
+            if uid is not None:
+                detail["client_uid"] = uid
+            detail.update(after_close(target["placed_at"] if target else None, key, gesture))
+            events.append(("callout.deployment_removed", detail))
 
     db.commit()
 

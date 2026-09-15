@@ -193,6 +193,8 @@ function Report({
   // закрытия без связи, записаны позже. Документ говорит это сам — и строкой
   // таблицы, и примечанием к разделу.
   const lateCount = numbered.filter((p) => p.synced_after_close_at).length;
+  // Снятые после закрытия: строки в расстановке уже нет, остался только счёт.
+  const lateRemoved = callout.late_sync?.removed ?? 0;
   const LateIcon = LATE_SYNC_ICON;
 
   return (
@@ -376,23 +378,6 @@ function Report({
                   ))}
                 </tbody>
               </table>
-              {lateCount > 0 && (
-                <p className="fw-keep mt-1.5 flex items-start gap-1 text-2xs text-fg">
-                  <LateIcon className="mt-px h-3 w-3 shrink-0" aria-hidden />
-                  <span>
-                    Досинхронизировано после закрытия выезда:{" "}
-                    <span className="tabular font-semibold">{lateCount}</span> поз. Позиции
-                    поставлены до закрытия выезда
-                    {callout.closed_at ? (
-                      <>
-                        {" "}
-                        (<span className="tabular">{formatClock(callout.closed_at)}</span>)
-                      </>
-                    ) : null}{" "}
-                    без связи и переданы с планшета позже; в таблице и на схемах помечены.
-                  </span>
-                </p>
-              )}
               {sheets.length > 0 && (
                 <p className="mt-1.5 text-2xs text-faint">
                   Схемы расстановки — на отдельных листах, приложение к настоящему донесению
@@ -400,6 +385,27 @@ function Report({
                 </p>
               )}
             </>
+          )}
+          {/* Примечание — вне таблицы: если после закрытия всё только сняли,
+              таблицы нет, а снятие обязано остаться видимым в документе. */}
+          {(lateCount > 0 || lateRemoved > 0) && (
+            <p className="fw-keep mt-1.5 flex items-start gap-1 text-2xs text-fg">
+              <LateIcon className="mt-px h-3 w-3 shrink-0" aria-hidden />
+              <span>
+                После закрытия выезда
+                {callout.closed_at ? (
+                  <>
+                    {" "}
+                    (<span className="tabular">{formatClock(callout.closed_at)}</span>)
+                  </>
+                ) : null}{" "}
+                с планшета РТП досинхронизировано:{" "}
+                <span className="tabular font-semibold">{lateCount}</span> поз.; снято после
+                закрытия: <span className="tabular font-semibold">{lateRemoved}</span>. Действия
+                совершены до закрытия без связи и переданы позже; позиции в таблице и на схемах
+                помечены.
+              </span>
+            </p>
           )}
         </Section>
 

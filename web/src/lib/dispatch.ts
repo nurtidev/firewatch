@@ -113,7 +113,7 @@ export type Callout = {
   /** Расстановка, дошедшая с планшета уже после закрытия выезда: сколько
    *  позиций помечено и когда пришла последняя. null — не приходило ничего.
    *  Необязательное: пакет из офлайн-кэша старой версии API его не содержит. */
-  late_sync?: { positions: number; last_synced_at: string | null } | null;
+  late_sync?: { positions: number; removed?: number; last_synced_at: string | null } | null;
 };
 
 /* ───────────────────────────── Search ──────────────────────────── */
@@ -462,6 +462,11 @@ export type DeploymentSyncBody = {
   deletes: number[];
   /** Снятие позиций с плана — по client_uid. */
   delete_uids: string[];
+  /** Время жеста (часы устройства) правок и снятий по ключу ответа
+   *  (client_uid или `srv:<id>`). По нему сервер отличает перемещение и снятие,
+   *  сделанные до закрытия выезда, от сделанных после. Отдельной картой: в
+   *  элементах `deletes` старый API отверг бы батч, а тут поле просто не читает. */
+  gesture_at?: Record<string, string>;
 };
 
 export type DeploymentSyncResult = {

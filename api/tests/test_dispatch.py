@@ -579,6 +579,75 @@ def test_late_target_only_own_plan_positions(target, problem):
     assert D._late_target_problem(target, "disp1", _CLOSED, now) == problem
 
 
+@pytest.mark.parametrize(
+    "role,own,crew,problem",
+    [
+        ("responder", 7, {7}, None),  # караул назначенной части
+        ("responder", 9, {7, 9}, None),  # часть прислала машину в наряд
+        ("responder", 8, {7, 9}, D.LATE_NOT_CREW),  # другая часть
+        ("responder", None, {7}, D.LATE_NOT_CREW),  # без привязки к части
+        ("dispatcher", 7, {7}, D.LATE_NOT_CREW),
+        ("admin", None, {7}, D.LATE_NOT_CREW),
+        ("responder", 7, set(), D.LATE_NOT_CREW),  # у выезда нет ни части, ни наряда
+    ],
+)
+def test_late_crew_only_participating_station_responder(role, own, crew, problem):
+    assert D._late_crew_problem(role, own, crew) == problem
+    assert D.LATE_NOT_CREW == (
+        "Досинхронизация после закрытия — только расчёт части, участвовавшей в выезде"
+    )
+
+
+def test_reconcile_marks_clamp_to_registration_as_early():
+    early = D._reconcile_placed_at(datetime(2020, 1, 1, tzinfo=timezone.utc), _NOW, _CREATED, _NOW)
+    assert early.early is True and early.value == _CREATED
+    late = D._reconcile_placed_at(_NOW + timedelta(hours=2), None, _CREATED, _NOW)
+    assert late.early is False and late.clock["clamped"] is True
+    assert D._reconcile_placed_at(_CREATED, None, _CREATED, _NOW).early is False
+
+
+def test_late_time_rejects_time_clamped_to_registration():
+    # В открытом выезде «раньше вызова» прижимается к регистрации и
+    # принимается; в закрытом так недоказуемое время стало бы принятым.
+    now = _CLOSED + timedelta(minutes=30)
+    for sent_at in (now, None):
+        fix = D._reconcile_placed_at(datetime(2020, 1, 1, tzinfo=timezone.utc), sent_at, _CREATED, now)
+        assert fix.problem is None and fix.value == _CREATED
+        assert D._late_time_problem(fix, _CLOSED, now) == D.LATE_NO_TIME
+    # Вне окна причина — окно, а не время.
+    fix = D._reconcile_placed_at(datetime(2020, 1, 1, tzinfo=timezone.utc), None, _CREATED, now)
+    assert D._late_time_problem(fix, _CLOSED, _CLOSED + timedelta(days=8)) == D.LATE_TOO_OLD
+
+
+def test_late_time_gesture_reasons():
+    now = _CLOSED + timedelta(hours=1)
+    before = D._reconcile_placed_at(_CLOSED - timedelta(minutes=1), now, _CREATED, now)
+    assert D._late_time_problem(
+        before, _CLOSED, now, no_time=D.LATE_REMOVE_NO_TIME, after_close=D.LATE_REMOVED_AFTER_CLOSE
+    ) is None
+    after = D._reconcile_placed_at(_CLOSED + timedelta(minutes=6), now, _CREATED, now)
+    assert D._late_time_problem(
+        after, _CLOSED, now, no_time=D.LATE_MOVE_NO_TIME, after_close=D.LATE_MOVED_AFTER_CLOSE
+    ) == D.LATE_MOVED_AFTER_CLOSE
+    naive = D._reconcile_placed_at(_CLOSED.replace(tzinfo=None), now, _CREATED, now)
+    assert D._late_time_problem(
+        naive, _CLOSED, now, no_time=D.LATE_REMOVE_NO_TIME, after_close=D.LATE_REMOVED_AFTER_CLOSE
+    ) == D.LATE_REMOVE_NO_TIME
+
+
+def test_sync_gesture_at_is_parsed_and_bounded(client):
+    ok = client.post(
+        _SYNC,
+        json={"delete_uids": ["u1"], "deletes": [7],
+              "gesture_at": {"u1": "2026-08-06T09:45:12.345Z", "srv:7": "2026-08-06T09:46:00Z"}},
+    )
+    assert ok.status_code not in (401, 403, 422)
+    body = D.DeploymentSync(delete_uids=["u1"], gesture_at={"u1": "2026-08-06T09:45:12.345Z"})
+    assert body.gesture_at["u1"] == datetime(2026, 8, 6, 9, 45, 12, 345000, tzinfo=timezone.utc)
+    too_many = {f"u{i}": "2026-08-06T09:45:00Z" for i in range(D.SYNC_MAX_ITEMS + 1)}
+    assert client.post(_SYNC, json={"deletes": [1], "gesture_at": too_many}).status_code == 422
+
+
 # --- расчёт сил из карточки ПТП ---------------------------------------------
 
 

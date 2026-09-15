@@ -381,12 +381,15 @@ def _close(client, headers, callout_id: int) -> None:
     assert r.status_code == 200, r.text
 
 
-def _backdate(engine, callout_id: int, created_ago: timedelta, closed_ago: timedelta) -> datetime:
-    """Сдвинуть регистрацию и закрытие выезда в прошлое; вернуть closed_at."""
+def _backdate(
+    engine, callout_id: int, created_ago: timedelta, closed_ago: timedelta | None = None
+) -> datetime | None:
+    """Сдвинуть регистрацию (и закрытие, если задано) выезда в прошлое; вернуть closed_at."""
     with engine.begin() as conn:
         return conn.execute(
             text(
-                "UPDATE callouts SET created_at = now() - :c, closed_at = now() - :z "
+                "UPDATE callouts SET created_at = now() - CAST(:c AS interval), "
+                "closed_at = COALESCE(now() - CAST(:z AS interval), closed_at) "
                 "WHERE id = :id RETURNING closed_at"
             ),
             {"c": created_ago, "z": closed_ago, "id": callout_id},
@@ -401,7 +404,80 @@ def _plan_create(uid: str, placed_at: datetime | None = None, **fields) -> dict:
     return body
 
 
-def test_late_sync_accepts_pre_close_items_marks_and_audits(client):
+@pytest.fixture
+def crew(client):
+    """Три тестовые части; после теста часть responder и выездов — как было.
+
+    Досинхронизация в закрытый выезд открыта только караулу части,
+    участвовавшей в выезде, а у сидового responder части нет.
+    """
+    from app.db import engine
+
+    with engine.begin() as conn:
+        prev = conn.execute(
+            text("SELECT station_id FROM users WHERE username = 'responder'")
+        ).scalar()
+        ids = [
+            conn.execute(
+                text(
+                    "INSERT INTO fire_stations (name, geom) "
+                    "VALUES (:n, ST_SetSRID(ST_MakePoint(71.0005, 51.0005), 4326)) RETURNING id"
+                ),
+                {"n": f"ПЧ-late-{i}"},
+            ).scalar()
+            for i in range(3)
+        ]
+    try:
+        yield ids
+    finally:
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE users SET station_id = :s WHERE username = 'responder'"), {"s": prev}
+            )
+            conn.execute(
+                text("UPDATE callouts SET station_id = NULL WHERE station_id = ANY(:ids)"),
+                {"ids": ids},
+            )
+            conn.execute(text("DELETE FROM fire_stations WHERE id = ANY(:ids)"), {"ids": ids})
+
+
+def _set_callout_station(engine, callout_id: int, station_id: int | None) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE callouts SET station_id = :s WHERE id = :id"),
+            {"s": station_id, "id": callout_id},
+        )
+
+
+def _set_responder_station(engine, station_id: int | None) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE users SET station_id = :s WHERE username = 'responder'"), {"s": station_id}
+        )
+
+
+def _send_vehicle(engine, callout_id: int, station_id: int) -> None:
+    """Машина части в наряде выезда — часть участвовала, даже не будучи назначенной."""
+    with engine.begin() as conn:
+        vid = conn.execute(
+            text(
+                "INSERT INTO station_vehicles (station_id, callsign, vehicle_type) "
+                "VALUES (:s, :c, 'ac') RETURNING id"
+            ),
+            {"s": station_id, "c": f"АЦ-late-{callout_id}"},
+        ).scalar()
+        conn.execute(
+            text("INSERT INTO callout_vehicles (callout_id, vehicle_id) VALUES (:c, :v)"),
+            {"c": callout_id, "v": vid},
+        )
+
+
+_NOT_CREW = "Досинхронизация после закрытия — только расчёт части, участвовавшей в выезде"
+_NOT_OWN = "Выезд закрыт — после закрытия принимаются только свои позиции, поставленные на плане"
+_NO_TIME = "Время постановки неизвестно — после закрытия выезда позиция не записана"
+
+
+def test_late_sync_accepts_pre_close_items_marks_and_audits(client, crew):
     """Поставлено до закрытия — принято и помечено; после — отказ поштучно.
 
     Ствол поставлен за десять минут до закрытия, связь вернулась через
@@ -414,6 +490,8 @@ def test_late_sync_accepts_pre_close_items_marks_and_audits(client):
     disp = _login(client, "dispatcher", "dispatcher123")
     rtp = _login(client, "responder", "responder123")
     callout_id = _open_callout(client, disp)
+    _set_callout_station(engine, callout_id, crew[0])
+    _set_responder_station(engine, crew[0])
     _close(client, disp, callout_id)
     closed_at = _backdate(engine, callout_id, timedelta(hours=2), timedelta(minutes=30))
 
@@ -462,16 +540,21 @@ def test_late_sync_accepts_pre_close_items_marks_and_audits(client):
     assert next(c for c in listed if c["id"] == callout_id)["late_sync"]["positions"] == 1
 
 
-def test_late_sync_console_edits_on_closed_callout_stay_rejected(client):
-    """Правки с пульта и чужие позиции закрытого выезда — по-прежнему нет.
+def test_late_sync_console_edits_on_closed_callout_stay_rejected(client, crew):
+    """Пульт, диспетчер и чужие позиции закрытого выезда — по-прежнему нет.
 
-    Досинхронизация — это доставка того, что РТП поставил сам, а не второй
-    вход в закрытый выезд: поштучные POST/PATCH/DELETE получают 409, позиции
-    с пульта и чужие позиции через синхронизацию не меняются.
+    Досинхронизация — доставка того, что расчёт участвовавшей части поставил
+    сам, а не второй вход в закрытый выезд: поштучные POST/PATCH/DELETE — 409,
+    диспетчер через синхронизацию не пишет ничего (даже своё), а караул части
+    не трогает позиции с пульта и чужие позиции с плана.
     """
+    from app.db import engine
+
     disp = _login(client, "dispatcher", "dispatcher123")
     rtp = _login(client, "responder", "responder123")
     callout_id = _open_callout(client, disp)
+    _set_callout_station(engine, callout_id, crew[0])
+    _set_responder_station(engine, crew[0])
 
     console = client.post(
         f"/dispatch/{callout_id}/deployment",
@@ -480,7 +563,8 @@ def test_late_sync_console_edits_on_closed_callout_stay_rejected(client):
     )
     assert console.status_code == 200, console.text
     console_id = next(p["id"] for p in console.json() if p["client_uid"] is None)
-    uid = "test-late-rtp-own"
+    uid, disp_uid = "test-late-rtp-own", "test-late-disp-own"
+    _sync(client, disp, callout_id, {"creates": [_plan_create(disp_uid)]})
     plan = _sync(client, rtp, callout_id, {"creates": [_plan_create(uid)]})
     plan_id = next(p["id"] for p in plan["positions"] if p["client_uid"] == uid)
     assert all(p["synced_after_close_at"] is None for p in plan["positions"])
@@ -493,33 +577,52 @@ def test_late_sync_console_edits_on_closed_callout_stay_rejected(client):
     assert client.post(base, json={"kind": "hq"}, headers=disp).status_code == 409
     assert client.delete(f"{base}/{console_id}", headers=disp).status_code == 409
 
-    not_own = "Выезд закрыт — после закрытия принимаются только свои позиции, поставленные на плане"
-    # Позиция с пульта — ни правкой, ни снятием по id.
+    now = datetime.now(timezone.utc).isoformat()
+    gestures = {f"srv:{console_id}": now, disp_uid: now}
+    # Диспетчер — не расчёт части: ни новая позиция, ни своя с плана, ни с пульта.
     by_disp = _sync(
         client, disp, callout_id,
-        {"patches": [{"id": console_id, "sector": "БУ-9"}], "deletes": [console_id]},
+        {"creates": [_plan_create(disp_uid, plan_x=0.9, plan_y=0.9),
+                     _plan_create("test-late-disp-new")],
+         "patches": [{"id": console_id, "sector": "БУ-9"}],
+         "deletes": [console_id], "delete_uids": [disp_uid],
+         "gesture_at": gestures, "sent_at": now},
     )
     assert by_disp["applied"] == []
     assert by_disp["rejected"] == [
-        {"key": f"srv:{console_id}", "reason": not_own},
-        {"key": f"srv:{console_id}", "reason": not_own},
+        {"key": disp_uid, "reason": _NOT_CREW},
+        {"key": "test-late-disp-new", "reason": _NOT_CREW},
+        {"key": f"srv:{console_id}", "reason": _NOT_CREW},
+        {"key": f"srv:{console_id}", "reason": _NOT_CREW},
+        {"key": disp_uid, "reason": _NOT_CREW},
     ]
-    # Позиция РТП под учётной записью диспетчера — чужая.
-    foreign = _sync(
-        client, disp, callout_id,
-        {"patches": [{"client_uid": uid, "heading": 90}], "delete_uids": [uid],
-         "creates": [_plan_create(uid, datetime.now(timezone.utc), plan_x=0.9, plan_y=0.9)]},
+    # Караул участвовавшей части — только своё: ни позицию с пульта, ни чужую
+    # позицию с плана (повтор постановки, правка, снятие).
+    by_rtp = _sync(
+        client, rtp, callout_id,
+        {"creates": [_plan_create(disp_uid, datetime.now(timezone.utc), plan_x=0.9, plan_y=0.9)],
+         "patches": [{"id": console_id, "sector": "БУ-9"}, {"client_uid": disp_uid, "heading": 90}],
+         "deletes": [console_id], "delete_uids": [disp_uid],
+         "gesture_at": gestures, "sent_at": now},
     )
-    assert foreign["applied"] == []
-    assert [x["reason"] for x in foreign["rejected"]] == [not_own, not_own, not_own]
+    assert by_rtp["applied"] == []
+    assert by_rtp["rejected"] == [
+        {"key": disp_uid, "reason": _NOT_OWN},
+        {"key": f"srv:{console_id}", "reason": _NOT_OWN},
+        {"key": disp_uid, "reason": _NOT_OWN},
+        {"key": f"srv:{console_id}", "reason": _NOT_OWN},
+        {"key": disp_uid, "reason": _NOT_OWN},
+    ]
 
-    positions = {p["id"]: p for p in foreign["positions"]}
+    positions = {p["id"]: p for p in by_rtp["positions"]}
     assert positions[console_id]["sector"] == "штаб у въезда"
-    assert (positions[plan_id]["plan_x"], positions[plan_id]["heading"]) == (0.3, None)
+    disp_pos = next(p for p in by_rtp["positions"] if p["client_uid"] == disp_uid)
+    assert (disp_pos["plan_x"], disp_pos["heading"]) == (0.3, None)
     assert all(p["synced_after_close_at"] is None for p in positions.values())
+    assert client.get(f"/dispatch/{callout_id}/pack", headers=disp).json()["callout"]["late_sync"] is None
 
 
-def test_late_sync_resent_create_after_close_upserts(client):
+def test_late_sync_resent_create_after_close_upserts(client, crew):
     """Ответ на постановку потерялся, выезд закрыли, РТП успел сдвинуть ствол.
 
     Повтор постановки после закрытия обновляет ту же позицию (не вторая) и
@@ -530,6 +633,8 @@ def test_late_sync_resent_create_after_close_upserts(client):
     disp = _login(client, "dispatcher", "dispatcher123")
     rtp = _login(client, "responder", "responder123")
     callout_id = _open_callout(client, disp)
+    _set_callout_station(engine, callout_id, crew[0])
+    _set_responder_station(engine, crew[0])
     placed = datetime.now(timezone.utc) - timedelta(seconds=30)
     moved_uid, still_uid = "test-late-resent", "test-late-replay"
     first = _sync(
@@ -565,48 +670,111 @@ def test_late_sync_resent_create_after_close_upserts(client):
     assert len(_audit_details(engine, "callout.deployment_added", callout_id)) == 2
 
 
-def test_late_sync_patch_and_delete_by_client_uid_after_close(client):
-    """Своя позиция с плана после закрытия: правка и снятие по client_uid."""
+def test_late_sync_patch_and_delete_after_close_need_gesture_time(client, crew):
+    """Своя позиция после закрытия: правка и снятие — только сделанные до закрытия.
+
+    Время жеста приходит в `gesture_at` и сводится к часам сервера так же, как
+    время постановки. Перемещение или снятие после закрытия (+5 мин) — отказ;
+    без времени жеста (старый клиент) — тоже отказ, а не молчаливое принятие.
+    Снятое до закрытия оставляет надгробие, и пульт видит счёт снятых.
+    """
     from app.db import engine
 
     disp = _login(client, "dispatcher", "dispatcher123")
     rtp = _login(client, "responder", "responder123")
     callout_id = _open_callout(client, disp)
-    kept, dropped = "test-late-patch", "test-late-drop"
-    _sync(client, rtp, callout_id, {"creates": [_plan_create(kept), _plan_create(dropped)]})
+    _set_callout_station(engine, callout_id, crew[0])
+    _set_responder_station(engine, crew[0])
+    _backdate(engine, callout_id, timedelta(hours=2))
+    now = datetime.now(timezone.utc)
+    placed = now - timedelta(hours=1)
+    kept, dropped, by_id, by_id_no_at = (
+        "test-late-patch", "test-late-drop", "test-late-drop-id", "test-late-drop-id-no-at",
+    )
+    moved_late, dropped_late, no_at = (
+        "test-late-move-late", "test-late-drop-late", "test-late-move-no-at",
+    )
+    uids = (kept, dropped, by_id, by_id_no_at, moved_late, dropped_late, no_at)
+    created = _sync(
+        client, rtp, callout_id,
+        {"creates": [_plan_create(u, placed) for u in uids], "sent_at": now.isoformat()},
+    )
+    ids = {p["client_uid"]: p["id"] for p in created["positions"]}
 
     _close(client, disp, callout_id)
-
+    closed_at = _backdate(engine, callout_id, timedelta(hours=2), timedelta(minutes=30))
+    before = (now - timedelta(minutes=40)).isoformat()
+    after = (now - timedelta(minutes=10)).isoformat()
     never = "test-late-never-arrived"
+
     data = _sync(
         client, rtp, callout_id,
-        {"patches": [{"client_uid": kept, "plan_x": 0.6, "plan_y": 0.2}],
-         "delete_uids": [dropped, never]},
+        {"patches": [{"client_uid": kept, "plan_x": 0.6, "plan_y": 0.2},
+                     {"client_uid": moved_late, "heading": 90},
+                     {"client_uid": no_at, "heading": 45}],
+         "deletes": [ids[by_id], ids[by_id_no_at]],
+         "delete_uids": [dropped, never, dropped_late],
+         "gesture_at": {kept: before, moved_late: after, f"srv:{ids[by_id]}": before,
+                        dropped: before, dropped_late: after},
+         "sent_at": datetime.now(timezone.utc).isoformat()},
     )
-    assert data["applied"] == [kept, dropped, never]
-    assert data["rejected"] == []
+    assert data["applied"] == [kept, f"srv:{ids[by_id]}", dropped, never]
+    assert data["rejected"] == [
+        {"key": moved_late, "reason": "Позиция перемещена после закрытия выезда — правка не записана"},
+        {"key": no_at, "reason": "Время перемещения неизвестно — после закрытия выезда правка не записана"},
+        {"key": f"srv:{ids[by_id_no_at]}",
+         "reason": "Время снятия неизвестно — после закрытия выезда позиция не снята"},
+        {"key": dropped_late, "reason": "Позиция снята после закрытия выезда — снятие не записано"},
+    ]
     by_uid = {p["client_uid"]: p for p in data["positions"]}
-    assert dropped not in by_uid
+    assert dropped not in by_uid and by_id not in by_uid
+    assert {by_id_no_at, dropped_late, moved_late, no_at} <= set(by_uid)
     assert (by_uid[kept]["plan_x"], by_uid[kept]["plan_y"]) == (0.6, 0.2)
     assert by_uid[kept]["synced_after_close_at"] is not None
+    assert by_uid[moved_late]["heading"] is None
+    assert by_uid[moved_late]["synced_after_close_at"] is None
 
     removed = [d for d in _audit_details(engine, "callout.deployment_removed", callout_id)
-               if d.get("client_uid") == dropped]
-    assert len(removed) == 1
-    assert removed[0]["after_close"] is True and removed[0]["username"] == "responder"
-    assert removed[0]["closed_at"] and removed[0]["synced_at"] and removed[0]["placed_at"]
+               if d.get("after_close")]
+    assert sorted(d["position_id"] for d in removed) == sorted([ids[by_id], ids[dropped]])
+    drop = next(d for d in removed if d.get("client_uid") == dropped)
+    assert drop["username"] == "responder" and drop["closed_at"] and drop["synced_at"]
+    assert drop["placed_at"] and drop["device_gesture_at"]
+    assert abs(
+        datetime.fromisoformat(drop["gesture_at"]) - datetime.fromisoformat(before)
+    ) < timedelta(seconds=1)
     moved = _audit_details(engine, "callout.deployment_moved", callout_id)
     assert [m["fields"] for m in moved] == [["plan_x", "plan_y"]]
-    assert moved[0]["after_close"] is True
+    assert moved[0]["after_close"] is True and moved[0]["gesture_at"]
+
+    with engine.connect() as conn:
+        tomb = conn.execute(
+            text(
+                "SELECT position_id, kind, removed_by, removed_at FROM deployment_late_removals "
+                "WHERE callout_id = :c ORDER BY position_id"
+            ),
+            {"c": callout_id},
+        ).mappings().all()
+    assert [t["position_id"] for t in tomb] == sorted([ids[by_id], ids[dropped]])
+    assert all(t["removed_by"] == "responder" and t["kind"] == "barrel_ext" for t in tomb)
+    assert all(t["removed_at"] < closed_at for t in tomb)
+
+    # Снятое после закрытия видно пульту — в пакете и в списке.
+    late = client.get(f"/dispatch/{callout_id}/pack", headers=disp).json()["callout"]["late_sync"]
+    assert (late["positions"], late["removed"]) == (1, 2)
+    listed = client.get("/dispatch?status=closed", headers=disp).json()
+    assert next(c for c in listed if c["id"] == callout_id)["late_sync"]["removed"] == 2
 
 
-def test_late_sync_rejects_each_item_after_seven_days(client):
+def test_late_sync_rejects_each_item_after_seven_days(client, crew):
     """Выезд закрыт больше недели назад — отказ каждой позиции с причиной."""
     from app.db import engine
 
     disp = _login(client, "dispatcher", "dispatcher123")
     rtp = _login(client, "responder", "responder123")
     callout_id = _open_callout(client, disp)
+    _set_callout_station(engine, callout_id, crew[0])
+    _set_responder_station(engine, crew[0])
     _close(client, disp, callout_id)
     closed_at = _backdate(engine, callout_id, timedelta(days=9), timedelta(days=8))
 
@@ -623,6 +791,148 @@ def test_late_sync_rejects_each_item_after_seven_days(client):
         {"key": "test-late-too-old-drop", "reason": reason},
     ]
     assert all(p["client_uid"] != uid for p in data["positions"])
+
+
+def test_late_sync_only_crew_of_participating_station(client, crew):
+    """Досинхронизация после закрытия — только караул участвовавшей части.
+
+    Участвовала назначенная часть и часть, приславшая машину в наряд.
+    Диспетчер, караул другой части и responder без привязки к части — отказ,
+    в том числе по своей же позиции после перевода в другую часть.
+    """
+    from app.db import engine
+
+    assigned, by_vehicle, other = crew
+    disp = _login(client, "dispatcher", "dispatcher123")
+    rtp = _login(client, "responder", "responder123")
+    callout_id = _open_callout(client, disp)
+    _set_callout_station(engine, callout_id, assigned)
+    _send_vehicle(engine, callout_id, by_vehicle)
+    _close(client, disp, callout_id)
+    placed = datetime.now(timezone.utc) - timedelta(seconds=5)
+
+    def attempt(headers, uid: str, **fields) -> dict:
+        return _sync(
+            client, headers, callout_id,
+            {"creates": [_plan_create(uid, placed, **fields)],
+             "sent_at": datetime.now(timezone.utc).isoformat()},
+        )
+
+    def refused(data: dict, uid: str) -> bool:
+        return data["applied"] == [] and data["rejected"] == [{"key": uid, "reason": _NOT_CREW}]
+
+    assert refused(attempt(disp, "test-late-crew-disp"), "test-late-crew-disp")
+    _set_responder_station(engine, other)
+    assert refused(attempt(rtp, "test-late-crew-other"), "test-late-crew-other")
+    _set_responder_station(engine, None)
+    assert refused(attempt(rtp, "test-late-crew-none"), "test-late-crew-none")
+
+    _set_responder_station(engine, by_vehicle)
+    assert attempt(rtp, "test-late-crew-vehicle")["applied"] == ["test-late-crew-vehicle"]
+    _set_responder_station(engine, assigned)
+    accepted = attempt(rtp, "test-late-crew-assigned")
+    assert accepted["applied"] == ["test-late-crew-assigned"]
+
+    # Своя позиция, но учётную запись перевели в часть, которая не выезжала.
+    _set_responder_station(engine, other)
+    resend = attempt(rtp, "test-late-crew-assigned", plan_x=0.9, plan_y=0.9)
+    assert refused(resend, "test-late-crew-assigned")
+    mine = next(p for p in resend["positions"] if p["client_uid"] == "test-late-crew-assigned")
+    assert mine["plan_x"] == 0.3
+    uids = {p["client_uid"] for p in resend["positions"]}
+    assert uids.isdisjoint({"test-late-crew-disp", "test-late-crew-other", "test-late-crew-none"})
+
+
+def test_late_sync_rejects_unprovable_placed_at(client, crew):
+    """Время, не доказывающее «до закрытия», в закрытом выезде — отказ.
+
+    Без placed_at и с временем раньше регистрации: в открытом выезде оно
+    прижимается к регистрации и принимается, а в закрытом так недоказуемое
+    время превращалось бы в принятое. И с sent_at, и у старого клиента без него.
+    """
+    from app.db import engine
+
+    disp = _login(client, "dispatcher", "dispatcher123")
+    rtp = _login(client, "responder", "responder123")
+    callout_id = _open_callout(client, disp)
+    _set_callout_station(engine, callout_id, crew[0])
+    _set_responder_station(engine, crew[0])
+    _close(client, disp, callout_id)
+    ancient = datetime(2020, 1, 1, tzinfo=timezone.utc)
+
+    new = _sync(
+        client, rtp, callout_id,
+        {"creates": [_plan_create("test-late-no-placed"),
+                     _plan_create("test-late-clamped", ancient)],
+         "sent_at": datetime.now(timezone.utc).isoformat()},
+    )
+    old = _sync(client, rtp, callout_id, {"creates": [_plan_create("test-late-clamped-old", ancient)]})
+    assert new["applied"] == [] and old["applied"] == []
+    assert new["rejected"] == [
+        {"key": "test-late-no-placed", "reason": _NO_TIME},
+        {"key": "test-late-clamped", "reason": _NO_TIME},
+    ]
+    assert old["rejected"] == [{"key": "test-late-clamped-old", "reason": _NO_TIME}]
+    uids = {p["client_uid"] for p in old["positions"]}
+    assert uids.isdisjoint({"test-late-no-placed", "test-late-clamped", "test-late-clamped-old"})
+
+
+def test_late_sync_waits_for_concurrent_close(client, crew):
+    """Закрытие и синхронизация одновременно: позиция не ложится без пометки.
+
+    Закрытие держит строку выезда (UPDATE не закоммичен). Синхронизация ждёт
+    его на FOR SHARE и после коммита видит выезд закрытым: позиция записана
+    как досинхронизированная после закрытия, а не как обычная в открытый выезд.
+    """
+    import threading
+
+    from app.db import engine
+
+    disp = _login(client, "dispatcher", "dispatcher123")
+    rtp = _login(client, "responder", "responder123")
+    callout_id = _open_callout(client, disp)
+    _set_callout_station(engine, callout_id, crew[0])
+    _set_responder_station(engine, crew[0])
+    uid = "test-late-race"
+    placed = datetime.now(timezone.utc) - timedelta(seconds=30)
+    result: dict = {}
+
+    def run() -> None:
+        result["r"] = client.post(
+            f"/dispatch/{callout_id}/deployment/sync",
+            json={"creates": [_plan_create(uid, placed)],
+                  "sent_at": datetime.now(timezone.utc).isoformat()},
+            headers=rtp,
+        )
+
+    conn = engine.connect()
+    tx = conn.begin()
+    worker = threading.Thread(target=run)
+    try:
+        conn.execute(
+            text(
+                "UPDATE callouts SET status = 'closed', closed_at = now(), closed_by = 'dispatcher' "
+                "WHERE id = :id"
+            ),
+            {"id": callout_id},
+        )
+        worker.start()
+        worker.join(1.5)
+        assert worker.is_alive(), "синхронизация не дождалась незакоммиченного закрытия"
+        tx.commit()
+    finally:
+        if tx.is_active:
+            tx.rollback()
+        conn.close()
+    worker.join(15)
+    assert not worker.is_alive()
+
+    r = result["r"]
+    assert r.status_code == 200, r.text
+    assert r.json()["applied"] == [uid]
+    mine = next(p for p in r.json()["positions"] if p["client_uid"] == uid)
+    assert mine["synced_after_close_at"] is not None
+    assert _added_detail(engine, callout_id, uid)["after_close"] is True
 
 
 def test_deployment_sync_is_audited_per_position(client):

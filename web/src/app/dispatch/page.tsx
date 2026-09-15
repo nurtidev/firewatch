@@ -215,9 +215,10 @@ export default function DispatchPage() {
                   >
                     <span className="tabular">
                       {t(
-                        "Позиций досинхронизировано после закрытия: {n}, последняя — {time}. Они поставлены до закрытия без связи; в донесении строки помечены.",
+                        "Досинхронизировано после закрытия: {n} поз., снято после закрытия: {removed}; последнее — {time}. Действия совершены до закрытия без связи; в донесении отмечены.",
                       )
                         .replace("{n}", String(pack.callout.late_sync.positions))
+                        .replace("{removed}", String(pack.callout.late_sync.removed ?? 0))
                         .replace(
                           "{time}",
                           lateSyncStamp(

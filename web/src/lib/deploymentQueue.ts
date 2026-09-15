@@ -65,10 +65,13 @@
  * ─── Закрытый выезд ──────────────────────────────────────────────────────
  *
  * Выезд могли закрыть, пока РТП работал без связи. Сервер больше не
- * отвергает такую очередь целиком: позиции, поставленные до закрытия
- * (+5 мин), принимаются и помечаются `synced_after_close_at`, а поставленное
- * позже, чужое и пришедшее спустя 7 дней возвращается поимённым отказом — и
- * попадает в «Не принято» как любой другой. 409 на весь батч остаётся только
+ * отвергает такую очередь целиком: у начальника караула части, участвовавшей
+ * в выезде, позиции, поставленные до закрытия (+5 мин), принимаются и
+ * помечаются `synced_after_close_at`. Перемещение и снятие своих позиций
+ * принимаются, только если сделаны до закрытия, — поэтому у каждой правки и
+ * снятия уходит время жеста (`gesture_at`, из `at` записи). Поставленное или
+ * сделанное позже, чужое, от другой части и пришедшее спустя 7 дней
+ * возвращается поимённым отказом — и попадает в «Не принято» как любой другой. 409 на весь батч остаётся только
  * у API до этой версии, и он по-прежнему окончательный: бесконечный повтор
  * истёк бы по сроку очереди и потерял расстановку молча, а «Не принято» РТП
  * видит и переносит в донесение. Очередь уходит, только когда выезд открыт на
@@ -741,6 +744,12 @@ export function flushDeployment(calloutId: number): Promise<FlushOutcome> {
 
 function buildBody(batch: Pending[]): DeploymentSyncBody {
   const body: DeploymentSyncBody = { creates: [], patches: [], deletes: [], delete_uids: [] };
+  // Время жеста — `at` записи (последняя мутация), по ключу ответа сервера:
+  // client_uid у позиции с плана, `srv:<id>` у позиции с пульта.
+  const gestureAt: Record<string, string> = {};
+  const stamp = (key: string, at: number) => {
+    if (Number.isFinite(at)) gestureAt[key] = new Date(at).toISOString();
+  };
   for (const e of batch) {
     if (e.op === "create") {
       body.creates.push({
@@ -766,12 +775,16 @@ function buildBody(batch: Pending[]): DeploymentSyncBody {
         ...(id != null ? { id } : {}),
         ...(uid != null ? { client_uid: uid } : {}),
       });
+      stamp(uid ?? `${SRV_PREFIX}${id}`, e.at);
     } else if (uid != null) {
       body.delete_uids.push(uid);
+      stamp(uid, e.at);
     } else if (id != null) {
       body.deletes.push(id);
+      stamp(`${SRV_PREFIX}${id}`, e.at);
     }
   }
+  if (Object.keys(gestureAt).length) body.gesture_at = gestureAt;
   return body;
 }
 
