@@ -74,6 +74,11 @@ export const dict: {
     "Назад": "Back",
     "Печать / PDF": "Print / PDF",
 
+    // ── Callout tabs (components/CalloutOps.tsx) — «Пакет» живёт здесь, а не
+    // в ops.ts: тот же ключ заводит архив выездов (callout/archive) в ops.ts,
+    // и второй одноимённый ключ в одном объекте не собрался бы. ──
+    "Пакет": "Pack",
+
     // ── Login demo groups (app/login/page.tsx) ─────────────────────────────
     "Город, руководство и внешние": "City, leadership & external",
     "картина города": "city overview",
@@ -215,6 +220,9 @@ export const dict: {
     // ── Print report chrome (components/report/*) ─────────────────────────
     "Назад": "Артқа",
     "Печать / PDF": "Басып шығару / PDF",
+
+    // ── Callout tabs (components/CalloutOps.tsx) ──────────────────────────
+    "Пакет": "Топтама",
 
     // ── Login demo groups (app/login/page.tsx) ─────────────────────────────
     "Город, руководство и внешние": "Қала, басшылық және сыртқы пайдаланушылар",
