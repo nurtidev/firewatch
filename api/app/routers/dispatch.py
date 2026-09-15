@@ -790,9 +790,25 @@ ARCHIVE_DAYS = (7, 30, 90)
 _ARCHIVE_SELECT = """
     SELECT c.id, b.district, c.address, c.callout_type, c.status,
            ST_Y(c.geom) AS lat, ST_X(c.geom) AS lng,
-           c.created_at, c.arrived_at, c.rank_declared
+           c.created_at, c.arrived_at, c.rank_declared,
+           late.positions AS late_sync_positions, late.removed AS late_sync_removed,
+           late.last_at AS late_sync_last_at
     FROM callouts c
     LEFT JOIN buildings b ON b.id = c.building_id
+    -- Та же LATERAL, что в `_CALLOUT_SELECT` (см. миграцию 0024): архив
+    -- должен показывать пометку «досинхронизировано после закрытия» тем же
+    -- определением, что список и пакет — иначе супервайзер видел бы разный
+    -- ответ на «дошли ли данные» в зависимости от того, с какого экрана смотрит.
+    LEFT JOIN LATERAL (
+        SELECT pos.n AS positions, rem.n AS removed,
+               GREATEST(pos.last_at, rem.last_at) AS last_at
+          FROM (SELECT count(*) AS n, max(p.synced_after_close_at) AS last_at
+                  FROM deployment_positions p
+                 WHERE p.callout_id = c.id AND p.synced_after_close_at IS NOT NULL) pos,
+               (SELECT count(*) AS n, max(r.synced_at) AS last_at
+                  FROM deployment_late_removals r
+                 WHERE r.callout_id = c.id) rem
+    ) late ON true
 """
 
 
@@ -814,6 +830,15 @@ def _archive_dict(r: dict) -> dict:
         "created_at": _iso(created),
         "rank_declared": r["rank_declared"],
         "response_sec": response_sec,
+        # Та же форма, что у _callout_dict — CalloutRow.tsx и архив показывают
+        # пометку одним и тем же компонентом/условием (status==closed && late_sync).
+        "late_sync": {
+            "positions": r.get("late_sync_positions") or 0,
+            "removed": r.get("late_sync_removed") or 0,
+            "last_synced_at": _iso(r.get("late_sync_last_at")),
+        }
+        if r.get("late_sync_positions") or r.get("late_sync_removed")
+        else None,
     }
 
 

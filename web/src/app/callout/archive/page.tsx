@@ -46,15 +46,25 @@ import {
   Banner,
   StatusChip,
 } from "@/components/ui";
-import { CALLOUT_TYPES, CALLOUT_TYPE_META, formatDuration, type CalloutType } from "@/lib/dispatch";
+import {
+  CALLOUT_TYPES,
+  CALLOUT_TYPE_META,
+  LATE_SYNC_ICON,
+  formatDuration,
+  type CalloutType,
+} from "@/lib/dispatch";
 
 const PAGE_SIZE = 20;
 const PERIODS = [7, 30, 90] as const;
+// Тот же значок, что у CalloutRow.tsx для этой пометки.
+const LateSyncIcon = LATE_SYNC_ICON;
 
 /** Минимизированная строка архива (см. `_archive_dict` в dispatch.py) — не
  *  полный `Callout`: архив читается по всему городу и ищется текстом, поэтому
  *  сервер отдаёт только то, что эта страница показывает (плюс id для ссылок
- *  «Донесение»/«Пакет»), без текста сообщения, комментария закрытия и логинов. */
+ *  «Донесение»/«Пакет»), без текста сообщения, комментария закрытия и логинов.
+ *  `late_sync` — то же поле и та же форма, что у полного `Callout`
+ *  (lib/dispatch.ts) — досинхронизация с планшета уже после закрытия выезда. */
 type ArchiveCallout = {
   id: number;
   address: string | null;
@@ -66,6 +76,7 @@ type ArchiveCallout = {
   created_at: string | null;
   rank_declared: string | null;
   response_sec: number | null;
+  late_sync?: { positions: number; removed?: number; last_synced_at: string | null } | null;
 };
 
 type ArchiveResponse = {
@@ -334,6 +345,16 @@ export default function CalloutArchivePage() {
                           {c.district && (
                             <span className="ml-5 text-2xs text-faint">
                               {c.district} {t("р-н")}
+                            </span>
+                          )}
+                          {/* Тот же признак и та же формулировка, что в
+                              CalloutRow.tsx (список активных выездов) — архив
+                              не должен молчать о том, что расстановка пришла
+                              с планшета уже после закрытия. */}
+                          {c.late_sync && (
+                            <span className="ml-5 flex items-center gap-1 text-2xs text-info">
+                              <LateSyncIcon className="h-3 w-3" aria-hidden />
+                              {t("досинхронизировано после закрытия")}
                             </span>
                           )}
                         </td>
