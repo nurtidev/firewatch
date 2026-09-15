@@ -172,17 +172,19 @@ function CalloutPageInner() {
                     перекрыть уже после того, как снимок был снят. Молчать об
                     этом нельзя — по пакету распоряжаются силами. */}
                 <StaleDataBanner cachedAt={cachedAt} kind="pack" />
-                {/* Тот же гейт, что у CalloutOps ниже: супервайзер/руководство
-                    открывают закрытый выезд из архива на чтение — отметка
-                    гидранта без него была бы активным тумблером для роли,
-                    которой сервер эту запись не даёт (leadership — 403). */}
-                <CalloutPack pack={pack} canMarkHydrant={canEdit} large />
                 <CalloutOps
                   pack={pack}
                   cachedAt={cachedAt}
                   onChanged={reloadPack}
                   canEdit={canEdit}
                   large
+                  packPanel={
+                    // Тот же гейт, что у CalloutOps: супервайзер/руководство
+                    // открывают закрытый выезд из архива на чтение — отметка
+                    // гидранта без него была бы активным тумблером для роли,
+                    // которой сервер эту запись не даёт (leadership — 403).
+                    <CalloutPack pack={pack} canMarkHydrant={canEdit} large />
+                  }
                 />
               </div>
             )}

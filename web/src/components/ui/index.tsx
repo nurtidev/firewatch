@@ -575,25 +575,55 @@ export type TabItem = {
   label: React.ReactNode;
   icon?: LucideIcon;
   /** optional count chip (info scent — how much is behind the tab) */
-  count?: number;
+  count?: number | string;
+  /** A count that asks for attention (unsent data, a deficit) rather than
+   *  info scent. Tone is never the only signal — pair it with `countIcon`
+   *  and say what the number means in `countLabel`. */
+  countTone?: "neutral" | "warning" | "critical";
+  countIcon?: LucideIcon;
+  /** What the count means («Ждёт отправки: 3») — announced instead of the
+   *  bare number and shown as a tooltip. */
+  countLabel?: string;
 };
+
+const TAB_COUNT_TONE: Record<"warning" | "critical", SeverityMeta> = {
+  warning: SEVERITY.elevated,
+  critical: SEVERITY.critical,
+};
+
+/** DOM ids linking a tab to its panel (`aria-controls` / `aria-labelledby`)
+ *  when `Tabs` gets an `idPrefix`. */
+export function tabIds(idPrefix: string, id: string) {
+  return { tab: `${idPrefix}-tab-${id}`, panel: `${idPrefix}-panel-${id}` };
+}
 
 /**
  * Segmented tab bar — keyboard-navigable (←/→/Home/End), roving tabindex.
- * Controlled: parent owns `active` and conditionally renders the matching panel.
+ * Controlled: parent owns `active` and renders the matching panel (give the
+ * panel `role="tabpanel"` and the ids from `tabIds` when passing `idPrefix`).
+ * `size="lg"` is the field touch size (≥44px, gloves); `fill` stretches the
+ * tabs across the bar.
  */
 export function Tabs({
   tabs,
   active,
   onChange,
   className,
+  size = "md",
+  fill = false,
+  idPrefix,
+  "aria-label": ariaLabel,
 }: {
   tabs: TabItem[];
   active: string;
   onChange: (id: string) => void;
   className?: string;
+  size?: "md" | "lg";
+  fill?: boolean;
+  idPrefix?: string;
+  "aria-label"?: string;
 }) {
-  const onKey = (e: React.KeyboardEvent) => {
+  const onKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const i = tabs.findIndex((t) => t.id === active);
     if (i < 0) return;
     let next = i;
@@ -604,11 +634,16 @@ export function Tabs({
     else return;
     e.preventDefault();
     onChange(tabs[next].id);
+    // Roving tabindex: focus follows the selection, otherwise it stays on a
+    // tab that just became tabIndex=-1.
+    e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus();
   };
+  const lg = size === "lg";
   return (
     <div
       role="tablist"
       aria-orientation="horizontal"
+      aria-label={ariaLabel}
       onKeyDown={onKey}
       className={cn(
         "flex flex-wrap gap-1 rounded-lg border border-border bg-surface p-1",
@@ -618,30 +653,53 @@ export function Tabs({
       {tabs.map((t) => {
         const selected = t.id === active;
         const Icon = t.icon;
+        const tone = t.countTone && t.countTone !== "neutral" ? TAB_COUNT_TONE[t.countTone] : null;
+        const CountIcon = t.countIcon;
+        const ids = idPrefix ? tabIds(idPrefix, t.id) : null;
         return (
           <button
             key={t.id}
+            type="button"
             role="tab"
+            id={ids?.tab}
+            aria-controls={ids?.panel}
             aria-selected={selected}
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(t.id)}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-[var(--dur-fast)]",
+              "inline-flex items-center rounded-md font-medium transition-colors duration-[var(--dur-fast)]",
+              lg ? "min-h-11 gap-2 px-4 text-sm" : "gap-1.5 px-3 py-1.5 text-sm",
+              fill && "flex-auto justify-center",
               selected
                 ? "bg-surface-3 text-fg shadow-card"
                 : "text-muted hover:bg-surface-2 hover:text-fg",
             )}
           >
-            {Icon && <Icon className="h-3.5 w-3.5" aria-hidden />}
+            {Icon && <Icon className={lg ? "h-4 w-4" : "h-3.5 w-3.5"} aria-hidden />}
             {t.label}
             {t.count != null && (
               <span
+                title={t.countLabel}
                 className={cn(
-                  "ml-0.5 rounded px-1 text-2xs tabular",
-                  selected ? "bg-surface-2 text-muted" : "text-faint",
+                  "tabular",
+                  tone
+                    ? cn(
+                        "ml-0.5 inline-flex items-center gap-1 rounded-md border px-1.5 font-semibold",
+                        lg ? "text-xs" : "text-2xs",
+                        tone.bg,
+                        tone.text,
+                        tone.border,
+                      )
+                    : cn(
+                        "ml-0.5 rounded px-1",
+                        lg ? "text-xs" : "text-2xs",
+                        selected ? "bg-surface-2 text-muted" : "text-faint",
+                      ),
                 )}
               >
-                {t.count}
+                {CountIcon && <CountIcon className="h-3 w-3" aria-hidden />}
+                <span aria-hidden={t.countLabel ? true : undefined}>{t.count}</span>
+                {t.countLabel && <span className="sr-only">{t.countLabel}</span>}
               </span>
             )}
           </button>
