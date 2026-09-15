@@ -71,7 +71,8 @@
 Тестовые пользователи (из seed_users): `inspector/inspector123` и `supervisor/supervisor123` (оба Есильский),
 `minister/minister123` (leadership), `admin/admin123`, `owner/owner123`, `dispatcher/dispatcher123`,
 `responder/responder123`, `akimat/akimat123`. На проде учётки — через «Пользователи» с не-демо паролем,
-перенос района — точечным SQL + `/auth/revoke`.
+перенос района — точечным SQL + `/auth/revoke`. Часть responder (`users.station_id`) назначается и
+переносится там же, на «Пользователи» (`PATCH /auth/users/{username}/station`) — SQL для этого не нужен.
 JWT в localStorage (`fw_token`); для `<img>/<iframe>` токен передаётся как `?token=` через `apiSrc()` — не забывать при новых файловых эндпоинтах.
 
 ## Покрытие, городской трек, формулировки
