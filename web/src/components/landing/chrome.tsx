@@ -97,7 +97,7 @@ export function LandingHeader({
         <Link href="/" aria-label={t("FireWatch — на главную")}>
           <Brand />
         </Link>
-        <nav className="hidden items-center gap-7 text-sm font-medium text-muted md:flex lg:gap-8">
+        <nav className="hidden items-center gap-7 text-sm font-medium text-muted lg:flex lg:gap-8">
           {navLinks.map((l) =>
             isRoute(l.href) ? (
               <Link key={l.href} href={l.href} className={linkClass}>
@@ -130,7 +130,7 @@ export function LandingHeader({
           </a>
           <button
             onClick={() => setMenu((v) => !v)}
-            className="grid h-10 w-10 place-items-center rounded-lg border border-border-strong text-muted md:hidden"
+            className="grid h-10 w-10 place-items-center rounded-lg border border-border-strong text-muted lg:hidden"
             aria-label={t("Меню")}
             aria-expanded={menu}
             aria-controls="mobile-nav"
@@ -140,7 +140,7 @@ export function LandingHeader({
         </div>
       </div>
       {menu && (
-        <div id="mobile-nav" className="border-t border-border bg-bg px-5 py-4 md:hidden">
+        <div id="mobile-nav" className="border-t border-border bg-bg px-5 py-4 lg:hidden">
           <nav className="flex flex-col gap-1">
             {navLinks.map((l) =>
               isRoute(l.href) ? (
