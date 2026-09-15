@@ -635,6 +635,9 @@ export function useCalloutPack(selectedId: number | null, pollMs?: number) {
   const [error, setError] = useState<string | null>(null);
   /** Непусто — пакет отдан офлайн-кэшем; строка ISO — когда снят снимок. */
   const [cachedAt, setCachedAt] = useState<string | null>(null);
+  /** HTTP-статус неудачной загрузки (403 — выезд этой роли не открыт);
+   *  null — ошибки нет или это сеть/разбор ответа. */
+  const [errorStatus, setErrorStatus] = useState<number | null>(null);
   // Tracks the id the in-flight (or most recent) request/seed was for — a
   // response only applies if it still matches this.
   const requestedRef = useRef<number | null>(null);
@@ -643,9 +646,10 @@ export function useCalloutPack(selectedId: number | null, pollMs?: number) {
     requestedRef.current = id;
     setLoading(true);
     setError(null);
+    setErrorStatus(null);
     apiFetch(`/dispatch/${id}/pack`)
       .then(async (r) => {
-        if (!r.ok) throw new Error("pack");
+        if (!r.ok) throw Object.assign(new Error("pack"), { status: r.status });
         // Отметку снимка читаем до тела: пакет мог прийти из офлайн-кэша
         // (Service Worker), и распоряжаться силами по снимку часовой
         // давности, считая его живым, нельзя.
@@ -657,9 +661,11 @@ export function useCalloutPack(selectedId: number | null, pollMs?: number) {
         setPackState(data);
         setCachedAt(stamp);
       })
-      .catch(() => {
+      .catch((e: unknown) => {
         if (requestedRef.current !== id) return;
         setError("Не удалось загрузить боевой пакет.");
+        const status = (e as { status?: unknown } | null)?.status;
+        setErrorStatus(typeof status === "number" ? status : null);
       })
       .finally(() => {
         if (requestedRef.current === id) setLoading(false);
@@ -673,6 +679,7 @@ export function useCalloutPack(selectedId: number | null, pollMs?: number) {
       requestedRef.current = null;
       setPackState(null);
       setError(null);
+      setErrorStatus(null);
       setCachedAt(null);
       setLoading(false);
       return;
@@ -690,6 +697,7 @@ export function useCalloutPack(selectedId: number | null, pollMs?: number) {
     requestedRef.current = next.callout.id;
     setPackState(next);
     setError(null);
+    setErrorStatus(null);
     setCachedAt(null);
   }, []);
 
@@ -704,6 +712,7 @@ export function useCalloutPack(selectedId: number | null, pollMs?: number) {
     pack,
     loading,
     error,
+    errorStatus,
     cachedAt,
     reload,
     setPack,

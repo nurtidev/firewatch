@@ -3,9 +3,8 @@
 /**
  * Печатная сводка для акимата — тот же паттерн печати через браузер
  * (Ctrl+P → «Сохранить как PDF»), что и донесение о пожаре
- * (app/callout/report/page.tsx), с общими компонентами вместо локальных копий
- * (components/report/Watermark.tsx, components/report/PrintToolbar.tsx —
- * callout/report/page.tsx сам пока не переведён на них, см. отчёт по задаче).
+ * (app/callout/report/page.tsx), на тех же общих компонентах
+ * (components/report/Watermark.tsx, components/report/PrintToolbar.tsx).
  *
  * Один лист — весь город: КПЭ, таблица районов, топ-5 приоритетов по
  * гидрантам и частям, методика и её ограничения. Никаких ФИО/телефонов/адресов

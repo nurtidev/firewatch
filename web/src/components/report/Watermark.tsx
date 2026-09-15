@@ -5,10 +5,9 @@
  * `.fw-watermark` print rules in globals.css — `position: fixed` under
  * `@media print` so Chromium repeats it on every page of the document).
  *
- * Extracted from app/callout/report/page.tsx's local `Watermark()` (kept
- * there unchanged for now — another agent is editing that file in parallel;
- * switching it to this shared component is a follow-up). /city/report is the
- * first consumer, with the label "Демо-данные" instead of "Предварительно".
+ * Shared by the print pages: /callout/report ("Предварительно" on a callout
+ * that isn't closed yet) and /city/report ("Демо-данные"). Same markup the
+ * fire report used to keep locally — the printed sheet doesn't change.
  */
 export default function Watermark({ label }: { label: string }) {
   return (

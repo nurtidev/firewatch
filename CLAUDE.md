@@ -53,8 +53,8 @@
 
 Переключатель трека — только у ролей с ≥2 пунктами в обоих треках (leadership, admin). Новая страница: сразу прописать
 `track`/`section`, `roles` (и `extraAccessRoles` для доступа без пункта меню) в `nav.ts`. Активный пункт, `trackOfPath`
-и guard AppShell берут **самый длинный** совпавший href. Печатные страницы без AppShell guard'ом AppShell не защищены: `/city/report` проверяет роль через
-`lib/useRoleGuard.ts`, `/callout/report` — пока только бэкендом (подключить тот же хук — follow-up).
+и guard AppShell берут **самый длинный** совпавший href. Печатные страницы без AppShell guard'ом AppShell не защищены: `/city/report` и
+`/callout/report` проверяют роль через `lib/useRoleGuard.ts` (донесение — те же роли, что у `/callout`, берутся из `nav.ts`).
 
 Скоупинг:
 - inspector/supervisor — свой район. Район здания — **реальные границы OSM** (таблица `districts`, миграция 0023, сид

@@ -27,11 +27,16 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Printer, ArrowLeft, Loader2, AlertTriangle } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import DeploymentSheet, { LateSyncMark, type NumberedPosition } from "@/components/DeploymentSheet";
 import StaleDataBanner from "@/components/StaleDataBanner";
-import { Button, Skeleton, Banner } from "@/components/ui";
-import { apiFetch, useAuth } from "@/lib/auth";
+import PrintToolbar from "@/components/report/PrintToolbar";
+import Watermark from "@/components/report/Watermark";
+import { Skeleton, Banner } from "@/components/ui";
+import { apiFetch, type Role } from "@/lib/auth";
+import { useT } from "@/lib/i18n";
+import { NAV } from "@/lib/nav";
+import { useRoleGuard } from "@/lib/useRoleGuard";
 import { realPlanForFloor } from "@/lib/realgeom";
 import {
   CALLOUT_TYPE_META,
@@ -60,69 +65,82 @@ export default function CalloutReportPage() {
   );
 }
 
+/** Кто открывает боевой выезд (/callout: roles + extraAccessRoles в nav.ts),
+ *  тот открывает и донесение по нему. Печатная страница живёт без AppShell,
+ *  поэтому его guard сюда не доходит — тот же редирект через useRoleGuard.
+ *  Константа модуля: эффект хука зависит от идентичности массива. */
+const CALLOUT_NAV = NAV.find((n) => n.href === "/callout");
+const CALLOUT_REPORT_ROLES: readonly Role[] = [
+  ...(CALLOUT_NAV?.roles ?? []),
+  ...(CALLOUT_NAV?.extraAccessRoles ?? []),
+];
+
 function ReportInner() {
+  const t = useT();
   const params = useSearchParams();
   const idParam = params.get("id");
   const calloutId = idParam ? Number(idParam) : null;
-  const { user } = useAuth();
+  const { user, ready, allowed } = useRoleGuard(CALLOUT_REPORT_ROLES);
 
   // Без поллинга: документ не должен меняться под руками, пока его печатают.
   // cachedAt ≠ null — пакет отдан офлайн-кэшем воркера (API молчало дольше
   // 4 с). Официальный документ по такому снимку печатать можно — штабу он
   // нужен и без связи, — но лист обязан сам говорить, что данные не живые.
-  const { pack, loading, error, cachedAt } = useCalloutPack(calloutId);
+  // Роль, которой донесение не положено, пакет не запрашивает вовсе.
+  const { pack, loading, error, errorStatus, cachedAt } = useCalloutPack(
+    allowed ? calloutId : null,
+  );
+
+  // Печать фиксируется в журнале: выгрузка донесения — действие с документом,
+  // и «кто и когда его выгрузил» разбирают наравне с самим содержанием.
+  const toolbar = (
+    <PrintToolbar
+      onClose={() => window.close()}
+      closeLabel={t("Закрыть")}
+      onBeforePrint={
+        calloutId != null
+          ? () => apiFetch(`/dispatch/${calloutId}/report/export`, { method: "POST" })
+          : undefined
+      }
+      printDisabled={!pack}
+    />
+  );
+
+  // Пока роль не известна или уходит редиректом — только заглушка листа, без
+  // ошибок по данным, которые и не запрашивались.
+  if (!ready || !allowed) {
+    return (
+      <div className="fw-report-root light min-h-screen bg-bg text-fg">
+        {toolbar}
+        <div className="mx-auto max-w-[210mm] px-4 pb-10">
+          <Skeleton className="h-[240mm] w-full" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fw-report-root light min-h-screen bg-bg text-fg">
-      <div className="fw-no-print mx-auto flex max-w-[210mm] items-center justify-between gap-3 p-4">
-        <Button variant="secondary" onClick={() => window.close()}>
-          <ArrowLeft className="h-4 w-4" aria-hidden />
-          Закрыть
-        </Button>
-        {calloutId != null && <PrintButton calloutId={calloutId} disabled={!pack} />}
-      </div>
+      {toolbar}
 
       <div className="mx-auto max-w-[210mm] px-4 pb-10">
         {loading && !pack && <Skeleton className="h-[240mm] w-full" />}
-        {error && !pack && <Banner tone="critical">{error}</Banner>}
+        {error && !pack && (
+          <Banner tone="critical">
+            {errorStatus === 403 ? t("Нет доступа к донесению") : error}
+          </Banner>
+        )}
         {calloutId == null && (
           <Banner tone="critical">Выезд не указан — откройте донесение из боевого пакета.</Banner>
         )}
         {pack && <StaleDataBanner cachedAt={cachedAt} kind="report" className="fw-no-print mb-3" />}
-        {pack?.callout.status === "active" && <Watermark />}
+        {/* Текст пометки — русский, как и весь лист документа. */}
+        {pack?.callout.status === "active" && <Watermark label="Предварительно" />}
         {pack && (
           <Report pack={pack} cachedAt={cachedAt} author={user?.name ?? user?.username ?? ""} />
         )}
       </div>
     </div>
-  );
-}
-
-/** Печать фиксируется в журнале: выгрузка донесения — действие с документом,
- *  и «кто и когда его выгрузил» разбирают наравне с самим содержанием. */
-function PrintButton({ calloutId, disabled }: { calloutId: number; disabled: boolean }) {
-  const [busy, setBusy] = useState(false);
-  const print = async () => {
-    setBusy(true);
-    try {
-      await apiFetch(`/dispatch/${calloutId}/report/export`, { method: "POST" });
-    } catch {
-      // Журнал не должен мешать печати: связь могла пропасть, а донесение
-      // нужно сейчас.
-    } finally {
-      setBusy(false);
-      window.print();
-    }
-  };
-  return (
-    <Button onClick={print} disabled={disabled || busy}>
-      {busy ? (
-        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-      ) : (
-        <Printer className="h-4 w-4" aria-hidden />
-      )}
-      Печать
-    </Button>
   );
 }
 
@@ -480,19 +498,6 @@ function SnapshotMark({
       <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
       <span className="tabular">Снимок данных {when}, не подтверждён сервером</span>
     </p>
-  );
-}
-
-function Watermark() {
-  return (
-    <div
-      className="fw-watermark pointer-events-none absolute inset-0 z-10 flex items-center justify-center overflow-hidden"
-      aria-hidden
-    >
-      <span className="-rotate-[24deg] text-[54px] font-bold uppercase tracking-widest text-critical/10">
-        Предварительно
-      </span>
-    </div>
   );
 }
 
