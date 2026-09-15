@@ -58,6 +58,19 @@ class PasswordReset(BaseModel):
     password: str = Field(..., min_length=8)
 
 
+class StationUpdate(BaseModel):
+    """Привязка/перепривязка начальника караула к части.
+
+    Единственное поле уже заведённой учётной записи, которое меняется через
+    продукт (район и роль по-прежнему переносятся точечным SQL — см.
+    CLAUDE.md). `None` снимает привязку. Существование части и допустимость
+    её для роли пользователя проверяются в самом эндпоинте (нужна БД и
+    текущая роль цели, а не только тело запроса).
+    """
+
+    station_id: int | None = None
+
+
 class UserCreate(BaseModel):
     """Учётная запись, заводимая администратором через продукт.
 
@@ -67,6 +80,12 @@ class UserCreate(BaseModel):
 
     Район: обязателен для скоупленных ролей (инспектор/руководитель управления)
     и принудительно пуст для общегородских — иначе скоупинг сузил бы им выдачу.
+
+    Часть (station_id): третий уровень скоупинга, но только у начальника
+    караула (`responder`) — она решает, какую технику он ведёт на /vehicles и,
+    с досинхронизацией расстановки, в какой закрытый выезд он вправе
+    дописывать позиции (`dispatch.py::_late_crew_problem`). Существование
+    станции проверяется в самом эндпоинте (нужна БД), а не здесь.
     """
 
     username: str = Field(..., min_length=3, max_length=50, pattern=r"^[a-z0-9_.-]+$")
@@ -75,6 +94,7 @@ class UserCreate(BaseModel):
     role: str
     district: str | None = None
     building_ids: list[int] = Field(default_factory=list)
+    station_id: int | None = None
 
     @field_validator("role")
     @classmethod
@@ -91,6 +111,7 @@ class UserCreate(BaseModel):
             if not self.building_ids:
                 raise ValueError("для владельца укажите хотя бы один объект (building_ids)")
             self.district = None
+            self.station_id = None
             return self
 
         if self.building_ids:
@@ -103,6 +124,11 @@ class UserCreate(BaseModel):
         else:
             # Общегородская роль: район не хранится (см. access.py — citywide).
             self.district = None
+
+        if self.role != "responder" and self.station_id is not None:
+            raise ValueError(
+                "часть (station_id) допустима только для роли 'responder' (начальник караула)"
+            )
         return self
 
 
@@ -268,15 +294,24 @@ def list_users(
                    u.created_at, u.disabled_at, u.disabled_by,
                    i.id AS inspector_id,
                    (SELECT count(*) FROM owner_buildings ob WHERE ob.user_id = u.id)
-                       AS building_count
+                       AS building_count,
+                   s.id AS station_id, s.name AS station_name
               FROM users u
               LEFT JOIN inspectors i ON i.user_id = u.id
+              LEFT JOIN fire_stations s ON s.id = u.station_id
              ORDER BY u.is_active DESC, u.role, u.username
             """
         )
     ).mappings().all()
+    users = []
+    for r in rows:
+        row = dict(r)
+        station_id = row.pop("station_id")
+        station_name = row.pop("station_name")
+        row["station"] = {"id": station_id, "name": station_name} if station_id is not None else None
+        users.append(row)
     return {
-        "users": [dict(r) for r in rows],
+        "users": users,
         "roles": list(ASSIGNABLE_ROLES),
         "districts": list(DISTRICTS),
     }
@@ -348,11 +383,20 @@ def create_user(
         if int(found or 0) != len(ids):
             raise HTTPException(404, "Одно или несколько зданий не найдены")
 
+    # Часть, как и здания выше, должна существовать — иначе FK на вставке упал
+    # бы обычной 500, а не понятной 422.
+    if body.station_id is not None:
+        found_station = db.execute(
+            text("SELECT 1 FROM fire_stations WHERE id = :id"), {"id": body.station_id}
+        ).scalar()
+        if not found_station:
+            raise HTTPException(422, "Пожарная часть не найдена")
+
     new_id = db.execute(
         text(
             """
-            INSERT INTO users (username, password_hash, name, role, district)
-            VALUES (:u, :p, :n, :r, :d)
+            INSERT INTO users (username, password_hash, name, role, district, station_id)
+            VALUES (:u, :p, :n, :r, :d, :st)
             RETURNING id
             """
         ),
@@ -362,6 +406,7 @@ def create_user(
             "n": body.name,
             "r": body.role,
             "d": body.district,
+            "st": body.station_id,
         },
     ).scalar()
     for bid in ids:
@@ -392,6 +437,7 @@ def create_user(
             "district": body.district,
             "building_ids": ids,
             "inspector_id": inspector_id,
+            "station_id": body.station_id,
         },
     )
     return {
@@ -402,6 +448,7 @@ def create_user(
         "district": body.district,
         "building_ids": ids,
         "inspector_id": inspector_id,
+        "station_id": body.station_id,
     }
 
 
@@ -538,6 +585,57 @@ def reset_password(
         detail={"target": username, "target_role": target["role"]},
     )
     return {"ok": True, "username": username}
+
+
+@router.patch("/users/{username}/station")
+def update_user_station(
+    username: str,
+    body: StationUpdate,
+    request: Request,
+    user: dict = Depends(require_roles("admin")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Привязать/перепривязать/снять часть начальника караула (только admin).
+
+    До этого эндпоинта `users.station_id` (0017) не заполнялся ничем, кроме
+    точечного SQL — смоук-тест нашёл, что пилотный админ не может назначить
+    часть новому responder через продукт. Роль целевого пользователя здесь не
+    меняется — только station_id, и только когда это совместимо с уже
+    заведённой ролью (см. `StationUpdate`).
+
+    Следующий запрос того же пользователя сразу видит новую часть: она
+    резолвится из БД на каждый вызов (`_station_of` здесь и `_user_station` в
+    dispatch.py), а не из токена — трогать токен/сессии не нужно.
+    """
+    target = _target_user(db, username)
+    if body.station_id is not None:
+        if target["role"] != "responder":
+            raise HTTPException(
+                422, "Часть (station_id) допустима только для роли 'responder' (начальник караула)"
+            )
+        found_station = db.execute(
+            text("SELECT 1 FROM fire_stations WHERE id = :id"), {"id": body.station_id}
+        ).scalar()
+        if not found_station:
+            raise HTTPException(422, "Пожарная часть не найдена")
+
+    db.execute(
+        text("UPDATE users SET station_id = :st WHERE username = :u"),
+        {"st": body.station_id, "u": username},
+    )
+    db.commit()
+
+    audit(
+        action="user.station_updated",
+        username=user["username"],
+        role=user["role"],
+        method="PATCH",
+        path=f"/auth/users/{username}/station",
+        status_code=200,
+        ip=client_ip(request),
+        detail={"target": username, "target_role": target["role"], "station_id": body.station_id},
+    )
+    return {"ok": True, "username": username, "station_id": body.station_id}
 
 
 def _revoke_sessions(db: Session, username: str) -> bool:

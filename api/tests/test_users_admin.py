@@ -15,11 +15,12 @@ import os
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy import text
 
 from app.db import get_db
 from app.main import app
-from app.routers.auth import current_user
+from app.routers.auth import UserCreate, current_user
 
 ALL_ROLES = (
     "inspector", "supervisor", "leadership", "admin",
@@ -31,6 +32,7 @@ _ADMIN = ("zz_test_admin", "zz_admin_pass_1")
 _STAFF = ("zz_test_inspector", "zz_staff_pass_1")
 _STAFF_NEW_PASS = "zz_staff_pass_2"
 _DISTRICT = "Алматинский"
+_RESPONDER = ("zz_test_responder", "zz_responder_pass_1")
 
 
 # ─────────────────────────── 1. Guards (без базы) ───────────────────────────
@@ -81,6 +83,7 @@ ADMIN_ONLY = [
     ("disable", "POST", "/auth/users/zz_guard/disable", {}),
     ("enable", "POST", "/auth/users/zz_guard/enable", {}),
     ("password", "POST", "/auth/users/zz_guard/password", {"password": "guardpass2"}),
+    ("station", "PATCH", "/auth/users/zz_guard/station", {"station_id": 1}),
 ]
 
 
@@ -88,16 +91,50 @@ ADMIN_ONLY = [
 @pytest.mark.parametrize("role", ALL_ROLES)
 def test_user_admin_endpoints_are_admin_only(guard_client, name, method, path, body, role):
     _ROLE["value"] = role
-    res = (
-        guard_client.get(path)
-        if method == "GET"
-        else guard_client.post(path, json=body or {})
-    )
+    if method == "GET":
+        res = guard_client.get(path)
+    elif method == "PATCH":
+        res = guard_client.patch(path, json=body or {})
+    else:
+        res = guard_client.post(path, json=body or {})
     if role == "admin":
         # Дальше падает на заглушке базы (500) — важно, что не 401/403.
         assert res.status_code not in (401, 403), res.text
     else:
         assert res.status_code == 403, f"{role} → {res.status_code}"
+
+
+# ─────────────── 1b. Валидация станции в модели (без базы) ──────────────────
+
+
+def _new_user(**overrides) -> dict:
+    base = {"username": "zz_valid", "password": "passpass1", "name": "Т", "role": "responder"}
+    base.update(overrides)
+    return base
+
+
+def test_station_rejected_for_non_responder_role():
+    with pytest.raises(ValidationError, match="station_id"):
+        UserCreate(**_new_user(role="dispatcher", station_id=3))
+
+
+def test_station_none_ok_for_non_responder_role():
+    u = UserCreate(**_new_user(role="dispatcher", station_id=None))
+    assert u.station_id is None
+
+
+def test_station_allowed_for_responder():
+    u = UserCreate(**_new_user(role="responder", station_id=3))
+    assert u.station_id == 3
+
+
+def test_owner_station_forced_none_even_if_sent():
+    """Владелец получает и district, и station_id принудительно пустыми —
+
+    зеркалит уже существующее правило для district: поле роли, которой
+    станция не касается, не должно молча остаться в теле."""
+    u = UserCreate(**_new_user(role="owner", station_id=3, building_ids=[1]))
+    assert u.station_id is None
 
 
 def test_current_user_rejects_disabled_account():
@@ -171,7 +208,7 @@ def client():
 
 def _cleanup(conn) -> None:
     """Убрать за собой: строки реестра, привязки и сами учётные записи."""
-    names = [_ADMIN[0], _STAFF[0]]
+    names = [_ADMIN[0], _STAFF[0], _RESPONDER[0]]
     conn.execute(
         text(
             "DELETE FROM inspectors WHERE user_id IN "
@@ -341,3 +378,170 @@ def test_admin_cannot_disable_self_or_unknown(client):
 
     unknown = client.post("/auth/users/zz_no_such_user/disable", headers=client.admin)
     assert unknown.status_code == 404
+
+
+# ────────────────── 3. Станция начальника караула (на живой базе) ───────────
+
+
+@pytest.fixture
+def stations():
+    """Две тестовые пожарные части — для проверки station_id у responder."""
+    if not os.getenv("FW_RUN_DB_TESTS"):
+        pytest.skip("нужна живая база (FW_RUN_DB_TESTS=1)")
+
+    from app.db import engine
+
+    with engine.begin() as conn:
+        ids = [
+            conn.execute(
+                text(
+                    "INSERT INTO fire_stations (name, geom) "
+                    "VALUES (:n, ST_SetSRID(ST_MakePoint(71.0005, 51.0005), 4326)) "
+                    "RETURNING id"
+                ),
+                {"n": f"ПЧ-zz-station-{i}"},
+            ).scalar()
+            for i in range(2)
+        ]
+    try:
+        yield ids
+    finally:
+        with engine.begin() as conn:
+            # ON DELETE CASCADE (station_vehicles) / SET NULL (users.station_id)
+            # в 0017 — за собой можно не чистить ничего, кроме самих частей.
+            conn.execute(text("DELETE FROM fire_stations WHERE id = ANY(:ids)"), {"ids": ids})
+
+
+@db_only
+def test_admin_manages_responder_station(client, stations):
+    """Сквозной сценарий станции: заведение, список, перепривязка, ошибки,
+
+    резолвинг по БД на каждый запрос (без пересоздания токена) и защита БД
+    при смене роли в обход продукта (точечный SQL, как на проде — CLAUDE.md).
+    """
+    station_a, station_b = stations
+
+    # 1. Создание responder со станцией.
+    created = client.post(
+        "/auth/users",
+        headers=client.admin,
+        json={
+            "username": _RESPONDER[0], "password": _RESPONDER[1], "name": "Кар. Н.",
+            "role": "responder", "station_id": station_a,
+        },
+    )
+    assert created.status_code == 200, created.text
+    assert created.json()["station_id"] == station_a
+
+    # 2. Список отдаёт station {id, name}, а не голый station_id.
+    row = next(
+        u for u in client.get("/auth/users", headers=client.admin).json()["users"]
+        if u["username"] == _RESPONDER[0]
+    )
+    assert row["station"] == {"id": station_a, "name": "ПЧ-zz-station-0"}
+
+    # 3. Валидация: чужой роли станция недоступна, неизвестная часть — 422.
+    bad_role = client.post(
+        "/auth/users",
+        headers=client.admin,
+        json={
+            "username": "zz_bad_station_role", "password": "passpass1", "name": "Х",
+            "role": "dispatcher", "station_id": station_a,
+        },
+    )
+    assert bad_role.status_code == 422, bad_role.text
+
+    bad_station = client.post(
+        "/auth/users",
+        headers=client.admin,
+        json={
+            "username": "zz_bad_station_id", "password": "passpass1", "name": "Х",
+            "role": "responder", "station_id": 999_999_999,
+        },
+    )
+    assert bad_station.status_code == 422, bad_station.text
+
+    # 4. PATCH .../station с неизвестной частью — 422; на не-responder — 422
+    # (демо-админ роли не меняет, запрос падает до UPDATE).
+    unknown = client.patch(
+        f"/auth/users/{_RESPONDER[0]}/station",
+        headers=client.admin, json={"station_id": 999_999_999},
+    )
+    assert unknown.status_code == 422, unknown.text
+
+    # _STAFF (zz_test_inspector, роль inspector) заведён более ранним тестом
+    # этого модуля и переживает его — используем его вместо демо-учётки,
+    # чтобы тест не зависел от seed_users/порядка файлов.
+    wrong_role = client.patch(
+        f"/auth/users/{_STAFF[0]}/station", headers=client.admin, json={"station_id": station_a},
+    )
+    assert wrong_role.status_code == 422, wrong_role.text
+
+    # 5. Резолвинг по БД на каждый запрос: логинимся один раз и ни разу не
+    # логинимся заново — сервер обязан видеть станцию по актуальному значению
+    # в users, а не по claim'у токена (тот же принцип, что у района).
+    login = client.post(
+        "/auth/login", json={"username": _RESPONDER[0], "password": _RESPONDER[1]}
+    )
+    assert login.status_code == 200
+    tok = {"Authorization": f"Bearer {login.json()['token']}"}
+    assert login.json()["user"]["station"] == {"id": station_a, "name": "ПЧ-zz-station-0"}
+
+    # Пока привязан к station_a — постановка техники в station_b запрещена.
+    denied = client.post(
+        f"/dispatch/stations/{station_b}/vehicles",
+        headers=tok, json={"callsign": "AC-B", "vehicle_type": "ac"},
+    )
+    assert denied.status_code == 403, denied.text
+
+    # Админ перепривязывает — БЕЗ повторного логина responder'а.
+    patched = client.patch(
+        f"/auth/users/{_RESPONDER[0]}/station",
+        headers=client.admin, json={"station_id": station_b},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["station_id"] == station_b
+
+    # Тем же старым токеном: станция уже новая, без повторного входа.
+    assert client.get("/auth/me", headers=tok).json()["station"] == {
+        "id": station_b, "name": "ПЧ-zz-station-1",
+    }
+    allowed = client.post(
+        f"/dispatch/stations/{station_b}/vehicles",
+        headers=tok, json={"callsign": "AC-B2", "vehicle_type": "ac"},
+    )
+    assert allowed.status_code == 200, allowed.text
+    # А прежняя часть — уже не своя.
+    now_denied = client.post(
+        f"/dispatch/stations/{station_a}/vehicles",
+        headers=tok, json={"callsign": "AC-A2", "vehicle_type": "ac"},
+    )
+    assert now_denied.status_code == 403, now_denied.text
+
+    # 6. Снятие привязки (station_id: null) допустимо для responder.
+    cleared = client.patch(
+        f"/auth/users/{_RESPONDER[0]}/station", headers=client.admin, json={"station_id": None},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["station_id"] is None
+
+    # 7. Смена роли в обход продукта (точечный SQL — как перенос района на
+    # проде) обязана самоочистить station_id: возвращаем станцию и меняем
+    # роль напрямую в БД, минуя любой эндпоинт.
+    from app.db import engine
+
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE users SET station_id = :s WHERE username = :u"),
+            {"s": station_a, "u": _RESPONDER[0]},
+        )
+        conn.execute(
+            text("UPDATE users SET role = 'dispatcher' WHERE username = :u"),
+            {"u": _RESPONDER[0]},
+        )
+        after = conn.execute(
+            text("SELECT role, station_id FROM users WHERE username = :u"),
+            {"u": _RESPONDER[0]},
+        ).mappings().first()
+    assert after["role"] == "dispatcher"
+    assert after["station_id"] is None, "триггер обязан обнулить station_id при смене роли"

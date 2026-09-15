@@ -56,6 +56,8 @@ def client():
 def _call(client, method: str, path: str, body):
     if method == "GET":
         return client.get(path)
+    if method == "PATCH":
+        return client.patch(path, json=body if body is not None else {})
     return client.post(path, json=body if body is not None else {})
 
 
@@ -148,6 +150,9 @@ ENDPOINTS = [
      {"username": "newowner", "password": "password123", "name": "Owner",
       "role": "owner", "building_ids": [1]},
      {"admin"}),
+    # Admin-only: привязка начальника караула к части.
+    ("auth_user_station", "PATCH", "/auth/users/zz_guard/station",
+     {"station_id": 1}, {"admin"}),
 ]
 
 

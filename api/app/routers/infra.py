@@ -72,12 +72,17 @@ def _fc(rows, geom_key: str, props) -> dict:
 
 @router.get("/stations")
 def stations(db: Session = Depends(get_db)) -> dict:
+    # `id` in properties (added alongside the station-admin action on
+    # /users): web/users/page.tsx resolves the responder's station selector
+    # from this same endpoint instead of adding a parallel one.
     rows = db.execute(
         text(
-            "SELECT name, vehicles, ST_AsGeoJSON(geom) AS geom FROM fire_stations"
+            "SELECT id, name, vehicles, ST_AsGeoJSON(geom) AS geom FROM fire_stations"
         )
     ).mappings().all()
-    return _fc(rows, "geom", lambda r: {"name": r["name"], "vehicles": r["vehicles"]})
+    return _fc(
+        rows, "geom", lambda r: {"id": r["id"], "name": r["name"], "vehicles": r["vehicles"]}
+    )
 
 
 @router.get("/hydrants")
