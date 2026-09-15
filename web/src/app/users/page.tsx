@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   ShieldOff,
   MapPin,
+  Building2,
   X,
   Check,
 } from "lucide-react";
@@ -50,6 +51,8 @@ type UserRow = {
   /** Строка реестра инспекторов, привязанная к учётной записи (FK). */
   inspector_id: number | null;
   building_count: number;
+  /** Пожарная часть — только у роли responder (начальник караула). */
+  station: { id: number; name: string } | null;
 };
 
 type UsersData = {
@@ -58,9 +61,15 @@ type UsersData = {
   districts: string[];
 };
 
+type StationOption = { id: number; name: string };
+
 /** Роли, у которых район — граница доступа. Зеркалит DISTRICT_SCOPED_ROLES
  *  в api/app/routers/auth.py: для них район в форме обязателен. */
 const DISTRICT_ROLES: Role[] = ["inspector", "supervisor"];
+
+/** Роли, у которых часть — граница доступа (api/app/routers/auth.py::
+ *  _role_consistency). Пока единственная — начальник караула. */
+const STATION_ROLES: Role[] = ["responder"];
 
 const EMPTY_FORM = {
   username: "",
@@ -69,6 +78,7 @@ const EMPTY_FORM = {
   district: "",
   password: "",
   buildingIds: "",
+  stationId: "",
 };
 
 /** Текст ошибки из ответа FastAPI: строка `detail` либо список ошибок валидации. */
@@ -104,11 +114,20 @@ export default function UsersPage() {
   const [notice, setNotice] = useState<{ tone: "info" | "critical"; msg: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
-  // Форма приёма сотрудника и инлайн-форма сброса пароля.
+  // Список частей — для селектора станции у responder (форма приёма и
+  // инлайн-перепривязка в таблице). Грузится один раз, отдельно от
+  // учётных записей: тот же справочник, что у /vehicles и карт инфраструктуры.
+  const [stations, setStations] = useState<StationOption[]>([]);
+  const [stationsError, setStationsError] = useState(false);
+
+  // Форма приёма сотрудника, инлайн-форма сброса пароля и инлайн-форма
+  // перепривязки части.
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [pwFor, setPwFor] = useState<string | null>(null);
   const [pwValue, setPwValue] = useState("");
+  const [stationFor, setStationFor] = useState<string | null>(null);
+  const [stationValue, setStationValue] = useState("");
 
   const load = useCallback(() => {
     setError(null);
@@ -130,14 +149,26 @@ export default function UsersPage() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    apiFetch("/infra/stations")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("stations"))))
+      .then((d: { features: { properties: { id: number; name: string } }[] }) => {
+        const opts = (d.features ?? [])
+          .map((f) => ({ id: f.properties.id, name: f.properties.name }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setStations(opts);
+      })
+      .catch(() => setStationsError(true));
+  }, []);
+
   /** Общий вызов действия над учёткой: показывает результат и перезагружает список. */
   const act = useCallback(
-    async (key: string, path: string, body: unknown, okMsg: string) => {
+    async (key: string, path: string, body: unknown, okMsg: string, method: "POST" | "PATCH" = "POST") => {
       setBusy(key);
       setNotice(null);
       try {
         const r = await apiFetch(path, {
-          method: "POST",
+          method,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body ?? {}),
         });
@@ -161,6 +192,7 @@ export default function UsersPage() {
 
   const needsDistrict = DISTRICT_ROLES.includes(form.role);
   const isOwner = form.role === "owner";
+  const isResponder = STATION_ROLES.includes(form.role);
 
   async function submitCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -177,6 +209,7 @@ export default function UsersPage() {
         .map((s) => Number(s.trim()))
         .filter((n) => Number.isFinite(n) && n > 0);
     }
+    if (isResponder && form.stationId) body.station_id = Number(form.stationId);
     const ok = await act(
       "create",
       "/auth/users",
@@ -349,6 +382,27 @@ export default function UsersPage() {
                       />
                     </Field>
                   )}
+                  {isResponder && (
+                    <Field label={t("Часть")}>
+                      <Select
+                        value={form.stationId}
+                        onChange={(e) => setForm({ ...form, stationId: e.target.value })}
+                        disabled={stationsError}
+                      >
+                        <option value="">{t("Не назначена")}</option>
+                        {stations.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </Select>
+                      {stationsError && (
+                        <p className="mt-1 text-2xs text-critical">
+                          {t("Список частей недоступен — часть можно будет назначить позже.")}
+                        </p>
+                      )}
+                    </Field>
+                  )}
                   <Field label={t("Пароль")}>
                     <Input
                       type="password"
@@ -460,6 +514,12 @@ export default function UsersPage() {
                             </td>
                             <td className="px-4 py-2.5 align-top">
                               <Badge>{t(ROLE_LABEL[u.role])}</Badge>
+                              {u.role === "responder" && (
+                                <div className="mt-1 flex items-center gap-1 text-2xs text-faint">
+                                  <Building2 className="h-3 w-3" aria-hidden />
+                                  {u.station ? u.station.name : t("часть не назначена")}
+                                </div>
+                              )}
                             </td>
                             <td className="hidden whitespace-nowrap px-4 py-2.5 align-top xl:table-cell">
                               {u.district ? (
@@ -492,6 +552,24 @@ export default function UsersPage() {
                             </td>
                             <td className="whitespace-nowrap px-4 py-2.5 align-top text-right">
                               <div className="inline-flex items-center gap-1">
+                                {u.role === "responder" && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={rowBusy}
+                                    onClick={() => {
+                                      setStationFor(stationFor === u.username ? null : u.username);
+                                      setStationValue(u.station ? String(u.station.id) : "");
+                                      setNotice(null);
+                                    }}
+                                    aria-expanded={stationFor === u.username}
+                                    aria-label={`${t("Назначить часть")}: ${u.username}`}
+                                    title={t("Назначить часть")}
+                                  >
+                                    <Building2 className="h-3.5 w-3.5" />
+                                    <span className="hidden xl:inline">{t("Часть")}</span>
+                                  </Button>
+                                )}
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -597,6 +675,51 @@ export default function UsersPage() {
                                     variant="ghost"
                                     size="sm"
                                     onClick={() => setPwFor(null)}
+                                    aria-label={t("Отмена")}
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </Button>
+                                </form>
+                              )}
+
+                              {stationFor === u.username && (
+                                <form
+                                  className="mt-2 flex items-center justify-end gap-2"
+                                  onSubmit={async (e) => {
+                                    e.preventDefault();
+                                    const ok = await act(
+                                      u.username,
+                                      `/auth/users/${encodeURIComponent(u.username)}/station`,
+                                      { station_id: stationValue ? Number(stationValue) : null },
+                                      `${t("Часть обновлена")}: ${u.username}`,
+                                      "PATCH",
+                                    );
+                                    if (ok) setStationFor(null);
+                                  }}
+                                >
+                                  <Select
+                                    value={stationValue}
+                                    onChange={(e) => setStationValue(e.target.value)}
+                                    disabled={stationsError}
+                                    aria-label={`${t("Часть")} ${u.username}`}
+                                    className="w-44"
+                                  >
+                                    <option value="">{t("Не назначена")}</option>
+                                    {stations.map((s) => (
+                                      <option key={s.id} value={s.id}>
+                                        {s.name}
+                                      </option>
+                                    ))}
+                                  </Select>
+                                  <Button type="submit" size="sm" disabled={rowBusy}>
+                                    <Check className="h-3.5 w-3.5" />
+                                    {t("Сохранить")}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setStationFor(null)}
                                     aria-label={t("Отмена")}
                                   >
                                     <X className="h-3.5 w-3.5" />
