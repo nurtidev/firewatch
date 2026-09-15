@@ -36,7 +36,19 @@ export const NAV: NavItem[] = [
     hint: "Регистрация боевого выезда и боевой пакет караулу" },
   { href: "/callout", label: "Боевой выезд", roles: ["responder", "dispatcher", "admin"],
     track: "fire", section: "response",
-    hint: "Оперативный пакет по выезду: ПТП, гидранты, препятствия проезда" },
+    hint: "Оперативный пакет по выезду: ПТП, гидранты, препятствия проезда",
+    // supervisor/leadership не заводят и не ведут выезды (нет в roles — не
+    // засоряем им сайдбар пунктом «Боевой выезд»), но им открыт бэкенд
+    // VIEW_ROLES на чтение пакета/донесения по закрытому выезду — deep link
+    // «Пакет» из /callout/archive должен пройти guard AppShell, не 403.
+    extraAccessRoles: ["supervisor", "leadership"] },
+  // Архив закрытых выездов и печатных донесений — то же чтение, что у
+  // /callout (VIEW_ROLES на бэкенде), но отдельный пункт меню: «Боевой
+  // выезд» — рабочий экран по активным вызовам, архив — разбор задним числом.
+  { href: "/callout/archive", label: "Архив донесений",
+    roles: ["dispatcher", "responder", "supervisor", "leadership", "admin"],
+    track: "fire", section: "response",
+    hint: "Закрытые выезды и печатные донесения о пожарах" },
   { href: "/cards", label: "Оперкарточки", roles: ["inspector", "supervisor", "admin"],
     track: "fire", section: "response",
     hint: "Оперативные карточки пожаротушения (ПТП) — распознавание скана в структурированные поля",
@@ -203,7 +215,8 @@ export function trackOfPath(pathname: string): "fire" | "city" | "system" | null
 /** True only when a role has at least two visible items in BOTH the fire
  *  and the city track — that's when switching between them is meaningful.
  *  Matrix: leadership/admin → true (leadership has /dashboard, /vehicles,
- *  /reports in fire — /map and /infra stay extraAccessRoles-only for it);
+ *  /reports, /callout/archive in fire — /map, /infra and /callout itself
+ *  stay extraAccessRoles-only for it);
  *  supervisor → false (fire only, no city items); akimat → false (city
  *  only, no fire items); inspector/dispatcher/responder/owner → false. */
 export function hasTrackSwitch(role: Role): boolean {

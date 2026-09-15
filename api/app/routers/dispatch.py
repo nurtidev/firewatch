@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -764,6 +764,81 @@ def list_callouts(
         params,
     ).mappings().all()
     return [_callout_dict(dict(r)) for r in rows]
+
+
+# Верхняя граница страницы архива — печатная форма и пакет открываются по
+# одному выезду за раз, большая страница только замедлила бы список.
+ARCHIVE_LIMIT_MAX = 100
+ARCHIVE_DAYS = (7, 30, 90)
+
+
+@router.get("/archive")
+def list_callouts_archive(
+    db: Session = Depends(get_db),
+    _user: dict = Depends(VIEW_ROLES),
+    status: str = "closed",
+    station_id: int | None = None,
+    callout_type: str | None = None,
+    q: str | None = None,
+    days: int | None = None,
+    limit: int = Query(20, ge=1, le=ARCHIVE_LIMIT_MAX),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    """Архив выездов — постранично, с фильтрами, для печатных донесений и
+    пакетов по уже закрытым выездам («Архив донесений», /callout/archive).
+
+    Отдельный эндпоинт, а не расширение `list_callouts`: тот отдаёт плоский
+    список без пагинации, и на этой форме ответа уже стоят /dispatch (пульт
+    ЦОУ) и /callout (планшет РТП) — менять её ради архива значило бы чинить
+    их заодно без нужды. Скоупинг тот же, что у `list_callouts`: выезды —
+    общегородская сущность, районного среза для боевого модуля нет (см.
+    докстринг модуля).
+    """
+    if status not in ("active", "closed", "all"):
+        raise HTTPException(422, "status должен быть active, closed или all")
+    if callout_type is not None and callout_type not in CALLOUT_TYPES:
+        raise HTTPException(422, f"неизвестный тип вызова: {callout_type}")
+    if days is not None and days not in ARCHIVE_DAYS:
+        raise HTTPException(422, f"days должен быть одним из {ARCHIVE_DAYS}")
+
+    clauses: list[str] = []
+    params: dict = {}
+    if status != "all":
+        clauses.append("c.status = :status")
+        params["status"] = status
+    if station_id is not None:
+        clauses.append("c.station_id = :station_id")
+        params["station_id"] = station_id
+    if callout_type is not None:
+        clauses.append("c.callout_type = :callout_type")
+        params["callout_type"] = callout_type
+    if q:
+        # Простое совпадение по адресу (без свёртки казахской диакритики —
+        # у callouts, в отличие от buildings, нет колонки search_norm; адрес
+        # вызова — свободный текст диспетчера, не привязанный к реестру).
+        clauses.append("c.address ILIKE :q")
+        params["q"] = f"%{_like_escape(q)}%"
+    if days is not None:
+        clauses.append("c.created_at >= now() - make_interval(days => :days)")
+        params["days"] = days
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+
+    matched = db.execute(text(f"SELECT count(*) FROM callouts c {where}"), params).scalar()
+
+    rows = db.execute(
+        text(
+            _CALLOUT_SELECT
+            + f" {where} ORDER BY c.created_at DESC LIMIT :limit OFFSET :offset"
+        ),
+        {**params, "limit": limit, "offset": offset},
+    ).mappings().all()
+
+    return {
+        "matched": matched,
+        "offset": offset,
+        "limit": limit,
+        "callouts": [_callout_dict(dict(r)) for r in rows],
+    }
 
 
 @router.get("/{callout_id}/pack")

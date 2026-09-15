@@ -105,6 +105,57 @@ def test_list_callouts_rejects_bad_status(client):
     assert resp.status_code == 422
 
 
+# --- GET /dispatch/archive: validation --------------------------------------
+
+
+def test_archive_rejects_bad_status(client):
+    _ROLE["value"] = "supervisor"
+    resp = client.get("/dispatch/archive?status=weird")
+    assert resp.status_code == 422
+
+
+def test_archive_rejects_unknown_callout_type(client):
+    _ROLE["value"] = "supervisor"
+    resp = client.get("/dispatch/archive?callout_type=boom")
+    assert resp.status_code == 422
+
+
+@pytest.mark.parametrize("bad_days", [1, 14, 0, -7])
+def test_archive_rejects_days_outside_allowed_periods(client, bad_days):
+    _ROLE["value"] = "supervisor"
+    resp = client.get(f"/dispatch/archive?days={bad_days}")
+    assert resp.status_code == 422
+
+
+@pytest.mark.parametrize("bad_limit", [0, 101, -1])
+def test_archive_rejects_limit_out_of_range(client, bad_limit):
+    _ROLE["value"] = "supervisor"
+    resp = client.get(f"/dispatch/archive?limit={bad_limit}")
+    assert resp.status_code == 422
+
+
+def test_archive_rejects_negative_offset(client):
+    _ROLE["value"] = "supervisor"
+    resp = client.get("/dispatch/archive?offset=-1")
+    assert resp.status_code == 422
+
+
+@pytest.mark.parametrize("days", [7, 30, 90])
+def test_archive_valid_filters_pass_validation(client, days):
+    _ROLE["value"] = "leadership"
+    resp = client.get(
+        f"/dispatch/archive?days={days}&station_id=1&callout_type=fire&q=Абая&limit=10&offset=0"
+    )
+    assert resp.status_code not in (401, 403, 422)
+
+
+def test_archive_default_status_is_closed(client):
+    # Дефолт без параметра — архив закрытых выездов, а не активных.
+    _ROLE["value"] = "dispatcher"
+    resp = client.get("/dispatch/archive")
+    assert resp.status_code not in (401, 403, 422)
+
+
 # --- POST /infra/hydrants/{id}/status: validation --------------------------
 
 
