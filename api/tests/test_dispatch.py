@@ -470,6 +470,115 @@ def test_browser_iso_timestamp_parses_as_aware():
     assert fix.value == datetime(2026, 8, 6, 9, 45, 12, 345000, tzinfo=timezone.utc)
 
 
+# --- досинхронизация в закрытый выезд ---------------------------------------
+#
+# Расстановка, поставленная без связи до закрытия выезда, — факт боевых
+# действий: она принимается и после закрытия. Поставленное позже закрытия
+# (+5 мин допуска), чужое или пришедшее спустя 7 дней — нет.
+
+_CLOSED = datetime(2026, 8, 6, 11, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize(
+    "placed",
+    [
+        _CLOSED - timedelta(minutes=40),
+        _CLOSED,
+        _CLOSED + D.LATE_SYNC_TOLERANCE,  # граница допуска — включительно
+        # Астана, UTC+5: 16:03 местного — это 11:03 UTC, в пределах допуска.
+        datetime(2026, 8, 6, 16, 3, tzinfo=timezone(timedelta(hours=5))),
+    ],
+)
+def test_late_sync_accepts_positions_placed_before_close(placed):
+    assert D._late_sync_problem(placed, _CLOSED, _CLOSED + timedelta(minutes=20)) is None
+
+
+def test_late_sync_rejects_position_placed_after_close():
+    placed = _CLOSED + D.LATE_SYNC_TOLERANCE + timedelta(seconds=1)
+    problem = D._late_sync_problem(placed, _CLOSED, _CLOSED + timedelta(hours=1))
+    assert problem == D.LATE_AFTER_CLOSE
+    assert problem == "Позиция поставлена после закрытия выезда — не записана"
+
+
+def test_late_sync_window_is_seven_days():
+    placed = _CLOSED - timedelta(minutes=10)
+    edge = _CLOSED + D.LATE_SYNC_WINDOW
+    assert D._late_sync_window_problem(_CLOSED, edge) is None
+    assert D._late_sync_problem(placed, _CLOSED, edge) is None
+    later = edge + timedelta(seconds=1)
+    assert D._late_sync_window_problem(_CLOSED, later) == D.LATE_TOO_OLD
+    # Вне окна не спасает и честное время постановки.
+    assert D._late_sync_problem(placed, _CLOSED, later) == D.LATE_TOO_OLD
+    assert D.LATE_TOO_OLD.startswith("Выезд закрыт более 7 дней назад")
+
+
+def test_late_sync_without_placed_at_or_close_mark_is_rejected():
+    now = _CLOSED + timedelta(minutes=5)
+    # Без времени (или без пояса) не доказать, что поставлено до закрытия.
+    assert D._late_sync_problem(None, _CLOSED, now) == D.LATE_NO_TIME
+    assert D._late_sync_problem(_CLOSED.replace(tzinfo=None), _CLOSED, now) == D.LATE_NO_TIME
+    # Закрыт без отметки закрытия (правка базой) — сверять не с чем.
+    assert D._late_sync_window_problem(None, now) == D.LATE_CLOSED
+    assert D._late_sync_problem(_CLOSED, None, now) == D.LATE_CLOSED
+
+
+def test_late_sync_naive_close_mark_is_treated_as_utc():
+    placed = _CLOSED + timedelta(minutes=3)
+    naive = _CLOSED.replace(tzinfo=None)
+    assert D._late_sync_problem(placed, naive, _CLOSED + timedelta(hours=1)) is None
+
+
+def test_late_sync_decides_on_clock_corrected_time_slow_clock():
+    # Часы планшета отстают на два часа: по ним ствол поставлен задолго до
+    # закрытия, на деле — через полчаса после. Решает поправленное время.
+    skew = timedelta(hours=2)
+    now = _CLOSED + timedelta(hours=1)
+    real_placed = _CLOSED + timedelta(minutes=30)
+    fix = D._reconcile_placed_at(real_placed - skew, now - skew, _CREATED, now)
+    assert fix.value == real_placed
+    assert D._late_sync_problem(fix.value, _CLOSED, now) == D.LATE_AFTER_CLOSE
+
+
+def test_late_sync_decides_on_clock_corrected_time_fast_clock():
+    # Часы спешат на два часа: по ним — после закрытия, на деле — до него.
+    skew = timedelta(hours=2)
+    now = _CLOSED + timedelta(hours=3)
+    real_placed = _CLOSED - timedelta(minutes=15)
+    fix = D._reconcile_placed_at(real_placed + skew, now + skew, _CREATED, now)
+    assert fix.value == real_placed
+    assert D._late_sync_problem(fix.value, _CLOSED, now) is None
+
+
+def test_late_sync_old_client_future_time_is_clamped_and_rejected():
+    # Без sent_at поправить не по чему: «будущее» время прижимается к моменту
+    # приёма, а он уже после закрытия — постановку до закрытия не доказать.
+    now = _CLOSED + timedelta(hours=1)
+    fix = D._reconcile_placed_at(now + timedelta(hours=2), None, _CREATED, now)
+    assert fix.value == now
+    assert D._late_sync_problem(fix.value, _CLOSED, now) == D.LATE_AFTER_CLOSE
+
+
+@pytest.mark.parametrize(
+    "target,problem",
+    [
+        ({"client_uid": "u1", "created_by": "disp1", "placed_at": _CLOSED}, None),
+        # позиция с пульта — без client_uid
+        ({"client_uid": None, "created_by": "disp1", "placed_at": _CLOSED}, D.LATE_NOT_OWN),
+        # чужая позиция с плана
+        ({"client_uid": "u1", "created_by": "rtp2", "placed_at": _CLOSED}, D.LATE_NOT_OWN),
+        # своя, но поставленная после закрытия
+        (
+            {"client_uid": "u1", "created_by": "disp1",
+             "placed_at": _CLOSED + timedelta(hours=1)},
+            D.LATE_AFTER_CLOSE,
+        ),
+    ],
+)
+def test_late_target_only_own_plan_positions(target, problem):
+    now = _CLOSED + timedelta(hours=2)
+    assert D._late_target_problem(target, "disp1", _CLOSED, now) == problem
+
+
 # --- расчёт сил из карточки ПТП ---------------------------------------------
 
 

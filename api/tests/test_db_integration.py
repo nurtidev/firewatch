@@ -366,36 +366,263 @@ def test_deployment_sync_moves_then_drops_position(client):
     assert again["rejected"] == []
 
 
-def test_deployment_sync_on_closed_callout_is_refused_whole(client):
-    """Выезд закрыли, пока связи не было — очередь отвергается целиком.
+# --- досинхронизация после закрытия выезда -----------------------------------
+#
+# РТП работал без связи, диспетчер закрыл выезд. Раньше очередь получала 409
+# на весь батч и расстановка оставалась на планшете. Теперь то, что поставлено
+# до закрытия, принимается поштучно и помечается, остальное — отвергается с
+# причиной, а правки с пульта закрытого выезда запрещены, как и раньше.
 
-    Силами закрытого выезда уже не распоряжаются, и разбирать такую очередь по
-    одной позиции незачем: устройство показывает её РТП списком, чтобы он
-    перенёс расстановку в донесение руками.
-    """
-    h = _login(client, "dispatcher", "dispatcher123")
-    callout_id = _open_callout(client, h)
-    closed = client.post(
-        f"/dispatch/{callout_id}/close", json={"close_note": "ликвидирован"}, headers=h
+
+def _close(client, headers, callout_id: int) -> None:
+    r = client.post(
+        f"/dispatch/{callout_id}/close", json={"close_note": "ликвидирован"}, headers=headers
     )
-    assert closed.status_code == 200, closed.text
+    assert r.status_code == 200, r.text
 
+
+def _backdate(engine, callout_id: int, created_ago: timedelta, closed_ago: timedelta) -> datetime:
+    """Сдвинуть регистрацию и закрытие выезда в прошлое; вернуть closed_at."""
+    with engine.begin() as conn:
+        return conn.execute(
+            text(
+                "UPDATE callouts SET created_at = now() - :c, closed_at = now() - :z "
+                "WHERE id = :id RETURNING closed_at"
+            ),
+            {"c": created_ago, "z": closed_ago, "id": callout_id},
+        ).scalar()
+
+
+def _plan_create(uid: str, placed_at: datetime | None = None, **fields) -> dict:
+    body = {"client_uid": uid, "kind": "barrel_ext", "floor": "2", "plan_x": 0.3, "plan_y": 0.4}
+    if placed_at is not None:
+        body["placed_at"] = placed_at.isoformat()
+    body.update(fields)
+    return body
+
+
+def test_late_sync_accepts_pre_close_items_marks_and_audits(client):
+    """Поставлено до закрытия — принято и помечено; после — отказ поштучно.
+
+    Ствол поставлен за десять минут до закрытия, связь вернулась через
+    полчаса: он обязан попасть в донесение с пометкой. Ствол, поставленный
+    через двадцать минут после закрытия, не записывается — с причиной, а не
+    отказом всему батчу.
+    """
+    from app.db import engine
+
+    disp = _login(client, "dispatcher", "dispatcher123")
+    rtp = _login(client, "responder", "responder123")
+    callout_id = _open_callout(client, disp)
+    _close(client, disp, callout_id)
+    closed_at = _backdate(engine, callout_id, timedelta(hours=2), timedelta(minutes=30))
+
+    pre, post = "test-late-pre", "test-late-post"
+    now = datetime.now(timezone.utc)
     r = client.post(
         f"/dispatch/{callout_id}/deployment/sync",
         json={
             "creates": [
-                {
-                    "client_uid": "test-deploy-0004",
-                    "kind": "hq",
-                    "floor": "1",
-                    "plan_x": 0.5,
-                    "plan_y": 0.5,
-                }
-            ]
+                _plan_create(pre, closed_at - timedelta(minutes=10)),
+                _plan_create(post, closed_at + timedelta(minutes=20)),
+            ],
+            "sent_at": now.isoformat(),
         },
-        headers=h,
+        headers=rtp,
     )
-    assert r.status_code == 409
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["applied"] == [pre]
+    assert data["rejected"] == [
+        {"key": post, "reason": "Позиция поставлена после закрытия выезда — не записана"}
+    ]
+    by_uid = {p["client_uid"]: p for p in data["positions"]}
+    assert post not in by_uid
+    mark = datetime.fromisoformat(by_uid[pre]["synced_after_close_at"])
+    assert mark > closed_at
+    assert abs(datetime.fromisoformat(by_uid[pre]["placed_at"]) - (closed_at - timedelta(minutes=10))) < timedelta(seconds=5)
+
+    added = _added_detail(engine, callout_id, pre)
+    assert added["after_close"] is True
+    assert added["username"] == "responder"
+    assert datetime.fromisoformat(added["closed_at"]) == closed_at
+    assert datetime.fromisoformat(added["synced_at"]) == mark
+    assert datetime.fromisoformat(added["placed_at"]) == datetime.fromisoformat(
+        by_uid[pre]["placed_at"]
+    )
+    summary = _audit_details(engine, "callout.deployment_synced", callout_id)[-1]
+    assert summary["after_close"] is True
+    assert summary["applied"] == 1 and summary["rejected"] == 1
+
+    # Пульт видит, что закрытый выезд получил данные: и в пакете, и в списке.
+    pack = client.get(f"/dispatch/{callout_id}/pack", headers=disp).json()
+    assert pack["callout"]["late_sync"]["positions"] == 1
+    assert datetime.fromisoformat(pack["callout"]["late_sync"]["last_synced_at"]) == mark
+    listed = client.get("/dispatch?status=closed", headers=disp).json()
+    assert next(c for c in listed if c["id"] == callout_id)["late_sync"]["positions"] == 1
+
+
+def test_late_sync_console_edits_on_closed_callout_stay_rejected(client):
+    """Правки с пульта и чужие позиции закрытого выезда — по-прежнему нет.
+
+    Досинхронизация — это доставка того, что РТП поставил сам, а не второй
+    вход в закрытый выезд: поштучные POST/PATCH/DELETE получают 409, позиции
+    с пульта и чужие позиции через синхронизацию не меняются.
+    """
+    disp = _login(client, "dispatcher", "dispatcher123")
+    rtp = _login(client, "responder", "responder123")
+    callout_id = _open_callout(client, disp)
+
+    console = client.post(
+        f"/dispatch/{callout_id}/deployment",
+        json={"kind": "hq", "sector": "штаб у въезда"},
+        headers=disp,
+    )
+    assert console.status_code == 200, console.text
+    console_id = next(p["id"] for p in console.json() if p["client_uid"] is None)
+    uid = "test-late-rtp-own"
+    plan = _sync(client, rtp, callout_id, {"creates": [_plan_create(uid)]})
+    plan_id = next(p["id"] for p in plan["positions"] if p["client_uid"] == uid)
+    assert all(p["synced_after_close_at"] is None for p in plan["positions"])
+
+    _close(client, disp, callout_id)
+
+    base = f"/dispatch/{callout_id}/deployment"
+    assert client.patch(f"{base}/{console_id}", json={"sector": "БУ-9"}, headers=disp).status_code == 409
+    assert client.patch(f"{base}/{plan_id}", json={"heading": 45}, headers=rtp).status_code == 409
+    assert client.post(base, json={"kind": "hq"}, headers=disp).status_code == 409
+    assert client.delete(f"{base}/{console_id}", headers=disp).status_code == 409
+
+    not_own = "Выезд закрыт — после закрытия принимаются только свои позиции, поставленные на плане"
+    # Позиция с пульта — ни правкой, ни снятием по id.
+    by_disp = _sync(
+        client, disp, callout_id,
+        {"patches": [{"id": console_id, "sector": "БУ-9"}], "deletes": [console_id]},
+    )
+    assert by_disp["applied"] == []
+    assert by_disp["rejected"] == [
+        {"key": f"srv:{console_id}", "reason": not_own},
+        {"key": f"srv:{console_id}", "reason": not_own},
+    ]
+    # Позиция РТП под учётной записью диспетчера — чужая.
+    foreign = _sync(
+        client, disp, callout_id,
+        {"patches": [{"client_uid": uid, "heading": 90}], "delete_uids": [uid],
+         "creates": [_plan_create(uid, datetime.now(timezone.utc), plan_x=0.9, plan_y=0.9)]},
+    )
+    assert foreign["applied"] == []
+    assert [x["reason"] for x in foreign["rejected"]] == [not_own, not_own, not_own]
+
+    positions = {p["id"]: p for p in foreign["positions"]}
+    assert positions[console_id]["sector"] == "штаб у въезда"
+    assert (positions[plan_id]["plan_x"], positions[plan_id]["heading"]) == (0.3, None)
+    assert all(p["synced_after_close_at"] is None for p in positions.values())
+
+
+def test_late_sync_resent_create_after_close_upserts(client):
+    """Ответ на постановку потерялся, выезд закрыли, РТП успел сдвинуть ствол.
+
+    Повтор постановки после закрытия обновляет ту же позицию (не вторая) и
+    помечает её; чистый повтор ничего не меняет — ни пометки, ни журнала.
+    """
+    from app.db import engine
+
+    disp = _login(client, "dispatcher", "dispatcher123")
+    rtp = _login(client, "responder", "responder123")
+    callout_id = _open_callout(client, disp)
+    placed = datetime.now(timezone.utc) - timedelta(seconds=30)
+    moved_uid, still_uid = "test-late-resent", "test-late-replay"
+    first = _sync(
+        client, rtp, callout_id,
+        {"creates": [_plan_create(moved_uid, placed), _plan_create(still_uid, placed)]},
+    )
+    pos_id = next(p["id"] for p in first["positions"] if p["client_uid"] == moved_uid)
+
+    _close(client, disp, callout_id)
+
+    body = {"creates": [_plan_create(moved_uid, placed, plan_x=0.8, plan_y=0.7, heading=180),
+                        _plan_create(still_uid, placed)]}
+    resent = _sync(client, rtp, callout_id, body)
+    assert resent["applied"] == [moved_uid, still_uid]
+    assert resent["rejected"] == []
+    mine = [p for p in resent["positions"] if p["client_uid"] == moved_uid]
+    assert len(mine) == 1 and mine[0]["id"] == pos_id
+    assert (mine[0]["plan_x"], mine[0]["plan_y"], mine[0]["heading"]) == (0.8, 0.7, 180)
+    assert mine[0]["synced_after_close_at"] is not None
+    # Повтор без изменений — не запись после закрытия.
+    still = next(p for p in resent["positions"] if p["client_uid"] == still_uid)
+    assert still["synced_after_close_at"] is None
+
+    moved = [d for d in _audit_details(engine, "callout.deployment_moved", callout_id)
+             if d.get("client_uid") == moved_uid]
+    assert len(moved) == 1
+    assert moved[0]["after_close"] is True and moved[0]["username"] == "responder"
+    assert moved[0]["replay"] is True
+
+    again = _sync(client, rtp, callout_id, body)
+    assert again["applied"] == [moved_uid, still_uid]
+    assert len(_audit_details(engine, "callout.deployment_moved", callout_id)) == 1
+    assert len(_audit_details(engine, "callout.deployment_added", callout_id)) == 2
+
+
+def test_late_sync_patch_and_delete_by_client_uid_after_close(client):
+    """Своя позиция с плана после закрытия: правка и снятие по client_uid."""
+    from app.db import engine
+
+    disp = _login(client, "dispatcher", "dispatcher123")
+    rtp = _login(client, "responder", "responder123")
+    callout_id = _open_callout(client, disp)
+    kept, dropped = "test-late-patch", "test-late-drop"
+    _sync(client, rtp, callout_id, {"creates": [_plan_create(kept), _plan_create(dropped)]})
+
+    _close(client, disp, callout_id)
+
+    never = "test-late-never-arrived"
+    data = _sync(
+        client, rtp, callout_id,
+        {"patches": [{"client_uid": kept, "plan_x": 0.6, "plan_y": 0.2}],
+         "delete_uids": [dropped, never]},
+    )
+    assert data["applied"] == [kept, dropped, never]
+    assert data["rejected"] == []
+    by_uid = {p["client_uid"]: p for p in data["positions"]}
+    assert dropped not in by_uid
+    assert (by_uid[kept]["plan_x"], by_uid[kept]["plan_y"]) == (0.6, 0.2)
+    assert by_uid[kept]["synced_after_close_at"] is not None
+
+    removed = [d for d in _audit_details(engine, "callout.deployment_removed", callout_id)
+               if d.get("client_uid") == dropped]
+    assert len(removed) == 1
+    assert removed[0]["after_close"] is True and removed[0]["username"] == "responder"
+    assert removed[0]["closed_at"] and removed[0]["synced_at"] and removed[0]["placed_at"]
+    moved = _audit_details(engine, "callout.deployment_moved", callout_id)
+    assert [m["fields"] for m in moved] == [["plan_x", "plan_y"]]
+    assert moved[0]["after_close"] is True
+
+
+def test_late_sync_rejects_each_item_after_seven_days(client):
+    """Выезд закрыт больше недели назад — отказ каждой позиции с причиной."""
+    from app.db import engine
+
+    disp = _login(client, "dispatcher", "dispatcher123")
+    rtp = _login(client, "responder", "responder123")
+    callout_id = _open_callout(client, disp)
+    _close(client, disp, callout_id)
+    closed_at = _backdate(engine, callout_id, timedelta(days=9), timedelta(days=8))
+
+    uid = "test-late-too-old"
+    data = _sync(
+        client, rtp, callout_id,
+        {"creates": [_plan_create(uid, closed_at - timedelta(minutes=5))],
+         "delete_uids": ["test-late-too-old-drop"]},
+    )
+    reason = "Выезд закрыт более 7 дней назад — позиция не записана"
+    assert data["applied"] == []
+    assert data["rejected"] == [
+        {"key": uid, "reason": reason},
+        {"key": "test-late-too-old-drop", "reason": reason},
+    ]
+    assert all(p["client_uid"] != uid for p in data["positions"])
 
 
 def test_deployment_sync_is_audited_per_position(client):
