@@ -14,38 +14,34 @@
  *
  * Разделы — отдельные компоненты в components/callout/. Здесь остаётся то,
  * что общее для них и обязано переживать переход между вкладками: ошибка и
- * «занятая» кнопка последнего действия, очередь расстановки и её баннеры
- * (над вкладками — видны с любой). Панели не размонтируются при переключении,
- * а только скрываются: черновик расхода, открытая форма позиции, выбранный
- * этаж схемы и открытый выбор техники остаются на месте.
+ * «занятая» кнопка последнего действия, очередь расстановки и баннеры
+ * (CalloutBanners — над вкладками, видны с любой). Панели не размонтируются
+ * при переключении, а только скрываются: черновик расхода, открытая форма
+ * позиции, выбранный этаж схемы и выбор техники остаются на месте.
  *
  * Активная вкладка — в адресе (`?tab=timeline|crew|plan`, без параметра —
- * «Пакет»): переживает перезагрузку, а «назад» возвращает на прошлую вкладку.
+ * «Пакет») и переживает перезагрузку. Запись — replaceState, а не новая
+ * запись истории: «назад» уводит с выезда, а не листает вкладки, и после
+ * «К списку» в истории не остаётся выезда, из которого только что вышли.
  */
 import { useRef, useState, type ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import {
-  AlertTriangle,
-  ClipboardList,
-  Clock,
-  CloudOff,
-  CloudUpload,
-  MapIcon,
-  Truck,
-} from "lucide-react";
-import { Banner, Tabs, tabIds, type TabItem } from "@/components/ui";
+import { ClipboardList, Clock, CloudOff, CloudUpload, MapIcon, Truck } from "lucide-react";
+import { Tabs, tabIds, type TabItem } from "@/components/ui";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+import { SEVERITY, type Severity } from "@/lib/risk";
+import { CATEGORY_META } from "@/lib/reports";
 import {
   BLOCKING_REPORT_CATEGORIES,
   TIMELINE_STEPS,
   type CalloutPackData,
 } from "@/lib/dispatch";
 import TimelineSection from "@/components/callout/TimelineSection";
-import VehiclesSection from "@/components/callout/VehiclesSection";
+import VehiclesSection, { crewVsHint } from "@/components/callout/VehiclesSection";
 import DeploymentSection from "@/components/callout/DeploymentSection";
 import ResourcesSection from "@/components/callout/ResourcesSection";
-import DeploymentQueueBanners from "@/components/callout/DeploymentQueueBanners";
+import CalloutBanners, { type ActionError } from "@/components/callout/CalloutBanners";
 import { useDeploymentQueue } from "@/components/callout/useDeploymentQueue";
 import type { RunAction } from "@/components/callout/types";
 
@@ -56,6 +52,9 @@ const DEFAULT_TAB: CalloutTab = "pack";
 const isCalloutTab = (v: string | null): v is CalloutTab =>
   v != null && (CALLOUT_TABS as readonly string[]).includes(v);
 
+/** От самого тяжёлого к лёгкому — для счётчика препятствий на «Пакете». */
+const SEVERITY_ORDER: Severity[] = ["critical", "high", "elevated", "normal", "info"];
+
 export default function CalloutOps({
   pack,
   cachedAt = null,
@@ -65,9 +64,8 @@ export default function CalloutOps({
   packPanel,
 }: {
   pack: CalloutPackData;
-  /** Пакет отдан офлайн-кэшем (см. useCalloutPack): расстановка с пульта на
-   *  схеме — снимок, и это должно быть видно рядом со схемой, а не только
-   *  вверху экрана. */
+  /** Пакет отдан офлайн-кэшем (см. useCalloutPack): пометка над вкладками и
+   *  отдельно — рядом со схемой расстановки. */
   cachedAt?: string | null;
   onChanged: () => void;
   /** Диспетчер и РТП ставят отметки; надзорные роли смотрят только чтение. */
@@ -77,7 +75,7 @@ export default function CalloutOps({
   packPanel: ReactNode;
 }) {
   const t = useT();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ActionError | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const callout = pack.callout;
@@ -89,22 +87,29 @@ export default function CalloutOps({
   // донесение о пожаре. Интерфейс обязан повторять ровно это различие.
   // Исключение одно — очередь планшета: то, что РТП поставил без связи до
   // закрытия, сервер принимает и после него (с пометкой), поэтому очередь
-  // закрытого выезда отправляется и её состояние видно (DeploymentQueueBanners).
+  // закрытого выезда отправляется и её состояние видно (CalloutBanners).
   const editable = canEdit && !closed;
   const documentEditable = canEdit;
 
-  const run: RunAction = async (key, fn) => {
-    setBusy(key);
-    setError(null);
-    try {
-      await fn();
-      onChanged();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("Не удалось сохранить изменение"));
-    } finally {
-      setBusy(null);
-    }
-  };
+  /** Действие раздела: ошибка запоминает, в каком разделе она случилась —
+   *  баннер виден с любой вкладки и должен говорить, что именно повторить. */
+  const runIn =
+    (section: string): RunAction =>
+    async (key, fn) => {
+      setBusy(key);
+      setError(null);
+      try {
+        await fn();
+        onChanged();
+      } catch (e) {
+        setError({
+          section,
+          message: e instanceof Error ? e.message : t("Не удалось сохранить изменение"),
+        });
+      } finally {
+        setBusy(null);
+      }
+    };
 
   const queue = useDeploymentQueue(callout.id, onChanged);
   // Состояние очереди видно и на закрытом выезде, пока на устройстве что-то
@@ -121,16 +126,20 @@ export default function CalloutOps({
   const anchorRef = useRef<HTMLDivElement>(null);
 
   const selectTab = (id: string) => {
-    if (!isCalloutTab(id) || id === tab) return;
-    const params = new URLSearchParams(searchParams.toString());
+    if (!isCalloutTab(id)) return;
+    // Сравниваем с адресом, а не с useSearchParams: при быстрых нажатиях он
+    // отстаёт на рендер, и одна и та же вкладка записывалась бы повторно.
+    const params = new URLSearchParams(window.location.search);
+    const current = params.get("tab");
+    if ((isCalloutTab(current) ? current : DEFAULT_TAB) === id) return;
     if (id === DEFAULT_TAB) params.delete("tab");
     else params.set("tab", id);
     const qs = params.toString();
-    // history.pushState, а не router.push: Next синхронизирует его с
-    // useSearchParams без запроса RSC-пейлоада. router.push на планшете без
-    // связи ушёл бы в сеть и откатился на жёсткую навигацию — вкладка
-    // обязана переключаться и в подвале без покрытия.
-    window.history.pushState(null, "", qs ? `${pathname}?${qs}` : pathname);
+    // history.replaceState, а не router.replace: Next синхронизирует его с
+    // useSearchParams без запроса RSC-пейлоада. Роутер на планшете без связи
+    // ушёл бы в сеть и откатился на жёсткую навигацию — вкладка обязана
+    // переключаться и в подвале без покрытия.
+    window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
     // Лента вкладок прилипла сверху — новый раздел начинается под ней, а не с
     // середины, куда был прокручен прошлый.
     const anchor = anchorRef.current;
@@ -142,16 +151,18 @@ export default function CalloutOps({
     }
   };
 
-  /* ──────────────── Счётчики на вкладках (цвет — не единственный сигнал) ──────────────── */
+  /* ─────── Счётчики на вкладках: severity та же, что у чипа/баннера того же факта ─────── */
 
-  const blocking = pack.reports.filter((r) => BLOCKING_REPORT_CATEGORIES.includes(r.category)).length;
+  const blocking = pack.reports.filter((r) => BLOCKING_REPORT_CATEGORIES.includes(r.category));
+  const blockingKey = SEVERITY_ORDER.find((k) =>
+    blocking.some((r) => CATEGORY_META[r.category].severity.key === k),
+  );
   const packBadge: Partial<TabItem> =
-    blocking > 0
+    blocking.length > 0 && blockingKey
       ? {
-          count: blocking,
-          countTone: "warning",
-          countIcon: AlertTriangle,
-          countLabel: t("Препятствия проезда: {n}").replace("{n}", String(blocking)),
+          count: blocking.length,
+          countSeverity: SEVERITY[blockingKey],
+          countLabel: t("Препятствия проезда: {n}").replace("{n}", String(blocking.length)),
         }
       : {};
 
@@ -163,41 +174,41 @@ export default function CalloutOps({
       .replace("{total}", String(TIMELINE_STEPS.length)),
   };
 
-  const assigned = pack.vehicles.length;
-  const needed = pack.forces_hint?.trucks ?? null;
-  const short = needed != null && assigned < needed;
+  const crew = crewVsHint(pack);
   const crewBadge: Partial<TabItem> =
-    needed != null
+    crew.needed != null
       ? {
-          count: `${assigned}/${needed}`,
-          countTone: short ? "warning" : "neutral",
-          countIcon: short ? AlertTriangle : undefined,
+          count: `${crew.assigned}/${crew.needed}`,
+          countSeverity: crew.severity,
           countLabel: t("Техника: {n} из {need} по расчёту")
-            .replace("{n}", String(assigned))
-            .replace("{need}", String(needed)),
+            .replace("{n}", String(crew.assigned))
+            .replace("{need}", String(crew.needed)),
         }
-      : assigned > 0
+      : crew.assigned > 0
         ? {
-            count: assigned,
-            countLabel: t("Назначено машин: {n}").replace("{n}", String(assigned)),
+            count: crew.assigned,
+            countLabel: t("Назначено машин: {n}").replace("{n}", String(crew.assigned)),
           }
         : {};
 
   const pendingN = queue.pending.length;
   const rejectedN = queue.rejected.length;
   const placedN = (pack.deployment ?? []).length;
+  // Тон очереди — как у баннера, который сейчас виден: без связи, без входа
+  // или без прав — предупреждение, при связи — справка (очередь уходит).
+  const queueStuck = !queue.online || queue.authRequired || queue.forbidden;
   const planBadge: Partial<TabItem> =
     rejectedN > 0
       ? {
           count: rejectedN,
-          countTone: "critical",
+          countSeverity: SEVERITY.critical,
           countIcon: CloudOff,
           countLabel: t("Не принято сервером: {n}").replace("{n}", String(rejectedN)),
         }
       : pendingN > 0
         ? {
             count: pendingN,
-            countTone: "warning",
+            countSeverity: queueStuck ? SEVERITY.elevated : SEVERITY.info,
             countIcon: CloudUpload,
             countLabel: t("Позиций ждёт отправки: {n}").replace("{n}", String(pendingN)),
           }
@@ -233,9 +244,14 @@ export default function CalloutOps({
   };
 
   return (
-    <div className={cn("space-y-4", large && "space-y-5")}>
-      {error && <Banner tone="critical">{error}</Banner>}
-      <DeploymentQueueBanners queue={queue} showQueue={showQueue} />
+    <div className={cn("space-y-3", large && "space-y-4")}>
+      <CalloutBanners
+        queue={queue}
+        showQueue={showQueue}
+        cachedAt={cachedAt}
+        error={error ? { ...error, section: t(error.section) } : null}
+        onDismissError={() => setError(null)}
+      />
 
       <div>
         {/* Якорь — в потоке, не липкий: по нему видно, прилипла ли лента. */}
@@ -262,15 +278,27 @@ export default function CalloutOps({
               editable={documentEditable}
               large={large}
               busy={busy}
-              onRun={run}
+              onRun={runIn("Хронология")}
             />,
           )}
 
           {panel(
             "crew",
             <>
-              <VehiclesSection pack={pack} editable={editable} large={large} busy={busy} onRun={run} />
-              <ResourcesSection pack={pack} editable={documentEditable} busy={busy} onRun={run} />
+              <VehiclesSection
+                pack={pack}
+                editable={editable}
+                large={large}
+                busy={busy}
+                onRun={runIn("Наряд сил")}
+                active={tab === "crew"}
+              />
+              <ResourcesSection
+                pack={pack}
+                editable={documentEditable}
+                busy={busy}
+                onRun={runIn("Расход средств")}
+              />
             </>,
           )}
 
@@ -281,7 +309,7 @@ export default function CalloutOps({
               cachedAt={cachedAt}
               editable={editable}
               busy={busy}
-              onRun={run}
+              onRun={runIn("Расстановка")}
               queue={queue}
             />,
           )}

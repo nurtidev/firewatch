@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   Info,
   ChevronDown,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -251,22 +252,38 @@ const BANNER_TONE: Record<BannerTone, { sev: SeverityMeta; icon: LucideIcon }> =
   critical: { sev: SEVERITY.critical, icon: AlertOctagon },
 };
 
-/** Inline callout for context-wide notices (e.g. demo data, degraded mode). */
+/**
+ * Inline callout for context-wide notices (e.g. demo data, degraded mode).
+ * Compact form for stacks of notices (a field screen offline): one summary
+ * line, the long explanation behind «Подробнее» (`details`), the action
+ * inline on the right (`action`), and `onDismiss` for notices a person can
+ * acknowledge. Without these props it renders exactly as before.
+ */
 export function Banner({
   tone = "warning",
   title,
   children,
   icon,
   className,
+  action,
+  details,
+  onDismiss,
 }: {
   tone?: BannerTone;
   title?: React.ReactNode;
   children?: React.ReactNode;
   icon?: LucideIcon;
   className?: string;
+  action?: React.ReactNode;
+  details?: React.ReactNode;
+  onDismiss?: () => void;
 }) {
+  const t = useT();
+  const [open, setOpen] = React.useState(false);
+  const detailsId = React.useId();
   const { sev, icon: ToneIcon } = BANNER_TONE[tone];
   const Icon = icon ?? ToneIcon;
+  const controls = Boolean(action || details || onDismiss);
   return (
     <div
       role="note"
@@ -278,12 +295,45 @@ export function Banner({
       )}
     >
       <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", sev.text)} aria-hidden />
-      <div className="min-w-0">
+      <div className={cn("min-w-0", controls && "flex-1 self-center")}>
         {title && <div className={cn("font-semibold", sev.text)}>{title}</div>}
         {children && (
           <div className={cn("text-muted", Boolean(title) && "mt-0.5")}>{children}</div>
         )}
+        {details && (
+          <div id={detailsId} hidden={!open} className="mt-1 text-muted">
+            {details}
+          </div>
+        )}
       </div>
+      {controls && (
+        <div className="-my-1 flex shrink-0 items-center gap-1.5">
+          {details && (
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-expanded={open}
+              aria-controls={detailsId}
+              onClick={() => setOpen((o) => !o)}
+            >
+              {t("Подробнее")}
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform duration-[var(--dur-fast)]",
+                  open && "rotate-180",
+                )}
+                aria-hidden
+              />
+            </Button>
+          )}
+          {action}
+          {onDismiss && (
+            <Button size="sm" variant="ghost" onClick={onDismiss} aria-label={t("Закрыть")}>
+              <X className="h-4 w-4" aria-hidden />
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -576,19 +626,16 @@ export type TabItem = {
   icon?: LucideIcon;
   /** optional count chip (info scent — how much is behind the tab) */
   count?: number | string;
-  /** A count that asks for attention (unsent data, a deficit) rather than
-   *  info scent. Tone is never the only signal — pair it with `countIcon`
-   *  and say what the number means in `countLabel`. */
-  countTone?: "neutral" | "warning" | "critical";
+  /** Severity of the fact behind the count (unsent data, a deficit) — the
+   *  same `SEVERITY` entry the matching chip/banner on the page uses (single
+   *  source: lib/risk.ts). Never the only signal: an icon is always drawn
+   *  (`countIcon`, or the severity's own icon) and `countLabel` says what the
+   *  number means. */
+  countSeverity?: SeverityMeta;
   countIcon?: LucideIcon;
   /** What the count means («Ждёт отправки: 3») — announced instead of the
    *  bare number and shown as a tooltip. */
   countLabel?: string;
-};
-
-const TAB_COUNT_TONE: Record<"warning" | "critical", SeverityMeta> = {
-  warning: SEVERITY.elevated,
-  critical: SEVERITY.critical,
 };
 
 /** DOM ids linking a tab to its panel (`aria-controls` / `aria-labelledby`)
@@ -653,8 +700,8 @@ export function Tabs({
       {tabs.map((t) => {
         const selected = t.id === active;
         const Icon = t.icon;
-        const tone = t.countTone && t.countTone !== "neutral" ? TAB_COUNT_TONE[t.countTone] : null;
-        const CountIcon = t.countIcon;
+        const tone = t.countSeverity ?? null;
+        const CountIcon = t.countIcon ?? (tone ? SEVERITY_ICON[tone.key] : undefined);
         const ids = idPrefix ? tabIds(idPrefix, t.id) : null;
         return (
           <button

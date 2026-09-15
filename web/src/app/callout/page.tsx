@@ -8,7 +8,7 @@
  */
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, CloudUpload, Siren } from "lucide-react";
+import { ArrowLeft, CloudUpload, FileText, Siren } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import CalloutPack from "@/components/CalloutPack";
 import CalloutOps from "@/components/CalloutOps";
@@ -152,11 +152,24 @@ function CalloutPageInner() {
           </>
         ) : (
           <>
-            <div className="mb-4 flex items-center gap-2">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <Button size="lg" variant="secondary" onClick={backToList}>
                 <ArrowLeft className="h-4 w-4" />
                 {t("К списку")}
               </Button>
+              {/* Донесение — над вкладками, с любого раздела. Открывается в
+                  отдельной вкладке браузера: боевой пакет на планшете
+                  закрывать нельзя — по нему продолжают работать. */}
+              {pack && (
+                <Button
+                  size="lg"
+                  variant="secondary"
+                  onClick={() => window.open(`/callout/report?id=${pack.callout.id}`, "_blank")}
+                >
+                  <FileText className="h-4 w-4" aria-hidden />
+                  {t("Донесение")}
+                </Button>
+              )}
             </div>
 
             {packLoading && !pack && (
@@ -166,27 +179,23 @@ function CalloutPageInner() {
               </div>
             )}
             {packError && !pack && <Banner tone="critical">{packError}</Banner>}
+            {/* Пометка «пакет из офлайн-кэша» — в стеке баннеров CalloutOps,
+                над вкладками, по приоритету среди остальных. */}
             {pack && (
-              <div className="space-y-5">
-                {/* Пакет отдан офлайн-кэшем: гидрант мог сломаться, а проезд
-                    перекрыть уже после того, как снимок был снят. Молчать об
-                    этом нельзя — по пакету распоряжаются силами. */}
-                <StaleDataBanner cachedAt={cachedAt} kind="pack" />
-                <CalloutOps
-                  pack={pack}
-                  cachedAt={cachedAt}
-                  onChanged={reloadPack}
-                  canEdit={canEdit}
-                  large
-                  packPanel={
-                    // Тот же гейт, что у CalloutOps: супервайзер/руководство
-                    // открывают закрытый выезд из архива на чтение — отметка
-                    // гидранта без него была бы активным тумблером для роли,
-                    // которой сервер эту запись не даёт (leadership — 403).
-                    <CalloutPack pack={pack} canMarkHydrant={canEdit} large />
-                  }
-                />
-              </div>
+              <CalloutOps
+                pack={pack}
+                cachedAt={cachedAt}
+                onChanged={reloadPack}
+                canEdit={canEdit}
+                large
+                packPanel={
+                  // Тот же гейт, что у CalloutOps: супервайзер/руководство
+                  // открывают закрытый выезд из архива на чтение — отметка
+                  // гидранта без него была бы активным тумблером для роли,
+                  // которой сервер эту запись не даёт (leadership — 403).
+                  <CalloutPack pack={pack} canMarkHydrant={canEdit} large />
+                }
+              />
             )}
           </>
         )}

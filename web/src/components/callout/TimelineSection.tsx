@@ -5,7 +5,7 @@
  * месте пожара никто не набирает время руками. Ошибочную отметку можно снять
  * тем же нажатием. Ни одна отметка не выставляется автоматически.
  */
-import { AlertTriangle, Check, Clock, FileText, Loader2, X } from "lucide-react";
+import { AlertTriangle, Check, Clock, Loader2, X } from "lucide-react";
 import { Button, Card, SectionLabel, StatusChip } from "@/components/ui";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
@@ -57,24 +57,14 @@ export default function TimelineSection({
           <Clock className="mr-1.5 inline h-3.5 w-3.5" aria-hidden />
           {t("Хронология выезда")}
         </SectionLabel>
-        <div className="flex items-center gap-2">
-          {timeline.response_sec != null && (
-            <StatusChip
-              severity={overNorm ? SEVERITY.critical : SEVERITY.normal}
-              label={`${t("Прибытие")}: ${formatDuration(timeline.response_sec)}`}
-            />
-          )}
-          {/* Донесение открывается в отдельной вкладке: боевой пакет на
-              планшете закрывать нельзя — по нему продолжают работать. */}
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => window.open(`/callout/report?id=${callout.id}`, "_blank")}
-          >
-            <FileText className="h-4 w-4" aria-hidden />
-            {t("Донесение")}
-          </Button>
-        </div>
+        {/* Кнопка «Донесение» — над вкладками, в строке «К списку»
+            (app/callout/page.tsx): доступна с любого раздела. */}
+        {timeline.response_sec != null && (
+          <StatusChip
+            severity={overNorm ? SEVERITY.critical : SEVERITY.normal}
+            label={`${t("Прибытие")}: ${formatDuration(timeline.response_sec)}`}
+          />
+        )}
       </div>
 
       <p className="mt-1 text-xs text-faint">

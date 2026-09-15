@@ -15,23 +15,38 @@ import {
 } from "@/lib/dispatch";
 import type { RunAction } from "./types";
 
+/** Наряд против расчёта — один источник для чипа в разделе и счётчика на
+ *  вкладке «Наряд и расход»: один факт, одна severity (lib/risk.ts). */
+export function crewVsHint(pack: CalloutPackData) {
+  const assigned = pack.vehicles.length;
+  // Расчёт предлагает N машин — сравнение с фактом здесь и есть смысл наряда.
+  const needed = pack.forces_hint?.trucks ?? null;
+  const short = needed != null && assigned < needed;
+  return { assigned, needed, short, severity: short ? SEVERITY.high : SEVERITY.normal };
+}
+
 export default function VehiclesSection({
   pack,
   editable,
   large,
   busy,
   onRun,
+  active = true,
 }: {
   pack: CalloutPackData;
   editable: boolean;
   large?: boolean;
   busy: string | null;
   onRun: RunAction;
+  /** Раздел сейчас на экране. Скрытая вкладка не опрашивает справочник
+   *  техники; открытый выбор возобновляет опрос, когда вкладку вернули. */
+  active?: boolean;
 }) {
   const t = useT();
   const [picking, setPicking] = useState(false);
-  // Справочник по всему городу тянется только когда РТП открыл выбор техники.
-  const { data, reload } = useVehicles(null, picking ? 15000 : undefined, picking);
+  // Справочник по всему городу тянется только когда РТП открыл выбор техники
+  // и раздел виден.
+  const { data, reload } = useVehicles(null, picking ? 15000 : undefined, picking && active);
 
   const assigned = pack.vehicles;
   const assignedIds = new Set(assigned.map((v) => v.id));
@@ -40,10 +55,8 @@ export default function VehiclesSection({
     (v) => v.status === "in_service" && !assignedIds.has(v.id),
   );
 
-  const hint = pack.forces_hint;
-  // Расчёт предлагает N машин — сравнение с фактом здесь и есть смысл наряда.
-  const needed = hint?.trucks ?? null;
-  const short = needed != null && assigned.length < needed;
+  const crew = crewVsHint(pack);
+  const needed = crew.needed;
 
   return (
     <Card className="p-4">
@@ -55,7 +68,7 @@ export default function VehiclesSection({
         <div className="flex items-center gap-2">
           {needed != null && (
             <StatusChip
-              severity={short ? SEVERITY.high : SEVERITY.normal}
+              severity={crew.severity}
               label={`${assigned.length} / ${needed} ${t("по расчёту")}`}
             />
           )}

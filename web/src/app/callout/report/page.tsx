@@ -99,7 +99,15 @@ function ReportInner() {
       closeLabel={t("Закрыть")}
       onBeforePrint={
         calloutId != null
-          ? () => apiFetch(`/dispatch/${calloutId}/report/export`, { method: "POST" })
+          ? () =>
+              // Журнал — не повод уйти со страницы или зависнуть: на 401 не
+              // уводим на вход, мёртвая связь обрывается через 3 с. Печать
+              // идёт в любом случае (PrintToolbar глотает ошибку).
+              apiFetch(`/dispatch/${calloutId}/report/export`, {
+                method: "POST",
+                authRedirect: false,
+                signal: AbortSignal.timeout(3000),
+              })
           : undefined
       }
       printDisabled={!pack}
