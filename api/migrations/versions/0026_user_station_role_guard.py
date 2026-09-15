@@ -1,7 +1,7 @@
 """users.station_id: держать инвариант «только у responder» в самой БД
 
-Revision ID: 0025_user_station_role_guard
-Revises: 0024_deployment_late_sync
+Revision ID: 0026_user_station_role_guard
+Revises: 0025_cards_building_idx
 Create Date: 2026-09-15
 
 `users.station_id` (0017) появился раньше, чем какой-либо admin-эндпоинт умел
@@ -24,8 +24,8 @@ role = 'dispatcher' WHERE username = …», оставив админа разб
 
 from alembic import op
 
-revision = "0025_user_station_role_guard"
-down_revision = "0024_deployment_late_sync"
+revision = "0026_user_station_role_guard"
+down_revision = "0025_cards_building_idx"
 branch_labels = None
 depends_on = None
 
