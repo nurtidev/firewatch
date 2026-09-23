@@ -42,18 +42,19 @@ const DEMO_GROUPS: { title: string; colsClass: string; roles: Role[] }[] = [
 
 function DemoButton({
   d,
-  busy,
+  locked,
   onSelect,
 }: {
   d: DemoUser;
-  busy: boolean;
+  locked: boolean;
   onSelect: (username: string) => void;
 }) {
   const t = useT();
   return (
     <button
       onClick={() => onSelect(d.username)}
-      disabled={busy}
+      disabled={locked}
+      aria-disabled={locked}
       className="rounded-lg border border-border bg-surface px-2 py-2.5 text-center transition-colors hover:border-border-strong hover:bg-surface-2 disabled:opacity-50"
     >
       <div className="text-xs font-medium text-fg">{t(d.label)}</div>
@@ -76,9 +77,27 @@ export default function LoginPage() {
   // Кнопки становятся активными только после гидратации; при неактивной
   // кнопке отправки браузер не отправляет форму и по Enter. Первый рендер на
   // сервере и в браузере одинаков (false), true ставит эффект.
+  //
+  // Демо-кнопки — не часть формы (обычные <button onClick>, не type="submit"),
+  // так что нативного GET им не грозит, но до гидратации у React ещё нет их
+  // onClick вовсе: нажатие выглядело бы обычным кликом и молча ничего не
+  // делало. `locked` (а не только `busy`) — один и тот же признак
+  // «интерактив ещё не готов» и для формы, и для демо-кнопок.
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
   const locked = busy || !hydrated;
+
+  // Если гидратация не случилась за разумное время (упавший чанк сборки,
+  // офлайн, блокировщик скриптов) — кнопки остались бы задизейблены навсегда
+  // без единой подсказки, почему «Войти» не реагирует. Подсказка появляется
+  // только пока страница ещё не гидрировалась; успешная гидратация в любой
+  // момент до срабатывания таймера её отменяет.
+  const [hydrationStalled, setHydrationStalled] = useState(false);
+  useEffect(() => {
+    if (hydrated) return;
+    const timer = window.setTimeout(() => setHydrationStalled(true), 4000);
+    return () => window.clearTimeout(timer);
+  }, [hydrated]);
 
   async function submit(u: string, p: string) {
     setBusy(true);
@@ -155,7 +174,7 @@ export default function LoginPage() {
             </p>
           )}
 
-          <Button type="submit" disabled={locked} className="w-full">
+          <Button type="submit" disabled={locked} aria-disabled={locked} className="w-full">
             {busy ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" /> {t("Вход…")}
@@ -166,6 +185,12 @@ export default function LoginPage() {
               </>
             )}
           </Button>
+
+          {hydrationStalled && !hydrated && (
+            <p role="status" aria-live="polite" className="text-center text-2xs text-faint">
+              {t("Страница загружается дольше обычного. Если кнопка не реагирует, обновите страницу.")}
+            </p>
+          )}
         </form>
 
         <div className="mt-6 space-y-4">
@@ -183,7 +208,7 @@ export default function LoginPage() {
                   <DemoButton
                     key={role}
                     d={DEMO_BY_ROLE[role]}
-                    busy={busy}
+                    locked={locked}
                     onSelect={demoLogin}
                   />
                 ))}
