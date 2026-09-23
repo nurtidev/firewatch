@@ -39,6 +39,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
+from sqlalchemy import exc as sa_exc
+
 from app.config import settings
 
 T = TypeVar("T")
@@ -51,13 +53,33 @@ class _Entry:
 
 
 class ReadCache:
-    def __init__(self, ttl_seconds: float, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self,
+        ttl_seconds: float,
+        clock: Callable[[], float] = time.monotonic,
+        lock_timeout_sec: float | None = None,
+    ) -> None:
         self.ttl = ttl_seconds
         self._clock = clock
         self._entries: dict[str, _Entry] = {}
         self._locks: dict[str, threading.Lock] = {}
         self._generation: dict[str, int] = {}
         self._guard = threading.Lock()
+        # Сколько ждущий холодный (или очень протухший) ключ готов держать
+        # поток пула anyio (их 40) занятым, прежде чем сдаться, вместо
+        # блокирующего lock.acquire() без предела. Привязано к
+        # db_heavy_statement_timeout_ms — Postgres сам отменит зависший
+        # тяжёлый запрос за это время (QueryCanceled) — плюс запас на
+        # сериализацию/сеть. Не гарантия для compute(), делающего несколько
+        # тяжёлых запросов подряд (см. city.py::_summary_data — 4 штуки): это
+        # практический потолок, а не точная оценка худшего случая — держать
+        # поток дольше одного тайм-аута тяжёлого запроса бессмысленно, база
+        # уже нездорова и остальным ожидающим лучше получить 503 сейчас.
+        self._lock_timeout = (
+            lock_timeout_sec
+            if lock_timeout_sec is not None
+            else settings.db_heavy_statement_timeout_ms / 1000 + 2
+        )
 
     def _lock_for(self, key: str) -> threading.Lock:
         with self._guard:
@@ -78,7 +100,22 @@ class ReadCache:
             if not lock.acquire(blocking=False):
                 return entry.value
         else:
-            lock.acquire()
+            # Холодный ключ (entry is None) или очень старое значение — ждём
+            # с пределом, а не вечно. Не достали лок за _lock_timeout: если
+            # есть хоть какое-то (пусть и совсем старое) значение — отдать
+            # его лучше, чем ждать дальше; для по-настоящему холодного ключа
+            # отдавать нечего — поднимаем sa_exc.TimeoutError, тот же тип,
+            # что и таймаут пула (app/db.py), так что она попадает в уже
+            # существующий обработчик db_pool_exhausted (app/main.py) и
+            # уходит клиенту как 503 с Retry-After — без нового формата
+            # ошибки.
+            if not lock.acquire(timeout=self._lock_timeout):
+                if entry is not None:
+                    return entry.value
+                raise sa_exc.TimeoutError(
+                    f"read cache: timed out after {self._lock_timeout:.1f}s waiting "
+                    f"for cold key {key!r} to compute"
+                )
         try:
             entry = self._entries.get(key)
             if entry is not None and self._clock() < entry.expires_at:

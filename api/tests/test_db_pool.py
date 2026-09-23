@@ -354,6 +354,54 @@ def test_too_old_value_is_not_served_stale():
     assert cache.get_or_compute("k", lambda: "fresh") == "fresh"
 
 
+def test_cold_key_lock_timeout_raises_pool_timeout_error():
+    """Холодный ключ (отдавать нечего), лок занят дольше lock_timeout_sec —
+    поднимается sa_exc.TimeoutError: тот же тип, что и таймаут пула
+    (app/db.py), поэтому она попадает в уже существующий обработчик 503
+    (app/main.py::db_pool_exhausted) без нового формата ошибки, а не держит
+    поток anyio (их 40) заблокированным на неопределённый срок."""
+    cache = ReadCache(60, lock_timeout_sec=0.05)
+    started, release = threading.Event(), threading.Event()
+
+    def slow_first():
+        started.set()
+        release.wait(2)
+        return "v1"
+
+    holder = threading.Thread(target=lambda: cache.get_or_compute("k", slow_first))
+    holder.start()
+    assert started.wait(2)
+    with pytest.raises(sa_exc.TimeoutError):
+        cache.get_or_compute("k", _never("не должно вызываться — лок занят"))
+    release.set()
+    holder.join(5)
+
+
+def test_very_stale_value_is_served_when_lock_times_out():
+    """Значение старше TTL*2 есть, но лок занят дольше lock_timeout_sec —
+    отдаём то, что есть, вместо того чтобы ждать или поднимать ошибку:
+    устаревшая цифра на экране лучше, чем 503 при живом (хоть и медленном)
+    пересчёте у кого-то другого."""
+    clock = _Clock()
+    cache = ReadCache(60, clock=clock, lock_timeout_sec=0.05)
+    cache.get_or_compute("k", lambda: "ancient")
+    clock.now += 121  # дольше TTL + ещё одного TTL — холодная ветка
+
+    started, release = threading.Event(), threading.Event()
+
+    def slow_refresh():
+        started.set()
+        release.wait(2)
+        return "fresh"
+
+    refresher = threading.Thread(target=lambda: cache.get_or_compute("k", slow_refresh))
+    refresher.start()
+    assert started.wait(2)
+    assert cache.get_or_compute("k", _never("не должно вызываться — лок занят")) == "ancient"
+    release.set()
+    refresher.join(5)
+
+
 def test_invalidate_drops_value_and_discards_result_computed_before_it():
     cache = ReadCache(60)
     cache.get_or_compute("city:summary", lambda: "v1")
