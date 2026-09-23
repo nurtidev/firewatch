@@ -17,7 +17,7 @@
  * в хук специально для страниц вроде этой (см. lib/useRoleGuard.ts).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Role } from "@/lib/auth";
 import PrintToolbar from "@/components/report/PrintToolbar";
 import Watermark from "@/components/report/Watermark";
@@ -25,6 +25,7 @@ import { Skeleton, Banner, Button } from "@/components/ui";
 import {
   getCitySummary,
   getCityPriorities,
+  isAbortError,
   isCityRouterMissing,
   isCityForbidden,
   districtName,
@@ -34,7 +35,7 @@ import {
 } from "@/lib/city";
 import CoverageSourceNote from "@/components/CoverageSourceNote";
 import { scoreBand } from "@/lib/risk";
-import { useT, useLocale, intlLocale, type Locale } from "@/lib/i18n";
+import { FW_TIME_ZONE, useT, useLocale, intlLocale, type Locale } from "@/lib/i18n";
 import { useRoleGuard } from "@/lib/useRoleGuard";
 
 // Module-level constant, not an inline array literal — useRoleGuard's effect
@@ -52,14 +53,20 @@ export default function CityReportPage() {
   const [priorities, setPriorities] = useState<CityPriorities | null>(null);
   const [error, setError] = useState<LoadError>(null);
 
+  const abortRef = useRef<AbortController | null>(null);
+
   const load = useCallback(() => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setError(null);
-    Promise.all([getCitySummary(), getCityPriorities(5)])
+    Promise.all([getCitySummary(controller.signal), getCityPriorities(5, controller.signal)])
       .then(([s, p]) => {
         setSummary(s);
         setPriorities(p);
       })
       .catch((e) => {
+        if (isAbortError(e)) return;
         setSummary(null);
         setPriorities(null);
         setError(isCityRouterMissing(e) ? "missing" : isCityForbidden(e) ? "forbidden" : "error");
@@ -68,6 +75,7 @@ export default function CityReportPage() {
 
   useEffect(() => {
     if (ready && allowed) load();
+    return () => abortRef.current?.abort();
   }, [ready, allowed, load]);
 
   // Before the role is known, or while a disallowed role is being bounced by
@@ -132,12 +140,15 @@ function Report({
   locale: Locale;
   t: (s: string) => string;
 }) {
+  // FW_TIME_ZONE: the printed date is a function of the timestamp, not of the
+  // device's clock settings (and can't differ between server and browser).
   const dateStr = new Date(summary.computed_at).toLocaleString(intlLocale(locale), {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: FW_TIME_ZONE,
   });
   const n = (v: number) => v.toLocaleString(intlLocale(locale));
 

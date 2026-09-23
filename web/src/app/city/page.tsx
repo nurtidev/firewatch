@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Building2,
@@ -18,12 +18,14 @@ import DemoBanner from "@/components/DemoBanner";
 import CoverageSourceNote from "@/components/CoverageSourceNote";
 import {
   getCitySummary,
+  isAbortError,
   isCityRouterMissing,
   isCityForbidden,
   districtName,
   type CitySummary,
   type CityDistrictSummary,
 } from "@/lib/city";
+import { useNow } from "@/lib/dispatch";
 import {
   scoreSeverity,
   scoreBand,
@@ -32,7 +34,7 @@ import {
   HIGH_MIN_SCORE,
   ELEVATED_MIN_SCORE,
 } from "@/lib/risk";
-import { intlLocale, useLocale, useT, type Locale } from "@/lib/i18n";
+import { FW_TIME_ZONE, fwDateKey, intlLocale, useLocale, useT, type Locale } from "@/lib/i18n";
 import {
   PageHeader,
   Card,
@@ -47,16 +49,24 @@ import {
   LiveIndicator,
 } from "@/components/ui";
 
-function formatComputedAt(iso: string, locale: Locale): string {
+/** "14:32" today, "15.09, 14:32" otherwise — in FW_TIME_ZONE, never the
+ *  runtime's own zone, and against a `now` from useNow() instead of reading
+ *  the clock during render (the #418 hazards named in lib/i18n.tsx). */
+function formatComputedAt(iso: string, locale: Locale, now: number): string {
   const d = new Date(iso);
-  const sameDay = d.toDateString() === new Date().toDateString();
+  const sameDay = fwDateKey(d) === fwDateKey(new Date(now));
   return sameDay
-    ? d.toLocaleTimeString(intlLocale(locale), { hour: "2-digit", minute: "2-digit" })
+    ? d.toLocaleTimeString(intlLocale(locale), {
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: FW_TIME_ZONE,
+      })
     : d.toLocaleString(intlLocale(locale), {
         day: "2-digit",
         month: "2-digit",
         hour: "2-digit",
         minute: "2-digit",
+        timeZone: FW_TIME_ZONE,
       });
 }
 
@@ -77,12 +87,20 @@ export default function CityOverviewPage() {
   const { locale } = useLocale();
   const [summary, setSummary] = useState<CitySummary | null>(null);
   const [error, setError] = useState<"missing" | "forbidden" | "error" | null>(null);
+  const now = useNow(60_000);
+  // The in-flight summary request: a repeated «Обновить» or leaving the page
+  // cancels it instead of leaving a heavy request nobody will read.
+  const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(() => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setError(null);
-    getCitySummary()
+    getCitySummary(controller.signal)
       .then(setSummary)
       .catch((e) => {
+        if (isAbortError(e)) return;
         setSummary(null);
         setError(isCityRouterMissing(e) ? "missing" : isCityForbidden(e) ? "forbidden" : "error");
       });
@@ -90,6 +108,7 @@ export default function CityOverviewPage() {
 
   useEffect(() => {
     load();
+    return () => abortRef.current?.abort();
   }, [load]);
 
   const loading = !summary && !error;
@@ -102,9 +121,9 @@ export default function CityOverviewPage() {
           subtitle={t("Пожарная уязвимость Астаны по районам — оценка на основе данных ДЧС")}
           actions={
             <>
-              {summary && (
+              {summary && now != null && (
                 <LiveIndicator
-                  updated={formatComputedAt(summary.computed_at, locale)}
+                  updated={formatComputedAt(summary.computed_at, locale, now)}
                   className="hidden sm:inline-flex"
                 />
               )}

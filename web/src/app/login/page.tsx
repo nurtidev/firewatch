@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ShieldCheck, Loader2 } from "lucide-react";
 import { useAuth, type Role } from "@/lib/auth";
@@ -70,6 +70,15 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // До гидратации у формы ещё нет onSubmit: «Войти» (или Enter) отправил бы её
+  // нативным GET на `/login?` — вторая навигация поверх гидрации (React #418
+  // в смоук-тесте /city, 68% случаев) и потерянный ввод на медленной сети.
+  // Кнопки становятся активными только после гидратации; при неактивной
+  // кнопке отправки браузер не отправляет форму и по Enter. Первый рендер на
+  // сервере и в браузере одинаков (false), true ставит эффект.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+  const locked = busy || !hydrated;
 
   async function submit(u: string, p: string) {
     setBusy(true);
@@ -146,7 +155,7 @@ export default function LoginPage() {
             </p>
           )}
 
-          <Button type="submit" disabled={busy} className="w-full">
+          <Button type="submit" disabled={locked} className="w-full">
             {busy ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" /> {t("Вход…")}

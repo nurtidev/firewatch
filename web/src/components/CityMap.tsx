@@ -41,9 +41,9 @@ const DISTRICT_FILL: maplibregl.ExpressionSpecification = [
   SEVERITY.critical.hex,
 ];
 
-async function geojson<T = GeoJSON.FeatureCollection>(path: string): Promise<T> {
+async function geojson<T = GeoJSON.FeatureCollection>(path: string, signal?: AbortSignal): Promise<T> {
   try {
-    const r = await apiFetch(path);
+    const r = await apiFetch(path, { signal });
     return r.ok ? await r.json() : ({ type: "FeatureCollection", features: [] } as unknown as T);
   } catch {
     return { type: "FeatureCollection", features: [] } as unknown as T;
@@ -51,6 +51,17 @@ async function geojson<T = GeoJSON.FeatureCollection>(path: string): Promise<T> 
 }
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+
+/** Server-side cap of `GET /buildings` (LIMIT in api/app/routers/buildings.py):
+ *  a response this long may be truncated, so its bbox can't be trusted to
+ *  contain every building of a smaller view. */
+const BUILDINGS_LIMIT = 8000;
+/** One `/buildings?bbox` per settled camera, not one per `moveend` of a pan or
+ *  a scroll-zoom — each is a heavy query, and a cancelled fetch doesn't cancel
+ *  the query already running on the server. */
+const MOVEEND_DEBOUNCE_MS = 350;
+
+type LoadedBBox = { w: number; s: number; e: number; n: number; complete: boolean };
 
 /** Extends a LngLatBounds over every coordinate pair in a Polygon/MultiPolygon
  *  geometry — used to fit the map to one district's outline. No turf
@@ -123,6 +134,10 @@ export default function CityMap({
   const mapRef = useRef<maplibregl.Map | null>(null);
   const districtsRef = useRef<GeoJSON.FeatureCollection | null>(null);
   const buildingsAbortRef = useRef<AbortController | null>(null);
+  // Bbox of the buildings currently on the map, and whether that response was
+  // complete (under BUILDINGS_LIMIT) — a view inside it needs no new request.
+  const loadedBBoxRef = useRef<LoadedBBox | null>(null);
+  const moveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // True once the map has fired "load" at least once. `map.once("load", …)`
   // only ever fires ONE time in a Map's lifetime — code that re-subscribes to
   // it after the map has already loaded (e.g. a `focus` effect re-running)
@@ -138,18 +153,34 @@ export default function CityMap({
 
   async function loadBuildings(map: maplibregl.Map) {
     const b = map.getBounds();
-    const bbox = `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`;
-    // A fast pan/zoom fires `moveend` repeatedly; cancel whatever the
-    // previous call was still waiting on so an old, larger bbox response
-    // can't land after a newer one and paint stale buildings.
+    const view = { w: b.getWest(), s: b.getSouth(), e: b.getEast(), n: b.getNorth() };
+    // Zooming in or panning inside an area already loaded in full: every
+    // building of this view is already on the map (the API filters by bbox
+    // intersection, so a sub-view's buildings are a subset). No request.
+    const loaded = loadedBBoxRef.current;
+    if (
+      loaded?.complete &&
+      view.w >= loaded.w &&
+      view.s >= loaded.s &&
+      view.e <= loaded.e &&
+      view.n <= loaded.n
+    ) {
+      return;
+    }
+    // A newer camera supersedes the previous request: cancel it so an old,
+    // larger bbox response can't land after a newer one and paint stale
+    // buildings.
     buildingsAbortRef.current?.abort();
     const controller = new AbortController();
     buildingsAbortRef.current = controller;
+    const bbox = `${view.w},${view.s},${view.e},${view.n}`;
     try {
       const res = await apiFetch(`/buildings?bbox=${bbox}`, { signal: controller.signal });
       if (!res.ok) return;
-      const gj = await res.json();
+      const gj: GeoJSON.FeatureCollection = await res.json();
+      if (controller.signal.aborted) return;
       (map.getSource("buildings") as maplibregl.GeoJSONSource | undefined)?.setData(gj);
+      loadedBBoxRef.current = { ...view, complete: gj.features.length < BUILDINGS_LIMIT };
     } catch {
       /* aborted, or a network hiccup — leave the layer as-is */
     }
@@ -158,6 +189,9 @@ export default function CityMap({
   // ── Mount: build the map once ────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current) return;
+    // Cancels this map's own data fetches on unmount (page left, retry
+    // remount): heavy /city and /infra responses nobody will draw.
+    const lifecycle = new AbortController();
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: OSM_STYLE,
@@ -344,7 +378,10 @@ export default function CityMap({
       applyLayerVisibility(map, layersRef.current);
 
       void loadBuildings(map);
-      map.on("moveend", () => void loadBuildings(map));
+      map.on("moveend", () => {
+        if (moveTimerRef.current) clearTimeout(moveTimerRef.current);
+        moveTimerRef.current = setTimeout(() => void loadBuildings(map), MOVEEND_DEBOUNCE_MS);
+      });
 
       // ── Building click → compact read-only panel ─────────────────────────
       map.on("click", "buildings-fill", (e) => {
@@ -367,17 +404,20 @@ export default function CityMap({
       onPrioritiesStatus?.("loading");
 
       const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)));
+      const { signal } = lifecycle;
       const infraP = Promise.all([
-        geojson("/infra/coverage"),
-        geojson("/infra/blind-zones"),
-        geojson("/infra/hydrants"),
-        geojson("/infra/stations"),
+        geojson("/infra/coverage", signal),
+        geojson("/infra/blind-zones", signal),
+        geojson("/infra/hydrants", signal),
+        geojson("/infra/stations", signal),
       ]);
-      const districtsP = getCityDistrictsGeoJSON().catch(toError);
-      const prioritiesP = getCityPriorities(20).catch(toError);
+      const districtsP = getCityDistrictsGeoJSON(signal).catch(toError);
+      const prioritiesP = getCityPriorities(20, signal).catch(toError);
 
       const [[coverage, blind, hydrants, stations], districtsResult, prioritiesResult] =
         await Promise.all([infraP, districtsP, prioritiesP]);
+      // Unmounted while waiting: the map is gone, nothing to draw or report.
+      if (signal.aborted) return;
 
       (map.getSource("coverage") as maplibregl.GeoJSONSource).setData(coverage);
       (map.getSource("blind") as maplibregl.GeoJSONSource).setData(blind);
@@ -434,6 +474,9 @@ export default function CityMap({
     });
 
     return () => {
+      lifecycle.abort();
+      buildingsAbortRef.current?.abort();
+      if (moveTimerRef.current) clearTimeout(moveTimerRef.current);
       map.remove();
       mapRef.current = null;
     };

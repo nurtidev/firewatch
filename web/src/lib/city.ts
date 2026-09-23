@@ -31,8 +31,8 @@ export class CityApiError extends Error {
   }
 }
 
-async function cityFetch<T>(path: string): Promise<T> {
-  const res = await apiFetch(path);
+async function cityFetch<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const res = await apiFetch(path, { signal });
   if (!res.ok) {
     let detail: string | undefined;
     try {
@@ -61,6 +61,14 @@ export function isCityRouterMissing(err: unknown): boolean {
  *  lib/useRoleGuard.ts. */
 export function isCityForbidden(err: unknown): boolean {
   return err instanceof CityApiError && err.status === 403;
+}
+
+/** True when the fetch was cancelled by our own AbortController (page left,
+ *  «Обновить» pressed again) — not an error to show. Cancelling matters: the
+ *  city aggregates are heavy, and a request nobody will read still holds an
+ *  API worker and a DB connection until it finishes. */
+export function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === "AbortError";
 }
 
 /* ── Coverage source (how the "zone d'arrivée" / arrival zone was computed) ──
@@ -181,8 +189,8 @@ export type CitySummary = {
   stations_missing_isochrones?: number;
 };
 
-export function getCitySummary(): Promise<CitySummary> {
-  return cityFetch<CitySummary>("/city/summary");
+export function getCitySummary(signal?: AbortSignal): Promise<CitySummary> {
+  return cityFetch<CitySummary>("/city/summary", signal);
 }
 
 /* ── /city/districts.geojson ─────────────────────────────────────────────── */
@@ -201,8 +209,8 @@ export type CityDistrictsGeoJSON = GeoJSON.FeatureCollection<
   CityDistrictProperties
 >;
 
-export function getCityDistrictsGeoJSON(): Promise<CityDistrictsGeoJSON> {
-  return cityFetch<CityDistrictsGeoJSON>("/city/districts.geojson");
+export function getCityDistrictsGeoJSON(signal?: AbortSignal): Promise<CityDistrictsGeoJSON> {
+  return cityFetch<CityDistrictsGeoJSON>("/city/districts.geojson", signal);
 }
 
 /* ── /city/priorities ────────────────────────────────────────────────────── */
@@ -248,9 +256,9 @@ export type CityPriorities = {
   stations_missing_isochrones?: number;
 };
 
-export function getCityPriorities(limit = 10): Promise<CityPriorities> {
+export function getCityPriorities(limit = 10, signal?: AbortSignal): Promise<CityPriorities> {
   const n = Math.min(50, Math.max(1, Math.round(limit)));
-  return cityFetch<CityPriorities>(`/city/priorities?limit=${n}`);
+  return cityFetch<CityPriorities>(`/city/priorities?limit=${n}`, signal);
 }
 
 /* ── Localized district name ─────────────────────────────────────────────── */

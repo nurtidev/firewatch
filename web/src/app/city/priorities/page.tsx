@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Droplets,
   Flame,
@@ -16,6 +16,7 @@ import CoverageSourceNote from "@/components/CoverageSourceNote";
 import {
   getCityPriorities,
   getCitySummary,
+  isAbortError,
   isCityRouterMissing,
   isCityForbidden,
   localizedDistrictName,
@@ -49,21 +50,30 @@ export default function CityPrioritiesPage() {
   // never blocks the page — the Russian name is still a correct fallback.
   const [districts, setDistricts] = useState<CityDistrictSummary[] | null>(null);
 
+  // In-flight requests of the last load(): cancelled by a repeated «Обновить»
+  // or by leaving the page, instead of finishing heavy work nobody reads.
+  const abortRef = useRef<AbortController | null>(null);
+
   const load = useCallback(() => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setError(null);
-    getCityPriorities(15)
+    getCityPriorities(15, controller.signal)
       .then(setData)
       .catch((e) => {
+        if (isAbortError(e)) return;
         setData(null);
         setError(isCityRouterMissing(e) ? "missing" : isCityForbidden(e) ? "forbidden" : "error");
       });
-    getCitySummary()
+    getCitySummary(controller.signal)
       .then((s) => setDistricts(s.districts))
       .catch(() => {});
   }, []);
 
   useEffect(() => {
     load();
+    return () => abortRef.current?.abort();
   }, [load]);
 
   const loading = !data && !error;
