@@ -30,7 +30,11 @@ os.environ.setdefault("UPLOADS_DIR", tempfile.mkdtemp(prefix="fw-uploads-test-")
 
 # Кэш тяжёлых агрегатов (app/cache.py) в тестах выключен: DB-тесты меняют данные
 # между запросами и сверяют ответы сразу. Сам кэш покрыт tests/test_db_pool.py.
-os.environ.setdefault("FW_READ_CACHE_TTL_SEC", "0")
+# Жёсткое присваивание, а не setdefault: FW_READ_CACHE_TTL_SEC документирована в
+# .env.example и может уже стоять в окружении (например, скопирован .env для
+# локального docker compose) — setdefault оставил бы кэш включённым и тесты
+# начали бы флакать на пропущенном пересчёте между запросами.
+os.environ["FW_READ_CACHE_TTL_SEC"] = "0"
 
 
 def _db_name(url: str) -> str:
