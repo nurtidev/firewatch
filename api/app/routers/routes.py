@@ -91,7 +91,7 @@ CHECKLIST = [
 
 @router.get("/inspectors")
 def list_inspectors(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(FIELD_ROLES),
 ) -> list[dict]:
     """Реестр инспекторов в границах видимости роли.
@@ -211,7 +211,7 @@ def _visit_status(db: Session, inspector_id: int, building_ids: list[int]) -> di
 def route_today(
     inspector_id: int | None = None,
     size: int = 6,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(FIELD_ROLES),
 ) -> dict:
     # `inspector_id` приходит от клиента и потому не является подтверждением
@@ -338,7 +338,7 @@ def get_visit_photo(
 def record_visit(
     body: VisitRequest,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(FIELD_ROLES),
 ) -> dict:
     import json
@@ -439,7 +439,7 @@ def record_visit(
 @router.get("/routes/progress")
 def progress(
     size: int = 6,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(OVERSIGHT_ROLES),
 ) -> list[dict]:
     """Live execution status across all inspectors (supervisor view)."""

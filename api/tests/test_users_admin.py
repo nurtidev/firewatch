@@ -155,6 +155,9 @@ def test_current_user_rejects_disabled_account():
         def execute(self, *_args, **_kwargs):
             return _Result()
 
+        def rollback(self):
+            """current_user возвращает соединение в пул сразу после проверки."""
+
     class _Req:
         query_params: dict = {}
 

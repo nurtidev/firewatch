@@ -8,7 +8,7 @@ from app.access import (
     has_citywide_data_access,
 )
 from app.audit import audit, client_ip
-from app.db import get_db
+from app.db import end_read, get_db, heavy_read
 from app.routers.auth import current_user
 # Нормализация адреса (казахская диакритика → базовая кириллица, опечатка в
 # номере дома, экранирование LIKE) — тот же механизм, что у пульта ЦОУ. Один
@@ -49,7 +49,7 @@ def list_buildings(
     type: str | None = None,
     district: str | None = None,
     risk: str | None = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(current_user),
 ) -> dict:
     """Buildings (footprint polygons) with risk scores as a FeatureCollection.
@@ -63,6 +63,8 @@ def list_buildings(
     ).scalar()
     if not has_table:
         return {"type": "FeatureCollection", "features": []}
+    # До 8000 контуров на весь город: без JIT и с потолком времени (app/db.py).
+    heavy_read(db)
 
     clauses: list[str] = []
     params: dict = {}
@@ -110,7 +112,10 @@ def list_buildings(
             """
         ),
         params,
-    ).mappings()
+    ).mappings().all()
+    # Строки уже в памяти: соединение — назад в пул до сборки тысяч Feature в
+    # Python (это самая частая тяжёлая ручка карты — каждый сдвиг кадра).
+    end_read(db)
 
     import json
 
@@ -134,7 +139,7 @@ def list_buildings(
 @router.get("/search")
 def search_buildings(
     q: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(current_user),
 ) -> list[dict]:
     """Поиск объекта по адресу — вне пульта ЦОУ (карта, дашборд и т.п.).
@@ -210,7 +215,7 @@ def search_buildings(
 
 @router.get("/freshness")
 def risk_freshness(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     _user: dict = Depends(current_user),
 ) -> dict:
     """Реальная метка свежести риск-модели — для честного бейджа «LIVE».
@@ -230,7 +235,7 @@ def risk_freshness(
 def building_detail(
     building_id: int,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(current_user),
 ) -> dict:
     """Full operational card for one building: attributes, risk, SHAP factors.

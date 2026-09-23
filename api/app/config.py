@@ -114,6 +114,43 @@ class Settings(BaseSettings):
         1.0, validation_alias=AliasChoices("FW_ROUTING_TIME_FACTOR", "ROUTING_TIME_FACTOR")
     )
 
+    # --- Соединения с Postgres (app/db.py) ------------------------------------
+    # Один процесс uvicorn держит не больше db_pool_size + db_max_overflow
+    # соединений запросов и db_audit_pool_max соединений аудита. Сумма по всем
+    # процессам (api × воркеры, ml, cron, preDeploy-сиды, ручной psql) обязана
+    # помещаться в `SHOW max_connections` базы с запасом — у стандартного образа
+    # Postgres, в том числе на Railway, это 100.
+    db_pool_size: int = Field(5, validation_alias=AliasChoices("FW_DB_POOL_SIZE", "DB_POOL_SIZE"))
+    db_max_overflow: int = Field(
+        10, validation_alias=AliasChoices("FW_DB_MAX_OVERFLOW", "DB_MAX_OVERFLOW")
+    )
+    # Сколько запрос ждёт свободное соединение, прежде чем получить 503. Раньше
+    # действовали 30 с по умолчанию SQLAlchemy: при занятом пуле вход «висел»
+    # полминуты, а не отвечал «перегрузка, повторите».
+    db_pool_timeout_sec: float = Field(
+        10.0, validation_alias=AliasChoices("FW_DB_POOL_TIMEOUT_SEC", "DB_POOL_TIMEOUT_SEC")
+    )
+    db_pool_recycle_sec: int = Field(
+        1800, validation_alias=AliasChoices("FW_DB_POOL_RECYCLE_SEC", "DB_POOL_RECYCLE_SEC")
+    )
+    db_audit_pool_max: int = Field(
+        3, validation_alias=AliasChoices("FW_DB_AUDIT_POOL_MAX", "DB_AUDIT_POOL_MAX")
+    )
+    # Потолок одного тяжёлого запроса чтения (/city/*, зоны прибытия и слепые
+    # зоны, реестр зданий по bbox): медленная база должна отвечать ошибкой, а не
+    # копить запросы, пока не займут весь пул.
+    db_heavy_statement_timeout_ms: int = Field(
+        15000,
+        validation_alias=AliasChoices(
+            "FW_DB_HEAVY_STATEMENT_TIMEOUT_MS", "DB_HEAVY_STATEMENT_TIMEOUT_MS"
+        ),
+    )
+    # Кэш тяжёлых агрегатов чтения в памяти процесса (app/cache.py), секунды.
+    # 0 — выключен (так в тестах: там данные меняются между запросами).
+    read_cache_ttl_sec: float = Field(
+        60.0, validation_alias=AliasChoices("FW_READ_CACHE_TTL_SEC", "READ_CACHE_TTL_SEC")
+    )
+
     @property
     def is_production(self) -> bool:
         return self.env.strip().lower() in {"production", "prod"}

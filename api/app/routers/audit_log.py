@@ -19,7 +19,7 @@ router = APIRouter(prefix="/audit", tags=["audit"], dependencies=[Depends(curren
 
 @router.get("")
 def list_events(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(current_user),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),

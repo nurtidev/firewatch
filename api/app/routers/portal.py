@@ -104,7 +104,7 @@ def _remediation_obj(row: dict) -> dict | None:
 
 @router.get("/summary")
 def summary(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(OWNER_ONLY),
 ) -> dict:
     """Owner dashboard: their buildings (with latest risk score) and two counts."""
@@ -192,7 +192,7 @@ def summary(
 
 @router.get("/prescriptions")
 def list_prescriptions(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(OWNER_ONLY),
 ) -> list[dict]:
     """Approved prescriptions across the owner's buildings, each with its latest
@@ -273,7 +273,7 @@ def submit_remediation(
     prescription_id: int,
     body: RemediationCreate,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(OWNER_ONLY),
 ) -> dict:
     """Owner claims a prescription has been remedied (note + optional photos)."""

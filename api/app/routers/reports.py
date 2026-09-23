@@ -131,7 +131,7 @@ class ReportStatusUpdate(BaseModel):
 def create_report(
     body: ReportCreate,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(FIELD_ROLES),
 ) -> dict:
     """Record an obstacle to firefighting access found outside a planned visit."""
@@ -269,7 +269,7 @@ def list_reports(
     status: str | None = None,
     category: str | None = None,
     building_id: int | None = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(READ_ROLES),
 ) -> list[dict]:
     clauses, params = _list_filters(status, category, user, "fr", building_id)
@@ -337,7 +337,7 @@ def list_reports(
 def reports_geojson(
     status: str | None = None,
     category: str | None = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(READ_ROLES),
 ) -> dict:
     """Point layer of field reports for the map (id/category/status only)."""
@@ -371,7 +371,7 @@ def update_report_status(
     report_id: int,
     body: ReportStatusUpdate,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(REVIEW_ROLES),
 ) -> dict:
     """Triage a report: move it into in_progress / resolved / dismissed.

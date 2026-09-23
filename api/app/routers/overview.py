@@ -32,7 +32,7 @@ _RISK_BANDS_DISPLAY = [
 
 @router.get("/overview")
 def overview(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(require_roles("supervisor", "leadership", "admin")),
 ) -> dict:
     """Headline counts for the dashboard.

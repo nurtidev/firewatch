@@ -120,7 +120,7 @@ def _save(data: bytes, media_type: str) -> tuple[str, Path]:
 @router.post("")
 async def upload_card(
     file: UploadFile,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(CARD_WRITE),
 ) -> dict:
     if file.content_type not in ALLOWED:
@@ -191,7 +191,7 @@ async def upload_card(
 
 @router.get("")
 def list_cards(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(CARD_READ),
 ) -> list[dict]:
     params: dict = {}
@@ -223,7 +223,7 @@ def list_cards(
 def get_card(
     card_id: int,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(CARD_READ),
 ) -> dict:
     detail = _card_detail(card_id, db, user)
@@ -337,7 +337,7 @@ def _card_detail(card_id: int, db: Session, user: dict) -> dict:
 def get_card_file(
     card_id: int,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(CARD_READ),
 ) -> FileResponse:
     params: dict = {"id": card_id}
@@ -371,7 +371,7 @@ def get_card_file(
 def delete_card(
     card_id: int,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(CARD_WRITE),
 ) -> dict:
     params: dict = {"id": card_id}
@@ -531,7 +531,7 @@ def patch_card(
     card_id: int,
     body: CardPatch,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(CARD_WRITE),
 ) -> dict:
     """Отредактировать поля карточки, записав предыдущее состояние в историю."""
@@ -601,7 +601,7 @@ def patch_card(
 @router.get("/{card_id}/revisions")
 def list_revisions(
     card_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(CARD_READ),
 ) -> list[dict]:
     """История правок карточки, новые сверху."""
@@ -630,7 +630,7 @@ def restore_revision(
     card_id: int,
     revision_id: int,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(CARD_WRITE),
 ) -> dict:
     """Откатить карточку к состоянию ревизии.
@@ -687,7 +687,7 @@ def review_card(
     card_id: int,
     body: CardReview,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(CARD_WRITE),
 ) -> dict:
     """Движение карточки по согласованию: submit → approve / reject.
@@ -741,7 +741,7 @@ def review_prescription(
     prescription_id: int,
     body: PrescriptionReview,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(CARD_WRITE),
 ) -> dict:
     """Confirm or reject an AI-generated prescription before it is acted on.
@@ -793,7 +793,7 @@ def review_remediation(
     remediation_id: int,
     body: RemediationReview,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(CARD_WRITE),
 ) -> dict:
     """Accept or decline an owner's remediation claim.

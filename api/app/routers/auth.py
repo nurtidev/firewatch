@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.access import has_full_access
 from app.audit import audit, client_ip
 from app.auth import create_token, decode_token, hash_password, verify_password
-from app.db import get_db
+from app.db import end_read, get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -135,7 +135,7 @@ class UserCreate(BaseModel):
 def current_user(
     request: Request,
     authorization: str | None = Header(default=None),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict:
     """Decode the Bearer token; raise 401 if missing/invalid/revoked.
 
@@ -174,6 +174,10 @@ def current_user(
         ),
         {"u": payload["sub"]},
     ).mappings().first()
+    # Соединение — назад в пул сразу после проверки: иначе оно простаивает
+    # «idle in transaction» весь запрос, включая ответ из кэша и ожидание
+    # чужого расчёта (app/db.py, app/cache.py). Обработчик возьмёт новое.
+    end_read(db)
     if row is None:
         raise HTTPException(401, "Недействительный токен")
     if not row["is_active"]:
@@ -211,7 +215,7 @@ def require_roles(*roles: str):
 
 
 @router.post("/login")
-def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)) -> dict:
+def login(body: LoginRequest, request: Request, db: Session = Depends(get_db, scope="function")) -> dict:
     ip = client_ip(request)
     row = db.execute(
         text(
@@ -220,6 +224,8 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)) -
         ),
         {"u": body.username},
     ).mappings().first()
+    # bcrypt — сотни миллисекунд CPU: не держать на это время соединение.
+    end_read(db)
     if row is None or not verify_password(body.password, row["password_hash"]):
         audit(
             action="login.failed", username=body.username, role=None,
@@ -270,7 +276,7 @@ def _station_of(db: Session, username: str) -> dict | None:
 
 
 @router.get("/me")
-def me(user: dict = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+def me(user: dict = Depends(current_user), db: Session = Depends(get_db, scope="function")) -> dict:
     # Часть нужна фронту, чтобы показывать действия только там, где сервер их
     # разрешит: начальник караула ведёт технику своей части, а видит — всего
     # города (ему нужно знать, откуда идёт подкрепление).
@@ -280,7 +286,7 @@ def me(user: dict = Depends(current_user), db: Session = Depends(get_db)) -> dic
 @router.get("/users")
 def list_users(
     user: dict = Depends(require_roles("admin")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict:
     """Реестр учётных записей для экрана администрирования (только admin).
 
@@ -358,7 +364,7 @@ def create_user(
     body: UserCreate,
     request: Request,
     user: dict = Depends(require_roles("admin")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict:
     """Завести учётную запись (только admin).
 
@@ -467,7 +473,7 @@ def disable_user(
     username: str,
     request: Request,
     user: dict = Depends(require_roles("admin")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict:
     """Отключить учётную запись — настоящее закрытие доступа (только admin).
 
@@ -521,7 +527,7 @@ def enable_user(
     username: str,
     request: Request,
     user: dict = Depends(require_roles("admin")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict:
     """Включить ранее отключённую учётную запись (только admin).
 
@@ -557,7 +563,7 @@ def reset_password(
     body: PasswordReset,
     request: Request,
     user: dict = Depends(require_roles("admin")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict:
     """Сбросить пароль пользователя (только admin).
 
@@ -593,7 +599,7 @@ def update_user_station(
     body: StationUpdate,
     request: Request,
     user: dict = Depends(require_roles("admin")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict:
     """Привязать/перепривязать/снять часть начальника караула (только admin).
 
@@ -653,7 +659,7 @@ def revoke_sessions(
     body: RevokeRequest,
     request: Request,
     user: dict = Depends(current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict:
     """Принудительно завершить все сессии пользователя.
 
@@ -682,7 +688,7 @@ def revoke_sessions(
 def logout(
     request: Request,
     user: dict = Depends(current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict:
     """Завершить все собственные сессии вызывающего (logout на всех устройствах)."""
     _revoke_sessions(db, user["username"])

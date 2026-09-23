@@ -10,7 +10,7 @@ router = APIRouter(tags=["health"])
 
 
 @router.get("/health")
-def health(db: Session = Depends(get_db)) -> dict:
+def health(db: Session = Depends(get_db, scope="function")) -> dict:
     """Liveness + DB/PostGIS reachability + ML degraded-status.
 
     DB failure flips status to "error" (api can't serve). The ML service is a

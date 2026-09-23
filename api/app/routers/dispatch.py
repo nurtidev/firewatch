@@ -581,7 +581,7 @@ def _build_pack(db: Session, callout_id: int) -> dict:
 @router.get("/search")
 def search_buildings(
     q: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     _user: dict = Depends(DISPATCH_ROLES),
 ) -> list[dict]:
     """Token search over building addresses (for picking a callout object).
@@ -691,7 +691,7 @@ def _resolve_station(db: Session, station_id: int | None, lng: float, lat: float
 def create_callout(
     body: CalloutCreate,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(DISPATCH_ROLES),
 ) -> dict:
     """Register a callout and return it together with its боевой пакет."""
@@ -751,7 +751,7 @@ def create_callout(
 @router.get("")
 def list_callouts(
     status: str = "active",
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     _user: dict = Depends(VIEW_ROLES),
 ) -> list[dict]:
     """Callouts, newest first. `status`: active (default) | closed | all."""
@@ -844,7 +844,7 @@ def _archive_dict(r: dict) -> dict:
 
 @router.get("/archive")
 def list_callouts_archive(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     _user: dict = Depends(VIEW_ROLES),
     status: str = "closed",
     station_id: int | None = None,
@@ -919,7 +919,7 @@ def list_callouts_archive(
 @router.get("/{callout_id}/pack")
 def callout_pack(
     callout_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     _user: dict = Depends(VIEW_ROLES),
 ) -> dict:
     """Боевой пакет for a callout — everything the караул needs on arrival."""
@@ -931,7 +931,7 @@ def update_callout(
     callout_id: int,
     body: CalloutPatch,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(DISPATCH_ROLES),
 ) -> dict:
     """Переназначить действующий выезд на другой объект и/или другую часть.
@@ -1015,7 +1015,7 @@ def close_callout(
     callout_id: int,
     body: CalloutClose,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(DISPATCH_ROLES),
 ) -> dict:
     """Close an active callout (404 if unknown, 409 if already closed)."""
@@ -1227,7 +1227,7 @@ def update_timeline(
     callout_id: int,
     body: TimelineUpdate,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(OPS_ROLES),
 ) -> dict:
     """Проставить отметки боевых действий.
@@ -1290,7 +1290,7 @@ def update_timeline(
 @router.get("/vehicles")
 def list_vehicles(
     station_id: int | None = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     _user: dict = Depends(VIEW_ROLES),
 ) -> dict:
     """Техника частей со сводкой доступности.
@@ -1357,7 +1357,7 @@ def create_vehicle(
     station_id: int,
     body: VehicleCreate,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(OPS_ROLES),
 ) -> dict:
     """Поставить машину на учёт в части."""
@@ -1417,7 +1417,7 @@ def update_vehicle(
     vehicle_id: int,
     body: VehiclePatch,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(OPS_ROLES),
 ) -> dict:
     """Изменить состояние машины (в строю / на выезде / ремонт / резерв)."""
@@ -1457,7 +1457,7 @@ def update_vehicle(
 def delete_vehicle(
     vehicle_id: int,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(OPS_ROLES),
 ) -> dict:
     """Снять машину с учёта. Назначения на прошлые выезды уходят каскадом."""
@@ -1490,7 +1490,7 @@ def assign_vehicles(
     callout_id: int,
     body: VehicleAssign,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(OPS_ROLES),
 ) -> list[dict]:
     """Назначить машины на выезд и перевести их в статус «на выезде».
@@ -1548,7 +1548,7 @@ def release_vehicle(
     callout_id: int,
     vehicle_id: int,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(OPS_ROLES),
 ) -> list[dict]:
     """Снять машину с выезда и вернуть её в строй."""
@@ -1590,7 +1590,7 @@ def put_resources(
     callout_id: int,
     body: ResourcesPut,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(OPS_ROLES),
 ) -> list[dict]:
     """Записать расход средств по выезду (полная перезапись списка)."""
@@ -1780,7 +1780,7 @@ def _deployment(db: Session, callout_id: int) -> list[dict]:
 @router.get("/{callout_id}/deployment")
 def get_deployment(
     callout_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     _user: dict = Depends(VIEW_ROLES),
 ) -> dict:
     """Расстановка сил по выезду со сверкой стволов против расчёта."""
@@ -2275,7 +2275,7 @@ def add_position(
     callout_id: int,
     body: PositionCreate,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(OPS_ROLES),
 ) -> list[dict]:
     """Поставить позицию в план развёртывания."""
@@ -2398,7 +2398,7 @@ def update_position(
     position_id: int,
     body: PositionPatch,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(OPS_ROLES),
 ) -> list[dict]:
     """Подвинуть позицию, повернуть ствол, сменить участок или этаж.
@@ -2436,7 +2436,7 @@ def delete_position(
     callout_id: int,
     position_id: int,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(OPS_ROLES),
 ) -> list[dict]:
     """Снять позицию с плана развёртывания.
@@ -2591,7 +2591,7 @@ def sync_deployment(
     callout_id: int,
     body: DeploymentSync,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(OPS_ROLES),
 ) -> dict:
     """Принять расстановку, накопленную устройством без связи.
@@ -2868,7 +2868,7 @@ def sync_deployment(
 def export_report(
     callout_id: int,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(VIEW_ROLES),
 ) -> dict:
     """Отметить выгрузку донесения о пожаре в журнале.
@@ -2904,7 +2904,7 @@ def export_report(
 
 @router.get("/live")
 def live_positions(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     _user: dict = Depends(VIEW_ROLES),
 ) -> dict:
     """Позиции техники из системы мониторинга ДЧС.
@@ -2932,7 +2932,7 @@ def live_positions(
 @router.get("/stats")
 def dispatch_stats(
     days: int = 30,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     _user: dict = Depends(VIEW_ROLES),
 ) -> dict:
     """Сводка по частям: выезды, время реагирования, расход.
