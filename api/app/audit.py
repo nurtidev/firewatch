@@ -14,7 +14,10 @@ from typing import Any
 from sqlalchemy import text
 
 from app.config import settings
-from app.db import engine
+
+# Свой пул (app/db.py): запись аудита не ждёт общий пул запросов и не берёт из
+# него второе соединение, пока обработчик держит первое.
+from app.db import audit_engine
 
 log = logging.getLogger("firewatch.audit")
 
@@ -46,7 +49,7 @@ def audit(
     detail: dict | None = None,
 ) -> None:
     try:
-        with engine.begin() as conn:
+        with audit_engine.begin() as conn:
             conn.execute(
                 text(
                     """
