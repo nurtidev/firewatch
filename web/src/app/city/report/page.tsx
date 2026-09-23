@@ -28,6 +28,7 @@ import {
   isAbortError,
   isCityRouterMissing,
   isCityForbidden,
+  isCityOverloaded,
   districtName,
   localizedDistrictName,
   type CitySummary,
@@ -43,7 +44,7 @@ import { useRoleGuard } from "@/lib/useRoleGuard";
 // re-run it every render.
 const CITY_REPORT_ROLES: Role[] = ["akimat", "leadership", "admin"];
 
-type LoadError = "missing" | "forbidden" | "error" | null;
+type LoadError = "missing" | "forbidden" | "overloaded" | "error" | null;
 
 export default function CityReportPage() {
   const t = useT();
@@ -52,6 +53,8 @@ export default function CityReportPage() {
   const [summary, setSummary] = useState<CitySummary | null>(null);
   const [priorities, setPriorities] = useState<CityPriorities | null>(null);
   const [error, setError] = useState<LoadError>(null);
+  // Only meaningful when error === "overloaded" — see app/city/page.tsx.
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -69,6 +72,11 @@ export default function CityReportPage() {
         if (isAbortError(e)) return;
         setSummary(null);
         setPriorities(null);
+        if (isCityOverloaded(e)) {
+          setError("overloaded");
+          setErrorDetail(e instanceof Error ? e.message : null);
+          return;
+        }
         setError(isCityRouterMissing(e) ? "missing" : isCityForbidden(e) ? "forbidden" : "error");
       });
   }, []);
@@ -111,10 +119,15 @@ export default function CityReportPage() {
         {error === "forbidden" && (
           <Banner tone="critical">{t("Нет доступа к отчёту.")}</Banner>
         )}
+        {error === "overloaded" && (
+          <Banner tone="critical">
+            {t(errorDetail ?? "База данных перегружена — повторите через несколько секунд")}
+          </Banner>
+        )}
         {error === "error" && (
           <Banner tone="critical">{t("Не удалось загрузить данные для отчёта. Попробуйте ещё раз.")}</Banner>
         )}
-        {(error === "missing" || error === "error") && (
+        {(error === "missing" || error === "overloaded" || error === "error") && (
           <Button variant="secondary" size="sm" className="fw-no-print mt-3" onClick={load}>
             {t("Повторить")}
           </Button>

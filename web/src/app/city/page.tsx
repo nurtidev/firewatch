@@ -21,6 +21,7 @@ import {
   isAbortError,
   isCityRouterMissing,
   isCityForbidden,
+  isCityOverloaded,
   districtName,
   type CitySummary,
   type CityDistrictSummary,
@@ -86,7 +87,11 @@ export default function CityOverviewPage() {
   const t = useT();
   const { locale } = useLocale();
   const [summary, setSummary] = useState<CitySummary | null>(null);
-  const [error, setError] = useState<"missing" | "forbidden" | "error" | null>(null);
+  const [error, setError] = useState<"missing" | "forbidden" | "overloaded" | "error" | null>(null);
+  // Only meaningful when error === "overloaded" — the API's own explanation
+  // (api/app/main.py db_pool_exhausted/db_overloaded `detail`), shown instead
+  // of the generic "сервис не отвечает" copy.
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const now = useNow(60_000);
   // The in-flight summary request: a repeated «Обновить» or leaving the page
   // cancels it instead of leaving a heavy request nobody will read.
@@ -102,6 +107,11 @@ export default function CityOverviewPage() {
       .catch((e) => {
         if (isAbortError(e)) return;
         setSummary(null);
+        if (isCityOverloaded(e)) {
+          setError("overloaded");
+          setErrorDetail(e instanceof Error ? e.message : null);
+          return;
+        }
         setError(isCityRouterMissing(e) ? "missing" : isCityForbidden(e) ? "forbidden" : "error");
       });
   }, []);
@@ -166,6 +176,21 @@ export default function CityOverviewPage() {
             icon={ServerCrash}
             title={t("Нет доступа")}
             description={t("У вашей роли нет доступа к этому разделу.")}
+          />
+        ) : error === "overloaded" ? (
+          <EmptyState
+            className="mt-8"
+            tone="error"
+            icon={ServerCrash}
+            title={t("Сводка недоступна")}
+            description={t(
+              errorDetail ?? "База данных перегружена — повторите через несколько секунд",
+            )}
+            action={
+              <Button variant="secondary" size="sm" onClick={load}>
+                <RefreshCw className="h-4 w-4" /> {t("Повторить")}
+              </Button>
+            }
           />
         ) : error === "error" ? (
           <EmptyState

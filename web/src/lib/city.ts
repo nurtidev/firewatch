@@ -63,6 +63,18 @@ export function isCityForbidden(err: unknown): boolean {
   return err instanceof CityApiError && err.status === 403;
 }
 
+/** True for a 503 — the API's own pool-exhausted/statement-timeout guard
+ *  (api/app/main.py::db_pool_exhausted / db_overloaded), not a generic
+ *  failure: the DB is transiently overloaded, and the response carries a
+ *  human-readable `detail` (already in `err.message`, see cityFetch above)
+ *  plus a `Retry-After` the caller doesn't need to read since the message
+ *  itself says "повторите через несколько секунд". Distinct from the
+ *  generic "error" case so the page can show the server's own explanation
+ *  (translated via `t()`) instead of a blanket "сервис не отвечает". */
+export function isCityOverloaded(err: unknown): boolean {
+  return err instanceof CityApiError && err.status === 503;
+}
+
 /** True when the fetch was cancelled by our own AbortController (page left,
  *  «Обновить» pressed again) — not an error to show. Cancelling matters: the
  *  city aggregates are heavy, and a request nobody will read still holds an

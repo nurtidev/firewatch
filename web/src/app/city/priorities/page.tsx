@@ -19,6 +19,7 @@ import {
   isAbortError,
   isCityRouterMissing,
   isCityForbidden,
+  isCityOverloaded,
   localizedDistrictName,
   type CityPriorities,
   type CityDistrictSummary,
@@ -43,7 +44,9 @@ export default function CityPrioritiesPage() {
   const t = useT();
   const { locale } = useLocale();
   const [data, setData] = useState<CityPriorities | null>(null);
-  const [error, setError] = useState<"missing" | "forbidden" | "error" | null>(null);
+  const [error, setError] = useState<"missing" | "forbidden" | "overloaded" | "error" | null>(null);
+  // Only meaningful when error === "overloaded" — see app/city/page.tsx.
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   // Best-effort only: /city/priorities cells carry a bare Russian district
   // name (no name_kk/name_en of their own — see localizedDistrictName in
   // lib/city.ts); this list is what translates it for kk/en. Its own failure
@@ -64,6 +67,11 @@ export default function CityPrioritiesPage() {
       .catch((e) => {
         if (isAbortError(e)) return;
         setData(null);
+        if (isCityOverloaded(e)) {
+          setError("overloaded");
+          setErrorDetail(e instanceof Error ? e.message : null);
+          return;
+        }
         setError(isCityRouterMissing(e) ? "missing" : isCityForbidden(e) ? "forbidden" : "error");
       });
     getCitySummary(controller.signal)
@@ -115,6 +123,21 @@ export default function CityPrioritiesPage() {
             icon={ServerCrash}
             title={t("Нет доступа")}
             description={t("У вашей роли нет доступа к этому разделу.")}
+          />
+        ) : error === "overloaded" ? (
+          <EmptyState
+            className="mt-8"
+            tone="error"
+            icon={ServerCrash}
+            title={t("Данные недоступны")}
+            description={t(
+              errorDetail ?? "База данных перегружена — повторите через несколько секунд",
+            )}
+            action={
+              <Button variant="secondary" size="sm" onClick={load}>
+                <RefreshCw className="h-4 w-4" /> {t("Повторить")}
+              </Button>
+            }
           />
         ) : error === "error" ? (
           <EmptyState
