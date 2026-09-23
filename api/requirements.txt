@@ -1,5 +1,12 @@
 fastapi==0.138.1
 uvicorn[standard]==0.34.0
+# Direct dependency, not just transitive via fastapi/starlette/httpx: app/main.py
+# builds a module-level anyio.CapacityLimiter(...) at import time, outside any
+# running event loop — valid only from anyio>=4.2 (older anyio required a loop
+# to already be running). A lower bound, not a pin, so it doesn't fight the
+# versions fastapi/starlette/httpx already resolve to (anyio 4.15.1 as of this
+# writing, see their own `Requires`).
+anyio>=4.2
 sqlalchemy==2.0.36
 alembic==1.14.0
 psycopg[binary]==3.2.3
