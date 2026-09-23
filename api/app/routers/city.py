@@ -33,8 +33,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app import coverage
+from app.cache import read_cache
 from app.config import settings
-from app.db import get_db
+from app.db import get_db, heavy_read
 from app.districts import district_of
 from app.routers.auth import require_roles
 from app.routers.buildings import RISK_BANDS
@@ -547,16 +548,59 @@ def _station_gap_cells(db: Session) -> list[dict]:
     )
 
 
-def _without_jit(db: Session) -> None:
-    """Выключить JIT на время запроса: `SET LOCAL` живёт до конца транзакции сессии.
+def _summary_bundle(db: Session) -> dict:
+    """Сводка, конверт покрытия и контуры районов — один расчёт и один ключ кэша.
 
-    Оценки стоимости PostGIS для geography (ST_DWithin) завышены на порядки, и
-    планировщик включает JIT-компиляцию для запросов, которые сами исполняются
-    за десятки-сотни миллисекунд: на демо-базе компиляция занимала 250–360 мс
-    из 380–580 мс запроса. Сессия запроса закрывается в get_db (откат
-    транзакции), так что настройка не утекает в пул соединений.
+    Общий для /summary и /districts.geojson: экран карты и экран обзора больше
+    не считают одну и ту же тяжёлую сводку дважды, хороплет и таблица районов
+    не расходятся (ранги из той же сводки), а контуры читаются в той же
+    транзакции — имена районов в обоих списках совпадают. Без роли и района в
+    ключе: /city/* не скоупится (см. app/cache.py). `heavy_read` — только при
+    расчёте; ответ из кэша соединение не берёт.
     """
-    db.execute(text("SET LOCAL jit = off"))
+
+    def compute() -> dict:
+        heavy_read(db)
+        data = _summary_data(db)
+        # Без упрощения: ST_SimplifyPreserveTopology упрощает каждый полигон
+        # отдельно, и общие границы соседних районов расходятся — на хороплете
+        # появляются щели и наложения. Полные контуры пяти районов — десятки КБ;
+        # 6 знаков после запятой — ~10 см, точнее не нужно.
+        shapes = db.execute(
+            text(
+                "SELECT name, name_kk, name_en, ST_AsGeoJSON(geom, 6) AS geom "
+                "FROM districts ORDER BY id"
+            )
+        ).mappings().all()
+        return {
+            "data": data,
+            "shapes": [
+                {
+                    "name": r["name"],
+                    "name_kk": r["name_kk"],
+                    "name_en": r["name_en"],
+                    "geometry": json.loads(r["geom"]),
+                }
+                for r in shapes
+            ],
+            "envelope": _envelope(db),
+        }
+
+    return read_cache.get_or_compute("city:summary", compute)
+
+
+def _priority_cells(db: Session) -> dict:
+    """Ячейки приоритетов до ранжирования: `limit` режет готовый список, в ключ не входит."""
+
+    def compute() -> dict:
+        heavy_read(db)
+        return {
+            "hydrant_gaps": _hydrant_gap_cells(db),
+            "station_gaps": _station_gap_cells(db),
+            "envelope": _envelope(db),
+        }
+
+    return read_cache.get_or_compute("city:priorities", compute)
 
 
 def _public_cell(cell: dict, fields: tuple[str, ...]) -> dict:
@@ -577,12 +621,12 @@ def _public_cell(cell: dict, fields: tuple[str, ...]) -> dict:
 
 
 @router.get("/summary")
-def summary(db: Session = Depends(get_db)) -> dict:
+def summary(db: Session = Depends(get_db, scope="function")) -> dict:
     """Итог по городу и районам (только счётчики — ни адресов, ни имён)."""
-    _without_jit(db)
-    data = _summary_data(db)
+    bundle = _summary_bundle(db)
+    data = bundle["data"]
     return {
-        **_envelope(db),
+        **bundle["envelope"],
         "method": SUMMARY_METHOD,
         "response_method": RESPONSE_METHOD,
         "travel_method": TRAVEL_METHOD,
@@ -597,39 +641,29 @@ def summary(db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/districts.geojson")
-def districts_geojson(db: Session = Depends(get_db)) -> dict:
+def districts_geojson(db: Session = Depends(get_db, scope="function")) -> dict:
     """Полигоны районов для хороплета: ранг и «здания внимания» из той же сводки."""
-    _without_jit(db)
-    by_name = {d["name"]: d for d in _summary_data(db)["districts"]}
-    # Без упрощения: ST_SimplifyPreserveTopology упрощает каждый полигон
-    # отдельно, и общие границы соседних районов расходятся — на хороплете
-    # появляются щели и наложения. Полные контуры пяти районов — десятки КБ;
-    # 6 знаков после запятой — ~10 см, точнее не нужно.
-    rows = db.execute(
-        text(
-            "SELECT name, name_kk, name_en, ST_AsGeoJSON(geom, 6) AS geom "
-            "FROM districts ORDER BY id"
-        )
-    ).mappings().all()
+    bundle = _summary_bundle(db)
+    by_name = {d["name"]: d for d in bundle["data"]["districts"]}
     features = [
         {
             "type": "Feature",
-            "geometry": json.loads(r["geom"]),
+            "geometry": s["geometry"],
             "properties": {
-                "name": r["name"],
-                "name_kk": r["name_kk"],
-                "name_en": r["name_en"],
-                "rank": by_name[r["name"]]["rank"],
-                "attention_buildings": by_name[r["name"]]["attention_buildings"],
-                "buildings_total": by_name[r["name"]]["buildings_total"],
+                "name": s["name"],
+                "name_kk": s["name_kk"],
+                "name_en": s["name_en"],
+                "rank": by_name[s["name"]]["rank"],
+                "attention_buildings": by_name[s["name"]]["attention_buildings"],
+                "buildings_total": by_name[s["name"]]["buildings_total"],
             },
         }
-        for r in rows
+        for s in bundle["shapes"]
     ]
     features.sort(key=lambda f: f["properties"]["rank"])
     return {
         "type": "FeatureCollection",
-        **_envelope(db),
+        **bundle["envelope"],
         "attribution": ATTRIBUTION,
         "features": features,
     }
@@ -638,14 +672,14 @@ def districts_geojson(db: Session = Depends(get_db)) -> dict:
 @router.get("/priorities")
 def priorities(
     limit: int = Query(10, ge=1, le=PRIORITIES_MAX),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict:
     """Где сосредоточены здания высокого риска без воды и вне зоны прибытия."""
-    _without_jit(db)
-    hydrant_gaps = rank_hydrant_gaps(_hydrant_gap_cells(db), limit)
-    station_gaps = rank_station_gaps(_station_gap_cells(db), limit)
+    cells = _priority_cells(db)
+    hydrant_gaps = rank_hydrant_gaps(cells["hydrant_gaps"], limit)
+    station_gaps = rank_station_gaps(cells["station_gaps"], limit)
     return {
-        **_envelope(db),
+        **cells["envelope"],
         "cell_m": CELL_M,
         "hydrant_radius_m": coverage.HYDRANT_RADIUS_M,
         "method": PRIORITIES_METHOD,

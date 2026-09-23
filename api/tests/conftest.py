@@ -28,6 +28,10 @@ import pytest
 # inspect what a test wrote) win.
 os.environ.setdefault("UPLOADS_DIR", tempfile.mkdtemp(prefix="fw-uploads-test-"))
 
+# Кэш тяжёлых агрегатов (app/cache.py) в тестах выключен: DB-тесты меняют данные
+# между запросами и сверяют ответы сразу. Сам кэш покрыт tests/test_db_pool.py.
+os.environ.setdefault("FW_READ_CACHE_TTL_SEC", "0")
+
 
 def _db_name(url: str) -> str:
     return url.rsplit("/", 1)[-1].split("?", 1)[0].lower()

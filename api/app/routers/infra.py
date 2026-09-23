@@ -20,7 +20,8 @@ from app.coverage import (
     stations_stale_isochrones as _stations_stale_isochrones,
     stations_total as _stations_total,
 )
-from app.db import get_db
+from app.cache import read_cache
+from app.db import get_db, heavy_read
 from app.routers.auth import current_user, require_roles
 
 router = APIRouter(
@@ -71,7 +72,7 @@ def _fc(rows, geom_key: str, props) -> dict:
 
 
 @router.get("/stations")
-def stations(db: Session = Depends(get_db)) -> dict:
+def stations(db: Session = Depends(get_db, scope="function")) -> dict:
     # `id` in properties (added alongside the station-admin action on
     # /users): web/users/page.tsx resolves the responder's station selector
     # from this same endpoint instead of adding a parallel one.
@@ -86,7 +87,7 @@ def stations(db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/hydrants")
-def hydrants(db: Session = Depends(get_db)) -> dict:
+def hydrants(db: Session = Depends(get_db, scope="function")) -> dict:
     rows = db.execute(
         text(
             # id обязателен: по нему гидрант адресуется с карты (пометка
@@ -113,7 +114,7 @@ def hydrants(db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/coverage")
-def coverage(db: Session = Depends(get_db)) -> dict:
+def coverage(db: Session = Depends(get_db, scope="function")) -> dict:
     """Зона прибытия каждой части под норматив (10 минут в городе).
 
     Два источника, и разница между ними принципиальная:
@@ -131,7 +132,14 @@ def coverage(db: Session = Depends(get_db)) -> dict:
     часть, или последний пересчёт для неё не удался) — тоже помечается
     `approximate: true`, а недостающие части рисуются буфером поверх слоя
     изохрон; `stations_missing_isochrones` называет их число.
+
+    Ответ не зависит от роли и кэшируется (app/cache.py); пересчёт зон
+    (`/coverage/rebuild`) сбрасывает кэш сразу.
     """
+    return dict(read_cache.get_or_compute("infra:coverage", lambda: _coverage_fc(db)))
+
+
+def _coverage_fc(db: Session) -> dict:
     seconds = _normative_seconds()
     if _has_isochrones(db):
         rows = db.execute(
@@ -249,7 +257,7 @@ def public_routing_health(health: dict, role: str | None) -> dict:
 @router.get("/routing/calibration")
 def routing_calibration(
     days: int = 180,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     _user: dict = Depends(require_roles("supervisor", "leadership", "admin")),
 ) -> dict:
     """Насколько расчёт по дорогам расходится с фактическими выездами.
@@ -313,7 +321,7 @@ def routing_calibration(
 @router.post("/coverage/rebuild")
 def rebuild_coverage(
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(require_roles("admin")),
 ) -> dict:
     """Пересчитать зоны прибытия по дорожному графу.
@@ -435,6 +443,10 @@ def rebuild_coverage(
         return {"built": 0, "failed": failed, "seconds": seconds}
 
     db.commit()
+    # Зоны прибытия изменились: слепые зоны и сводка города должны отразить это
+    # сразу, а не через TTL кэша (в этом процессе; другие воркеры — за TTL).
+    read_cache.invalidate("infra:")
+    read_cache.invalidate("city:")
 
     audit(
         action="infra.coverage_rebuilt",
@@ -450,7 +462,7 @@ def rebuild_coverage(
 
 
 @router.get("/blind-zones")
-def blind_zones(db: Session = Depends(get_db)) -> dict:
+def blind_zones(db: Session = Depends(get_db, scope="function")) -> dict:
     """Здания, до которых караул не успевает за норматив.
 
     Считается по дорожным изохронам там, где они рассчитаны; для частей без
@@ -458,7 +470,15 @@ def blind_zones(db: Session = Depends(get_db)) -> dict:
     буферу, а не «здание недостижимо», раз мы просто не знаем зону этой
     части. Если изохрон нет вообще ни у одной части, это совпадает с прежним
     поведением на чистом буфере.
+
+    Ответ не зависит от роли и кэшируется (app/cache.py); пересчёт зон
+    (`/coverage/rebuild`) сбрасывает кэш сразу.
     """
+    return dict(read_cache.get_or_compute("infra:blind_zones", lambda: _blind_zones_fc(db)))
+
+
+def _blind_zones_fc(db: Session) -> dict:
+    heavy_read(db)
     seconds = _normative_seconds()
     missing = _stations_missing_isochrones(db, seconds)
     stale = _stations_stale_isochrones(db, seconds)
@@ -490,7 +510,8 @@ def blind_zones(db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/stats")
-def stats(db: Session = Depends(get_db)) -> dict:
+def stats(db: Session = Depends(get_db, scope="function")) -> dict:
+    heavy_read(db)
     seconds = _normative_seconds()
     missing = _stations_missing_isochrones(db, seconds)
     stale = _stations_stale_isochrones(db, seconds)
@@ -549,7 +570,7 @@ def set_hydrant_status(
     hydrant_id: int,
     body: HydrantStatusUpdate,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: dict = Depends(HYDRANT_STATUS_ROLES),
 ) -> dict:
     """Record a hydrant's actual state from the field (караул на выезде).
@@ -572,6 +593,8 @@ def set_hydrant_status(
     if row is None:
         raise HTTPException(404, "Гидрант не найден")
     db.commit()
+    # Исправность гидранта входит в сводку и приоритеты города («без воды рядом»).
+    read_cache.invalidate("city:")
 
     audit(
         action="hydrant.status",
