@@ -89,15 +89,17 @@ export default function LoginPage() {
 
   // Если гидратация не случилась за разумное время (упавший чанк сборки,
   // офлайн, блокировщик скриптов) — кнопки остались бы задизейблены навсегда
-  // без единой подсказки, почему «Войти» не реагирует. Подсказка появляется
-  // только пока страница ещё не гидрировалась; успешная гидратация в любой
-  // момент до срабатывания таймера её отменяет.
-  const [hydrationStalled, setHydrationStalled] = useState(false);
-  useEffect(() => {
-    if (hydrated) return;
-    const timer = window.setTimeout(() => setHydrationStalled(true), 4000);
-    return () => window.clearTimeout(timer);
-  }, [hydrated]);
+  // без единой подсказки, почему «Войти» не реагирует. Раньше таймер жил в
+  // useEffect(setTimeout(4000)) с зависимостью [hydrated] — но hydrated
+  // становится true в том же первом проходе эффектов, так что таймер
+  // отменялся мгновенно и подсказка не могла появиться никогда; а если чанк
+  // вообще не загрузился, эффекты не запускаются вовсе — React-таймер тут
+  // в принципе невозможен. Поэтому задержка — чистый CSS (см. .hydration-hint
+  // в globals.css): элемент есть в SSR-разметке всегда, `animation-delay`
+  // раскрывает его через ~4с без единой строчки JS, а `data-hydrated` ниже
+  // мгновенно прячет его назад, как только гидратация действительно
+  // случилась (обычный путь — гидратация укладывается в доли секунды, и
+  // подсказка не успевает не то что показаться — даже начать проявляться).
 
   async function submit(u: string, p: string) {
     setBusy(true);
@@ -128,7 +130,7 @@ export default function LoginPage() {
         aria-hidden
       />
 
-      <div className="relative w-full max-w-sm">
+      <div className="relative w-full max-w-sm" data-hydrated={hydrated}>
         <div className="mb-7 text-center">
           <div className="flex items-center justify-center gap-2.5 text-3xl font-bold tracking-tight">
             <FireWatchMark size={32} />
@@ -185,13 +187,22 @@ export default function LoginPage() {
               </>
             )}
           </Button>
-
-          {hydrationStalled && !hydrated && (
-            <p role="status" aria-live="polite" className="text-center text-2xs text-faint">
-              {t("Страница загружается дольше обычного. Если кнопка не реагирует, обновите страницу.")}
-            </p>
-          )}
         </form>
+
+        {/* В SSR-разметке всегда — иначе при упавшем JS-чанке подсказать
+           вообще нечем. Видимость целиком на CSS (.hydration-hint,
+           globals.css): ~4с задержка через animation-delay, мгновенное
+           скрытие через [data-hydrated="true"] на обёртке выше.
+           aria-hidden зеркалит ту же готовность гидратации, чтобы скринридер
+           не находил текст, который сайт уже спрятал визуально. */}
+        <p
+          role="status"
+          aria-live="polite"
+          aria-hidden={hydrated}
+          className="hydration-hint text-center text-2xs text-faint"
+        >
+          {t("Страница загружается дольше обычного. Если кнопка не реагирует, обновите страницу.")}
+        </p>
 
         <div className="mt-6 space-y-4">
           <p className="text-center text-2xs uppercase tracking-[0.16em] text-faint">

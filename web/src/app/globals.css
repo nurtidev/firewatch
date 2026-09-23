@@ -249,6 +249,38 @@ select option { background: var(--color-surface); color: var(--color-fg); }
 .fw-fade-in { animation: fw-fade-in var(--dur) var(--ease); }
 .fw-live-dot { animation: fw-pulse 2s var(--ease) infinite; }
 
+/* Login "hydration stalled" hint (app/login/page.tsx) — reveal timing is
+   pure CSS on purpose: a React setTimeout tied to a `hydrated` effect flag
+   can only ever run once React has mounted, which is exactly the case the
+   hint must stay hidden for, and is impossible to run at all when a broken
+   JS chunk stops React from mounting in the first place. The element is
+   always present in server-rendered HTML (so it exists even with no JS),
+   collapsed to zero size by default; `animation-delay` reveals it ~4s in.
+   The `[data-hydrated="true"]` override (set by React on mount) wins over
+   the animation via !important and hides it again the instant hydration
+   actually happens — on the normal path that's well under 4s, so the
+   reveal keyframe never gets a chance to run and nothing shifts or flashes. */
+.hydration-hint {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  margin-top: 0;
+  animation: fw-hydration-hint-reveal 0s 4s forwards;
+}
+@keyframes fw-hydration-hint-reveal {
+  to {
+    max-height: 4rem;
+    opacity: 1;
+    margin-top: 0.75rem;
+  }
+}
+[data-hydrated="true"] .hydration-hint {
+  animation: none;
+  max-height: 0 !important;
+  opacity: 0 !important;
+  margin-top: 0 !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .01ms !important;
