@@ -6,8 +6,19 @@ app/cache.py, app/main.py::AuditMiddleware. Здесь без базы:
   • каждая сессия запроса закрывается до отправки ответа, и на запрос она одна;
   • current_user возвращает соединение в пул сразу после проверки;
   • аудит отказа пишется не из event loop;
-  • перегрузка пула и statement_timeout — 503 с Retry-After и CORS, не 500;
-  • кэш: TTL, single-flight, протухшее значение на время пересчёта, сброс.
+  • перегрузка пула и statement_timeout — 503 с Retry-After и CORS, не 500 —
+    но НЕ для любого OperationalError на мутирующем запросе: см. блок
+    «мутирующие запросы и неоднозначные ошибки» ниже;
+  • кэш: TTL, single-flight, протухшее значение на время пересчёта, сброс,
+    предел ожидания холодного ключа.
+
+Один путь, который обход зависимостей (test_every_db_session_closes_before_
+the_response_is_sent) не видит: api/app/chat.py:~199 открывает соединение
+напрямую через `engine.connect()` (не `Depends(get_db)`), а не сессией
+запроса — но ограниченно: READ ONLY и `SET LOCAL statement_timeout = '5000'`
+в той же транзакции, до `db_heavy_statement_timeout_ms` остальных тяжёлых
+чтений. Ничего не сломано — просто этот путь не участвует в проверках сессии
+выше, и в него нужно заглянуть отдельно, если в chat.py что-то меняется.
 """
 
 import asyncio
@@ -156,6 +167,95 @@ def test_other_db_errors_stay_500():
     finally:
         app.dependency_overrides.pop(current_user, None)
     assert resp.status_code == 500
+
+
+# --- мутирующие запросы и неоднозначные ошибки --------------------------------
+#
+# POST /dispatch/{id}/close: DISPATCH_ROLES (app/routers/dispatch.py) wraps
+# current_user via Depends — overriding current_user still intercepts it
+# (FastAPI matches sub-dependencies by callable identity, not by nesting
+# depth). `json={}` is a valid CalloutClose body (close_note is optional), so
+# the request never reaches the handler regardless of the exact order
+# dependencies vs. the body are resolved in — current_user always raises
+# first either way.
+
+
+def _post_dispatch_close(**extra_headers):
+    with TestClient(app, raise_server_exceptions=False) as client:
+        return client.post("/dispatch/1/close", json={}, headers=extra_headers)
+
+
+def test_get_query_canceled_is_503():
+    """GET + QueryCanceled → 503 (safe method: любой OperationalError, включая
+    отменённый statement, безопасен для «повторите» — читать нечего задваивать)."""
+    err = sa_exc.OperationalError(
+        "SELECT 1", {}, psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+    )
+    app.dependency_overrides[current_user] = _raising_current_user(err)
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.get("/city/summary")
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+    assert resp.status_code == 503
+    assert resp.headers["retry-after"] == "5"
+
+
+def test_post_query_canceled_is_503():
+    """POST + QueryCanceled → 503: statement был отменён Postgres'ом ДО
+    применения — единственный OperationalError, для которого 503 сохранён и
+    на мутации (см. main.py::db_overloaded)."""
+    err = sa_exc.OperationalError(
+        "UPDATE callouts ...", {}, psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+    )
+    app.dependency_overrides[current_user] = _raising_current_user(err)
+    try:
+        resp = _post_dispatch_close()
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+    assert resp.status_code == 503
+    assert resp.headers["retry-after"] == "5"
+
+
+@pytest.mark.parametrize(
+    "err",
+    [
+        sa_exc.OperationalError(
+            "UPDATE callouts ...", {},
+            psycopg.errors.AdminShutdown("terminating connection due to administrator command"),
+        ),
+        sa_exc.OperationalError(
+            "UPDATE callouts ...", {}, psycopg.errors.TransactionRollback("deadlock detected")
+        ),
+    ],
+    ids=["admin-shutdown", "transaction-rollback"],
+)
+def test_post_ambiguous_operational_error_stays_500_without_retry_after(err):
+    """POST + AdminShutdown/TransactionRollback → 500 без Retry-After: обрыв
+    соединения (рестарт Postgres на Railway) или дедлок в момент COMMIT не
+    говорит, попала запись в базу или нет — «повторите» рискует задвоить её,
+    поэтому это обычный необработанный 500, а не 503 (см. main.py::db_overloaded)."""
+    app.dependency_overrides[current_user] = _raising_current_user(err)
+    try:
+        resp = _post_dispatch_close()
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+    assert resp.status_code == 500
+    assert "retry-after" not in resp.headers
+
+
+def test_post_pool_timeout_is_503():
+    """POST + пул исчерпан (TimeoutError) → 503: тайм-аут `Pool.connect()`
+    срабатывает ДО первого `execute()` в сессии — запрос не успел взять
+    соединение вообще, значит ничего не записал (см. main.py::db_pool_exhausted)."""
+    err = sa_exc.TimeoutError("QueuePool limit of size 5 overflow 10 reached")
+    app.dependency_overrides[current_user] = _raising_current_user(err)
+    try:
+        resp = _post_dispatch_close()
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+    assert resp.status_code == 503
+    assert resp.headers["retry-after"] == "5"
 
 
 # --- кэш ----------------------------------------------------------------------

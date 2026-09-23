@@ -177,6 +177,7 @@ app.add_middleware(AuditMiddleware)
 
 
 _RETRY_AFTER_SEC = "5"
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
 @app.exception_handler(sa_exc.TimeoutError)
@@ -186,6 +187,17 @@ async def db_pool_exhausted(request: Request, err: sa_exc.TimeoutError) -> JSONR
     Необработанное исключение отдаёт ServerErrorMiddleware снаружи CORS:
     браузер видел «CORS error» вместо ответа, и экран не мог показать
     «повторите». Состояние пула — в лог, чтобы перегрузку было видно.
+
+    503 безопасен и на мутирующих запросах (POST/PUT/PATCH/DELETE), а не
+    только на чтении: `sqlalchemy.exc.TimeoutError` — это тайм-аут
+    `Pool.connect()`, он срабатывает ДО того, как сессия получила
+    DBAPI-соединение, то есть ДО первого `execute()` в этой сессии (и уж тем
+    более до commit). `Depends(get_db, scope="function")` даёт одну сессию
+    на весь запрос (см. app/db.py), и она открывает соединение лениво — на
+    первом статементе, каким бы он ни был (включая сам INSERT/UPDATE
+    обработчика). Значит пул не успел отдать ни одного соединения этому
+    запросу — в базу ничего не ушло, и «повторите» не рискует задвоить
+    запись.
     """
     log.warning(
         "db pool exhausted: %s %s — %s", request.method, request.url.path, engine.pool.status()
@@ -201,17 +213,32 @@ async def db_pool_exhausted(request: Request, err: sa_exc.TimeoutError) -> JSONR
 async def db_overloaded(request: Request, err: sa_exc.DBAPIError) -> JSONResponse:
     """Запрос отменён (statement_timeout) или база не приняла новое соединение — 503.
 
-    `psycopg.OperationalError` — общий предок и `QueryCanceled` (app/db.py::heavy_read
-    отменил зависший запрос), и `ConnectionTimeout`/«server closed the connection»/
-    «too many connections» (новое соединение overflow не открылось за
-    connect_timeout=5с, потому что сама база перегружена и не успевает принять
-    TCP+auth за 5с — под нагрузочным прогоном это воспроизводится наравне с
-    QueuePool timeout, и раньше здесь падал необработанный 500 без Retry-After).
+    `psycopg.OperationalError` — общий предок QueryCanceled (app/db.py::heavy_read
+    отменил зависший запрос), ConnectionTimeout/«too many connections» (новое
+    соединение overflow не открылось за connect_timeout=5с — под нагрузочным
+    прогоном это воспроизводится наравне с QueuePool timeout), но ТАКЖЕ
+    AdminShutdown/CrashShutdown (рестарт Postgres на Railway) и
+    TransactionRollback/DeadlockDetected. В отличие от пула (см.
+    db_pool_exhausted выше), эти ошибки могут прийти в момент COMMIT —
+    соединение оборвалось, а применилась ли транзакция на сервере, клиенту
+    неизвестно. Для GET/HEAD/OPTIONS это не важно (чтение нечего задваивать),
+    поэтому там 503 отдаётся на любой `OperationalError`, как раньше. Для
+    мутирующего запроса (POST/PUT/PATCH/DELETE) «повторите» на такой
+    неопределённости может задвоить запись, поэтому 503 там сохранён только
+    для QueryCanceled — там ясно, что statement был отменён Postgres'ом ДО
+    применения (наши мутирующие ручки не выставляют statement_timeout через
+    heavy_read — она только на GET /city, /infra, /buildings, — так что этот
+    случай сегодня скорее задел на будущее, чем реальный путь). Любая другая
+    OperationalError на мутации остаётся обычным необработанным 500 без
+    Retry-After (риск дубликата важнее аккуратного ответа).
+
     `err.orig` — psycopg-исключение; НЕ путать с `sqlalchemy.exc.OperationalError`
     (обёртка SQLAlchemy, которая покрывает и настоящие ошибки запроса — те
     остаются 500, см. tests/test_db_pool.py::test_other_db_errors_stay_500).
     """
-    if not isinstance(err.orig, psycopg.OperationalError):
+    safe_method = request.method in _SAFE_METHODS
+    query_canceled = isinstance(err.orig, psycopg.errors.QueryCanceled)
+    if not isinstance(err.orig, psycopg.OperationalError) or not (safe_method or query_canceled):
         raise err
     log.warning("db overloaded: %s %s — %s", request.method, request.url.path, type(err.orig).__name__)
     return JSONResponse(
