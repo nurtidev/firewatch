@@ -37,10 +37,10 @@ svg.i { width: 1em; height: 1em; stroke: currentColor; fill: none; stroke-width:
 #brand .mark { width: 40px; height: 40px; border-radius: 10px; background: var(--accent); display: grid; place-items: center; color: #0a0a0b; }
 #part { position: absolute; left: 56px; top: 106px; height: 48px; padding: 0 20px; border-radius: 12px; display: flex; align-items: center; gap: 10px; font: 700 21px/1 Inter; letter-spacing: .12em; }
 #clock { position: absolute; right: 56px; top: 40px; text-align: right; text-shadow: 0 2px 14px rgba(0,0,0,.9); }
-#clock .t { font: 700 64px/1 JB; } #clock .n { font: 500 18px/1.4 JB; color: var(--faint); margin-top: 6px; }
+#clock .t { font: 700 64px/1 JB; } #clock .n { font: 500 19px/1.4 JB; color: #a0a0a8; margin-top: 6px; }
 #caption { position: absolute; left: 50%; bottom: 38px; transform: translateX(-50%); width: max-content; max-width: 1500px; text-align: center; font: 500 32px/1.3 Inter; padding: 12px 28px; border-radius: 12px; background: rgba(10,10,11,.84); }
 #attrib { position: absolute; right: 14px; bottom: 8px; font: 500 14px/1 JB; color: #8a8a93; text-shadow: 0 1px 4px #000; }
-#note { position: absolute; left: 56px; bottom: 120px; font: 500 19px/1.35 JB; color: #b9b9c2; background: rgba(10,10,11,.8); padding: 10px 16px; border-radius: 10px; border: 1px solid var(--border); opacity: 0; max-width: 820px; }
+#note { position: absolute; left: 56px; top: 176px; font: 600 20px/1.35 Inter; color: #d9d9e0; background: rgba(41,35,9,.92); padding: 12px 16px; border-radius: 10px; border: 1px solid #5a4a12; opacity: 0; max-width: 620px; }
 #fade { position: absolute; inset: 0; background: #0a0a0b; opacity: 0; pointer-events: none; }
 .lbl { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; pointer-events: none; opacity: 0; }
 .tag { font: 700 22px/1 Inter; padding: 9px 13px; border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.6); display: flex; align-items: center; gap: 9px; }
@@ -90,12 +90,12 @@ svg.i { width: 1em; height: 1em; stroke: currentColor; fill: none; stroke-width:
 
 <!-- с данными -->
 <div class="card" id="c-dispatch" style="left:56px;top:186px;width:660px;padding:26px">
-  <div class="row"><span class="eyebrow">ЦОУСС · вызов №2</span><span class="mono" style="margin-left:auto;font-size:16px;color:var(--faint)">расписание выезда — пример</span></div>
+  <div class="row"><span class="eyebrow">ЦОУСС · вызов №1-БИС</span><span class="mono" style="margin-left:auto;font-size:16px;color:var(--faint)">расписание выезда — пример</span></div>
   <div style="font-size:30px;font-weight:700;margin-top:12px" id="addr"></div>
   <div style="margin-top:10px">
     <div class="kv" id="d1"><span>ПЧ-3 · АЦ-40 ×2</span><span>5 мин</span></div>
     <div class="kv" id="d2"><span>ПЧ-2 · АЛ-30</span><span>7 мин</span></div>
-    <div class="kv" id="d3" style="border:0"><span>Оповещены</span><span>103 · газ · электросети</span></div>
+    <div class="kv" id="d3" style="border:0"><span>Оповещены</span><span>103 · 102 · газ · электросети</span></div>
   </div>
 </div>
 <div class="card" id="c-pack" style="right:56px;top:176px;width:600px;padding:28px">
@@ -106,12 +106,14 @@ svg.i { width: 1em; height: 1em; stroke: currentColor; fill: none; stroke-width:
     <div class="kv"><span>Подъезды</span><span>со стороны ул. Сабатаева</span></div>
     <div class="kv"><span>Заезд во двор</span><span>с ул. Ашимова</span></div>
     <div class="kv"><span>Водоисточники</span><span>ПГ-1, ПГ-2 · ПГ-3 резерв</span></div>
+    <div class="kv"><span>Площадка для АЛ</span><span>со стороны ул. Сабатаева</span></div>
     <div class="kv" style="border:0"><span>Карточка тушения (КТП)</span><span style="color:var(--normal)">в системе</span></div>
   </div>
 </div>
 <div class="card" id="c-deploy" style="right:56px;top:176px;width:640px;padding:24px">
   <div class="row"><span class="eyebrow">Расстановка сил и средств</span><span class="chip" id="offline" style="margin-left:auto;background:var(--elevated-bg);color:var(--elevated)">офлайн</span></div>
-  <div id="steps" style="margin-top:12px;display:flex;flex-direction:column;gap:4px"></div>
+  <div id="stepsum" style="display:none;margin-top:12px;font-size:21px;color:var(--normal);font-weight:600"></div>
+  <div id="steps" style="margin-top:8px;display:flex;flex-direction:column;gap:4px"></div>
 </div>
 <div class="card" id="c-report" style="right:56px;top:176px;width:640px;padding:26px">
   <div class="eyebrow">Ход тушения</div>
@@ -267,9 +269,9 @@ const CAM_END = {
   dep3: { c: L(26, 38), z: 18.75, p: 60, b: 200, pr: 660 },
   dep4: { c: L(4, 38), z: 18.45, p: 56, b: 176, pr: 660 },
   dep5: { c: L(-2, 34), z: 18.1, p: 54, b: 165, pr: 660, pl: 0 },
-  city1: { c: CITY, z: 14.35, p: 48, b: 60, pr: 660 },
+  city1: { c: [69.3862, 53.2935], z: 14.0, p: 48, b: 60, pr: 660 },
   city2: { c: [69.3862, 53.2882], z: 14.55, p: 52, b: 20, pr: 660 },
-  city3: { c: CITY, z: 14.25, p: 46, b: -15, pr: 660 },
+  city3: { c: [69.3862, 53.2935], z: 13.95, p: 46, b: -15, pr: 660 },
   pilot: { c: CITY, z: 14.1, p: 44, b: -40 },
   outro: { c: CITY, z: 14.0, p: 44, b: -55 },
 };
@@ -288,6 +290,11 @@ function camAt(t, i) {
     return mix(drive, CAM_END.fw3, eio(clamp((k - .58) / .42)));
   }
   const end = CAM_END[s.id] || prev;
+  if (s.id === "city2") { // «выше досягаемости» → к кластеру дальнего прибытия (юго-запад) → обратно
+    const far = { c: [69.3763, 53.27769], z: 15.3, p: 55, b: 20, pr: 660 };
+    const a = eio(clamp(k / .3)), b2 = eio(clamp((k - .35) / .25)), back = eio(clamp((k - .8) / .2));
+    return mix(mix(mix(prev, { ...prev, z: prev.z + .6 }, a), far, b2), CAM_END.city2, back);
+  }
   if (s.id === "city3") { const e = { ...end, b: prev.b - 60 * k }; return mix(prev, e, eio(clamp(k * 1.4))); }
   return mix(prev, end, eio(k));
 }
@@ -299,7 +306,10 @@ function tag(id, html) { let n = document.getElementById(id); if (!n) { n = docu
 function place(n, ll, altM, op, dx = 0) {
   const p = map.project(ll), mpp = 78271.517 * Math.cos(ll[1] * rad) / 2 ** map.getZoom();
   const px = altM / mpp * Math.sin(map.getPitch() * rad) + 14;
-  n.style.left = p.x + dx + "px"; n.style.top = p.y - px + "px"; n.style.opacity = op;
+  n.style.left = p.x + dx + "px"; n.style.top = p.y - px + "px";
+  n.style.opacity = op > .3 ? 1 : op / .3 * (op > .01 ? 1 : 0);
+  n.style.filter = op > .3 && op < .95 ? "brightness(.45) saturate(.35)" : "none";
+
 }
 const T = (txt, bg, fg = "#0a0a0b", sub = "") => `<div class="tag" style="background:${bg};color:${fg}">${txt}${sub ? `<small>${sub}</small>` : ""}</div>`;
 
@@ -311,7 +321,7 @@ const STEPS = [
   ["dep1", .0, "Решающее направление — спасание людей, подъезд 2"],
   ["dep1", .3, "Звено ГДЗС №1: РСК-50 на 5 эт. — от ёмкости АЦ-40 №1"],
   ["dep1", .65, "АЦ-40 №1 → ПГ-1 · магистраль 77 мм ~70 м → РТ-70"],
-  ["dep2", .4, "Звено ГДЗС №2: РСК-50 на защиту 6 эт."],
+  ["dep2", .4, "Звено ГДЗС №2: РСК-50 на защиту 6 эт., поиск людей 6–9 эт."],
   ["dep2", .7, "Пост безопасности ГДЗС · резервное звено"],
   ["dep3", .15, "АЛ-30 (ПЧ-2) со смещением от окон — спасание 6–9 эт."],
   ["dep3", .7, "АЦ-40 №2 → ПГ-2 · резервная линия"],
@@ -319,7 +329,7 @@ const STEPS = [
   ["dep4", .45, "Дымоудаление ЛК · отключение газа и электричества"],
 ];
 const stepEls = STEPS.map(([, , s], j) => { const d = document.createElement("div"); d.className = "step"; d.innerHTML = `<b>${j + 1}</b><span>${s}</span>`; $("#steps").appendChild(d); return d; });
-const TL = [["14:37", "прибытие · разведка с подъезда 2"], ["14:39", "первый ствол на 5 этаж"], ["14:41", "АЦ-40 №1 на ПГ-1"], ["14:44", "АЛ-30 · спасание с 7 этажа"], ["14:51", "локализация"], ["15:08", "ликвидация"]];
+const TL = [["14:37", "прибытие · разведка с подъезда 2"], ["14:39", "первый ствол на 5 этаж"], ["14:40", "звено №2 — поиск и вывод людей 6–9 эт."], ["14:41", "АЦ-40 №1 на ПГ-1"], ["14:44", "АЛ-30 · спасание с 7 этажа"], ["14:51", "локализация"], ["15:08", "ликвидация"]];
 const tlEls = TL.map(([a, b]) => { const d = document.createElement("div"); d.className = "row"; d.style.cssText = "gap:16px;font-size:25px;opacity:0"; d.innerHTML = `<span class="mono tabular" style="font-weight:700;color:var(--accent);font-size:25px">${a}</span><span>${b}</span>`; $("#tl").appendChild(d); return d; });
 const PILOT = [
   ["M3 21h18M5 21V7l7-4 7 4v14", "Одна часть, три месяца — ПЧ-3"],
@@ -335,20 +345,22 @@ function buildMetrics() {
   const M = [
     { v: BLD.features.length, fmt: (x) => Math.round(x).toLocaleString("ru-RU"), l: "зданий на карте", at: ["city1", .15] },
     { v: tagged.filter((f) => f.properties.levels > 9).length, fmt: (x) => Math.round(x), l: "домов выше 9 этажей — вне досягаемости АЛ-30", at: ["city2", .0] },
-    { v: dr[Math.floor(dr.length / 2)] / 60, fmt: (x) => x.toFixed(1).replace(".", ",") + " мин", l: "медиана доезда ближайшей части", at: ["city2", .22] },
-    { v: 100 * dr.filter((x) => x <= 600).length / dr.length, fmt: (x) => Math.round(x) + " %", l: "зданий в пределах норматива 10 мин", at: ["city2", .3] },
+    { v: (dr[Math.floor(dr.length / 2)] + 120) / 60, fmt: (x) => x.toFixed(1).replace(".", ",") + " мин", l: "медиана расчётного прибытия*", at: ["city2", .22] },
+    { v: dr.filter((x) => x + 120 > 420).length, fmt: (x) => Math.round(x), l: "зданий с расчётным прибытием дольше 7 мин*", at: ["city2", .3] },
     { v: null, txt: "КТП", l: "карточки тушения — на пилоте, из реестра ДЧС", at: ["city2", .62], pilot: true },
     { v: null, txt: "ПГ · журнал", l: "гидранты и фактическое время прибытия — на пилоте", at: ["city2", .75], pilot: true },
   ];
+  const foot = document.createElement("div"); foot.style.cssText = "grid-column:1/-1;font-size:17px;color:#a0a0a8;line-height:1.35"; foot.textContent = "* доезд по дорогам + 2 мин на приём вызова и выезд, без пробок";
   MET = M.map((m) => { const d = document.createElement("div"); d.className = "metric" + (m.pilot ? " pilot" : ""); d.innerHTML = `<div class="v tabular">${m.txt || ""}</div><div class="l">${m.l}</div>`; $("#metrics").appendChild(d); return { ...m, el: d, vEl: d.querySelector(".v") }; });
+  $("#metrics").appendChild(foot);
 }
 function legend(kind) {
   const sets = {
     1: [["#3a3a45", "до 4 этажей"], ["#6f7fa8", "5–9 этажей"], ["#ff8c1a", "выше 9"]],
     15: [["#ff8c1a", "выше 9 этажей — вне досягаемости АЛ-30"]],
-    2: [["#2fce7e", "до 5 мин"], ["#ffd029", "5–7 мин"], ["#ff8c1a", "7–10 мин"], ["#ff453a", "больше 10 мин (норматив)"]],
+    2: [["#2fce7e", "до 6 мин"], ["#ffd029", "6–7 мин"], ["#ff8c1a", "7–8 мин"], ["#ff453a", "больше 8 мин"]],
   };
-  if ($("#legend").dataset.k !== String(kind)) { $("#legend").innerHTML = sets[kind].map(([c, t]) => `<span><i style="background:${c}"></i>${t}</span>`).join(""); $("#legend").dataset.k = kind; }
+  if ($("#legend").dataset.k !== String(kind)) { $("#legend").innerHTML = (kind === 2 ? `<span style="color:#ededf0;font-weight:600">Расчётное прибытие:</span>` : "") + sets[kind].map(([c, t]) => `<span><i style="background:${c}"></i>${t}</span>`).join(""); $("#legend").dataset.k = kind; }
 }
 
 /* ============ дым и искры (детерминированно от t) ============ */
@@ -363,11 +375,12 @@ function smoke(t, intensity, white) {
     const x = lerp(FIRE_X[0] + 2, FIRE_X[1] - 2, hash(i + 50)) + f * 9, y = wallN(25) + 1.5 + f * 4;
     const h = 15 + f * 26 + hash(i + 9) * 3;
     const p = map.project(L(x, y)), py = p.y - h / mpp * sp, r = (2.5 + f * 9) / mpp;
-    const a = intensity * .55 * Math.sin(Math.PI * clamp(f * 1.15));
+    const a = intensity * (white ? .55 : .75) * Math.sin(Math.PI * clamp(f * 1.15));
     const g = fx.createRadialGradient(p.x, py, 0, p.x, py, r);
-    const c = white ? "225,225,232" : "150,150,160";
+    const c = white ? "225,225,232" : "38,38,44";
     g.addColorStop(0, `rgba(${c},${a})`); g.addColorStop(1, `rgba(${c},0)`);
     fx.fillStyle = g; fx.beginPath(); fx.arc(p.x, py, r, 0, 7); fx.fill();
+    if (!white) { const g2 = fx.createRadialGradient(p.x - r * .2, py - r * .2, 0, p.x, py, r * .6); g2.addColorStop(0, `rgba(90,90,98,${a * .7})`); g2.addColorStop(1, "rgba(90,90,98,0)"); fx.fillStyle = g2; fx.beginPath(); fx.arc(p.x, py, r * .6, 0, 7); fx.fill(); }
   }
   if (white) return;
   for (let i = 0; i < 14; i++) { // искры
@@ -397,8 +410,8 @@ window.renderAt = function (t) {
   const fireOn = t < S("city1").start ? 1 - out : 0;
   map.setPaintProperty("fire5", "fill-extrusion-opacity", fireOn * pulse);
   map.setPaintProperty("fire5", "fill-extrusion-color", pulse > .92 ? "#ffb020" : "#ff453a");
-  map.setPaintProperty("glow", "circle-opacity", fireOn * .45 * pulse);
-  map.setPaintProperty("glow", "circle-radius", ["interpolate", ["linear"], ["zoom"], 15, 18 * pulse, 18, 70 + 30 * pulse, 19, 130 + 40 * pulse]);
+  map.setPaintProperty("glow", "circle-opacity", fireOn * .5 * pulse);
+  map.setPaintProperty("glow", "circle-radius", ["interpolate", ["linear"], ["zoom"], 15, 27 * pulse, 18, 105 + 45 * pulse, 19, 195 + 60 * pulse]);
   smoke(t, (fireOn + (out > 0 && out < 1 ? .6 * (1 - out) : 0)) * (1 + spread * .8) * (t < S("call").start + .4 ? 0 : 1), out > .05);
 
   /* машина */
@@ -464,13 +477,13 @@ window.renderAt = function (t) {
   // подписи: текущий шаг — ярко, прошлые — приглушённо
   const curStep = STEPS.reduce((c, [id, a], j) => (fw && after(t, id) && t >= S(id).start + a * S(id).voice ? j : c), -1);
   const L_ = (step, id, a) => vis(id, a) * (t < S("dep5").start + 1 ? 1 : 0) * (curStep === step ? 1 : .6);
-  place(tag("l-ac1", T("АЦ-40 №1", "#ff5a1f")), L(...AC1.at), 5, L_(2, "dep1", .0), 50);
-  place(tag("l-split", T("РТ-70", "#ededf0")), L(...SPLIT), 1, L_(2, "dep1", .55), -40);
-  place(tag("l-s1", T("РСК-50 · 5 эт.", "#ff453a", "#fff", "звено №1 · тушение")), L(13, wallN(13)), 15, L_(1, "dep1", .45), -30);
-  place(tag("l-s2", T("РСК-50 · 6 эт.", "#ff8c1a", "#0a0a0b", "звено №2 · защита")), L(19, wallN(19)), 21, L_(3, "dep2", .4), 40);
-  place(tag("l-post", T("пост безопасности ГДЗС", "#3d9bff", "#0a0a0b", "резервное звено")), L(0, 33), 1, L_(4, "dep2", .7), -120);
-  place(tag("l-al", T("АЛ-30 · ПЧ-2", "#ffd029", "#0a0a0b", "спасание 6–9 эт.")), L(...AL.at), 5, L_(5, "dep3", .15), 30);
-  place(tag("l-ac2", T("АЦ-40 №2", "#ff5a1f", "#0a0a0b", "резервная линия")), L(...AC2.at), 5, L_(6, "dep3", .7), 60);
+  { const q = map.project(L(...AC1.at)); place(tag("l-ac1", T("АЦ-40 №1", "#ff5a1f")), L(...AC1.at), 5, q.x > 1180 ? 0 : L_(2, "dep1", .0), 50); }
+  place(tag("l-split", T("РТ-70", "#ededf0")), L(...SPLIT), 1, after(t, "dep2") && t > S("dep2").start + .7 * S("dep2").voice ? 0 : L_(2, "dep1", .55), -40);
+  place(tag("l-s1", T("РСК-50 · 5 эт.", "#ff453a", "#fff", "звено №1 · тушение, обеспечение спасания")), L(13, wallN(13)), 15, L_(1, "dep1", .45), -30);
+  place(tag("l-s2", T("РСК-50 · 6 эт.", "#ff8c1a", "#0a0a0b", "звено №2 · защита, поиск людей 6–9 эт.")), L(19, wallN(19)), 21, L_(3, "dep2", .4), 40);
+  place(tag("l-post", T("пост безопасности ГДЗС", "#3d9bff", "#0a0a0b", "резервное звено")), L(0, 33), 1, L_(4, "dep2", .7), -190);
+  place(tag("l-al", T("АЛ-30 · ПЧ-2", "#ffd029", "#0a0a0b", "спасание 6–9 эт.")), L(...AL.at), 5, L_(5, "dep3", .15), -60);
+  place(tag("l-ac2", T("АЦ-40 №2", "#ff5a1f", "#0a0a0b", "резервная линия")), L(...AC2.at), 12, L_(6, "dep3", .7), 0);
   place(tag("l-stab", T("Штаб РТП", "#ededf0")), L(...STAB), 2, L_(7, "dep4", 0));
   place(tag("l-smoke", T("дымоудаление ЛК", "#8b8b94", "#0a0a0b")), L(9, wallN(9)), 30, L_(8, "dep4", .45), -60);
   place(tag("l-fire", T("очаг · 5 этаж", "#ff453a", "#fff")), L(25, wallN(25)), 17, (part === "now" && after(t, "call")) ? P(t, S("call").start + 1.2, .6) * (inScene(t, "now2") || inScene(t, "now3") ? 0 : 1) : 0);
@@ -489,10 +502,13 @@ window.renderAt = function (t) {
   const grow = mode ? eo(clamp((t - modeT0) / 1.1)) : 1;
   map.setPaintProperty("b3d", "fill-extrusion-color", mode === 1 ? ["step", ["get", "levels"], "#3a3a45", 5, "#6f7fa8", 10, "#ff8c1a"]
     : mode === 15 ? ["step", ["get", "levels"], "#26262d", 10, "#ff8c1a"]
-    : mode === 2 ? ["case", ["==", ["get", "drive_s"], null], "#3a3a45", ["step", ["get", "drive_s"], "#2fce7e", 300, "#ffd029", 420, "#ff8c1a", 600, "#ff453a"]]
+    : mode === 2 ? ["case", ["==", ["get", "drive_s"], null], "#3a3a45", ["step", ["get", "drive_s"], "#2fce7e", 240, "#ffd029", 300, "#ff8c1a", 360, "#ff453a"]]
     : "#3a3a45");
   map.setPaintProperty("b3d", "fill-extrusion-height", ["*", ["get", "levels"], 3.2 * (mode ? lerp(.15, 1, grow) : 1)]);
   if (mode) legend(mode);
+  const tp = (t * 1.5) % 1;
+  map.setPaintProperty("tall", "circle-radius", 12 + 22 * tp);
+  map.setPaintProperty("tall", "circle-opacity", mode === 15 ? .8 * (1 - tp) : 0);
   if (part === "city") map.setPaintProperty("st-city", "circle-opacity", K(t, "city1", .2, .4)); else map.setPaintProperty("st-city", "circle-opacity", 0);
   place(tag("l-st3", T("ПЧ-3", "#3d9bff")), STATION, 4, part === "city" ? K(t, "city1", .2, .4) : 0);
   place(tag("l-st2", T("ПЧ-2", "#3d9bff")), STATION2, 4, part === "city" ? K(t, "city1", .2, .4) : 0);
@@ -508,7 +524,7 @@ window.renderAt = function (t) {
   else if (part === "fw") m = !after(t, "fw3") ? lerp(32, 33, after(t, "fw2") ? K(t, "fw2") : 0) : inScene(t, "fw3") ? lerp(33, 37, K(t, "fw3", 0, .6)) : inScene(t, "dep1") ? lerp(37, 39, K(t, "dep1", 0, .6)) : inScene(t, "dep2") ? lerp(39, 41, K(t, "dep2")) : inScene(t, "dep3") ? lerp(41, 44, K(t, "dep3")) : 44;
   $("#clock-t").textContent = `14:${String(Math.floor(m)).padStart(2, "0")}`;
   const firstStream = (part === "now" && inScene(t, "now4") && m >= 42) || (inScene(t, "dep1") && m >= 39 && K(t, "dep1") < .9);
-  $("#clock-t").style.color = part === "now" && inScene(t, "now4") ? "var(--critical)" : firstStream ? "var(--normal)" : "var(--fg)";
+  $("#clock-t").style.color = part === "now" && inScene(t, "now4") ? "var(--critical)" : "var(--fg)";
   $("#clock").style.opacity = part === "now" || (part === "fw" && t < S("dep5").start) ? P(t, S("call").start, .5) : 0;
 
   rise($("#c-call"), inScene(t, "call") ? P(t, S("call").start + .2, .5) : 0);
@@ -518,15 +534,17 @@ window.renderAt = function (t) {
   unkEls.forEach((u, j) => { u.style.opacity = inScene(t, "now3") ? P(t, S("now3").start + S("now3").voice * (.35 + j * .16), .4) : 0; });
   rise($("#c-dispatch"), inScene(t, "fw1") ? P(t, S("fw1").start + .3, .5) : 0);
   const ADDR = "ул. Сабатаева · жилой дом, 9 эт.";
-  $("#addr").textContent = ADDR.slice(0, Math.round(ADDR.length * (inScene(t, "fw1") ? K(t, "fw1", .15, .35, (x) => x) : 1)));
-  ["#d1", "#d2", "#d3"].forEach((id, j) => { $(id).style.opacity = inScene(t, "fw1") ? K(t, "fw1", .5 + j * .12, .6 + j * .12) : 0; });
+  $("#addr").textContent = ADDR.slice(0, Math.round(ADDR.length * (inScene(t, "fw1") ? K(t, "fw1", .05, .25, (x) => x) : 1)));
+  ["#d1", "#d2", "#d3"].forEach((id, j) => { $(id).style.opacity = inScene(t, "fw1") ? K(t, "fw1", .3 + j * .08, .38 + j * .08) : 0; });
   rise($("#c-pack"), inScene(t, "fw2") ? P(t, S("fw2").start + .2, .5) : 0);
   const depOn = fw && after(t, "dep1") && t < S("dep5").start;
   rise($("#c-deploy"), depOn ? P(t, S("dep1").start + .1, .5) : 0);
-  stepEls.forEach((e, j) => { const [id, a] = STEPS[j]; const shown = fw && after(t, id) && t >= S(id).start + a * S(id).voice; e.style.display = shown ? "flex" : "none"; e.classList.toggle("on", j === curStep); e.style.opacity = j === curStep ? 1 : .6; });
+  stepEls.forEach((e, j) => { const [id, a] = STEPS[j]; const shown = fw && after(t, id) && t >= S(id).start + a * S(id).voice && j > curStep - 4; e.style.display = shown ? "flex" : "none"; e.classList.toggle("on", j === curStep); e.style.opacity = j === curStep ? 1 : .6; });
+  const folded = Math.max(0, curStep - 3);
+  $("#stepsum").style.display = folded ? "block" : "none"; $("#stepsum").textContent = folded ? `✓ шаги 1–${folded} выполнены` : "";
   $("#offline").style.opacity = after(t, "dep4") ? K(t, "dep4", .55, .7) : 0;
-  $("#note").textContent = inScene(t, "fw3") || (fw && after(t, "dep1") && t < S("dep5").start) ? "Гидранты, отметки проверки и расписание выезда — пример. На пилоте — реестр водоканала и ДЧС." : "";
-  $("#note").style.opacity = $("#note").textContent ? (inScene(t, "fw3") ? K(t, "fw3", .6, .72) : 1) : 0;
+  $("#note").textContent = inScene(t, "fw3") || (inScene(t, "dep1") && K(t, "dep1", 0, 1, (x) => x) < .45) ? "Гидранты, отметки проверки и расписание выезда — пример. На пилоте — реестр водоканала и ДЧС." : "";
+  $("#note").style.opacity = $("#note").textContent ? (inScene(t, "fw3") ? K(t, "fw3", .6, .72) : 1 - K(t, "dep1", .35, .45)) : 0;
   rise($("#c-compare"), inScene(t, "dep5") ? K(t, "dep5", 0, .08) : 0);
   rise($("#c-report"), inScene(t, "dep5") ? K(t, "dep5", .38, .46) : 0);
   tlEls.forEach((e, j) => { e.style.opacity = inScene(t, "dep5") ? K(t, "dep5", .42 + j * .07, .48 + j * .07) : 0; });
@@ -541,7 +559,7 @@ window.renderAt = function (t) {
     mm.el.style.display = on ? "block" : "none";
     mm.el.classList.toggle("hot", j === hot && !inScene(t, "city3"));
     mm.el.style.opacity = j === hot || inScene(t, "city3") ? 1 : .6;
-    if (mm.v != null) mm.vEl.textContent = mm.fmt(mm.v * eo(clamp((t - st) / 1.2)));
+    if (mm.v != null) mm.vEl.textContent = mm.fmt(mm.v * eo(clamp((t - st) / .6)));
   });
   rise($("#c-pilot"), inScene(t, "pilot") ? P(t, S("pilot").start, .6) : 0, 0);
   $("#c-pilot").style.transform = "translate(-50%,-50%)";
@@ -586,7 +604,7 @@ async function init() {
   map.addSource("glow", { type: "geojson", data: { type: "Feature", geometry: { type: "Point", coordinates: L(25, wallN(25) + 8) } } });
   map.addLayer({ id: "glow", type: "circle", source: "glow", paint: { "circle-color": "#ff5a1f", "circle-radius": 50, "circle-blur": 1, "circle-opacity": 0, "circle-pitch-alignment": "map" } });
   map.addSource("t", { type: "geojson", data: bld.features[TARGET_ID] });
-  map.addLayer({ id: "target", type: "fill-extrusion", source: "t", paint: { "fill-extrusion-color": "#6a6a78", "fill-extrusion-height": 9 * 3.2, "fill-extrusion-opacity": 1 } });
+  map.addLayer({ id: "target", type: "fill-extrusion", source: "t", paint: { "fill-extrusion-color": "#56565f", "fill-extrusion-height": 9 * 3.2, "fill-extrusion-opacity": 1 } });
   map.addSource("f5", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: sect(...FIRE_X) } } });
   map.addLayer({ id: "fire5", type: "fill-extrusion", source: "f5", paint: { "fill-extrusion-color": "#ff453a", "fill-extrusion-base": 12.6, "fill-extrusion-height": 16.2, "fill-extrusion-opacity": 0 } });
   map.addSource("route", { type: "geojson", data: line0 });
@@ -614,6 +632,9 @@ async function init() {
   map.addLayer({ id: "ring", type: "circle", source: "ring", paint: { "circle-color": "rgba(0,0,0,0)", "circle-radius": 10, "circle-stroke-color": "#ff453a", "circle-stroke-width": 4, "circle-stroke-opacity": 0 } });
   map.addSource("st-city", { type: "geojson", data: { type: "FeatureCollection", features: [STATION, STATION2].map((c) => ({ type: "Feature", geometry: { type: "Point", coordinates: c } })) } });
   map.addLayer({ id: "st-city", type: "circle", source: "st-city", paint: { "circle-color": "#3d9bff", "circle-radius": 10, "circle-stroke-color": "#0a0a0b", "circle-stroke-width": 3, "circle-opacity": 0 } });
+  const tall = bld.features.filter((f) => f.properties.tagged && f.properties.levels > 9).map((f) => { const r = f.geometry.coordinates[0]; return { type: "Feature", geometry: { type: "Point", coordinates: [r.reduce((q, p) => q + p[0], 0) / r.length, r.reduce((q, p) => q + p[1], 0) / r.length] } }; });
+  map.addSource("tall", { type: "geojson", data: { type: "FeatureCollection", features: tall } });
+  map.addLayer({ id: "tall", type: "circle", source: "tall", paint: { "circle-color": "#ff8c1a", "circle-radius": 12, "circle-blur": .6, "circle-opacity": 0 } });
   map.addSource("truck", { type: "geojson", data: empty });
   map.addLayer({ id: "truck-halo", type: "circle", source: "truck", paint: { "circle-color": "#ff5a1f", "circle-radius": 24, "circle-opacity": .2 } });
   map.addLayer({ id: "truck", type: "circle", source: "truck", paint: { "circle-color": "#ffffff", "circle-radius": 11, "circle-stroke-color": "#ff5a1f", "circle-stroke-width": 5 } });
