@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>FireWatch — Кокшетау 3D</title>
+<!--
+  3D-проезд по Кокшетау для презентации: реальные здания OSM с адресами и этажностью
+  (buildings.geojson из OSM API), реальная ПЧ-3, маршрут OSRM. Гидранты — условные:
+  в OSM по Кокшетау они не нанесены (на пилоте — реестр водоканала / ДЧС).
+  Камера — чистая функция времени: window.renderAt(t) (для покадровой записи render.mjs).
+  Превью: index.html?play  или  index.html?t=20
+-->
+<link rel="stylesheet" href="maplibre-gl.css">
+<style>
+@font-face { font-family: Inter; src: url(fonts/inter-cyrillic-wght-normal.woff2) format("woff2"); font-weight: 100 900; unicode-range: U+0400-045F,U+2116; }
+@font-face { font-family: Inter; src: url(fonts/inter-latin-wght-normal.woff2) format("woff2"); font-weight: 100 900; }
+@font-face { font-family: JB; src: url(fonts/jetbrains-mono-cyrillic-500-normal.woff2) format("woff2"); unicode-range: U+0400-045F; }
+@font-face { font-family: JB; src: url(fonts/jetbrains-mono-latin-500-normal.woff2) format("woff2"); }
+:root { --bg:#0a0a0b; --surface:#121215; --surface-2:#1a1a1f; --border:#27272d; --muted:#8b8b94; --faint:#84848b; --fg:#ededf0;
+  --accent:#ff5a1f; --accent-weak:#2a1209; --critical:#ff453a; --critical-bg:#2a100e; --info:#3d9bff; --info-bg:#0c1d2b; --normal:#2fce7e; --normal-bg:#0c2418; --elevated:#ffd029; --elevated-bg:#292309; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); color: var(--fg); font-family: Inter, sans-serif; -webkit-font-smoothing: antialiased; }
+#map { position: absolute; inset: 0; }
+.mono { font-family: JB, monospace; }
+.tabular { font-variant-numeric: tabular-nums; }
+.card { background: rgba(18,18,21,.92); border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 30px 80px -20px rgba(0,0,0,.8); backdrop-filter: blur(8px); }
+.eyebrow { font: 600 18px/1 Inter; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); }
+.chip { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 999px; font: 600 18px/1 Inter; }
+svg.i { width: 1em; height: 1em; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#brand { position: absolute; left: 56px; top: 44px; display: flex; align-items: center; gap: 14px; font: 700 26px/1 Inter; text-shadow: 0 2px 12px rgba(0,0,0,.8); }
+#brand .mark { width: 38px; height: 38px; border-radius: 10px; background: var(--accent); display: grid; place-items: center; color: #0a0a0b; }
+#title { position: absolute; left: 56px; top: 120px; }
+#title .h { font: 700 76px/1.02 Inter; letter-spacing: -.03em; text-shadow: 0 4px 30px rgba(0,0,0,.8); }
+#title .s { font: 500 28px/1.3 Inter; color: #c9c9d0; margin-top: 14px; text-shadow: 0 2px 16px rgba(0,0,0,.9); }
+#hud { position: absolute; left: 56px; bottom: 150px; width: 470px; padding: 26px; }
+#panel { position: absolute; right: 56px; top: 120px; width: 560px; padding: 30px; }
+.kv { display: flex; font-size: 24px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.kv span:first-child { color: var(--muted); }
+.kv span:last-child { margin-left: auto; font-weight: 600; text-align: right; }
+#caption { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); max-width: 1500px; text-align: center; font: 500 30px/1.3 Inter; padding: 12px 28px; border-radius: 12px; background: rgba(10,10,11,.78); }
+#attrib { position: absolute; right: 16px; bottom: 10px; font: 500 15px/1 JB; color: #9a9aa3; text-shadow: 0 1px 4px #000; }
+.lbl { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; pointer-events: none; }
+.pin { font: 700 18px/1 Inter; padding: 8px 12px; border-radius: 10px; color: #0a0a0b; box-shadow: 0 6px 20px rgba(0,0,0,.6); }
+.addr { font: 600 17px/1 Inter; padding: 6px 10px; border-radius: 8px; background: rgba(10,10,11,.85); border: 1px solid var(--border); color: var(--fg); }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="labels" style="position:absolute;inset:0;pointer-events:none"></div>
+<div id="brand"><span class="mark"><svg class="i" viewBox="0 0 24 24" style="width:24px;height:24px;stroke-width:2.4"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg></span>FireWatch</div>
+<div id="title"><div class="h">Кокшетау</div><div class="s" id="title-s"></div></div>
+<div id="hud" class="card">
+  <div class="eyebrow">Боевой выезд</div>
+  <div style="font-size:26px;font-weight:650;margin-top:12px">ПЧ-3 → ул. Сабатаева, 82</div>
+  <div style="display:flex;gap:30px;margin-top:20px">
+    <div><div style="color:var(--muted);font-size:18px">осталось</div><div class="tabular mono" style="font-size:44px;font-weight:700" id="hud-km">3,4 км</div></div>
+    <div><div style="color:var(--muted);font-size:18px">в пути</div><div class="tabular mono" style="font-size:44px;font-weight:700" id="hud-time">0:00</div></div>
+  </div>
+  <div style="color:var(--faint);font-size:16px;margin-top:10px" class="mono">маршрут OSRM · время ускорено</div>
+</div>
+<div id="panel" class="card">
+  <div style="display:flex;align-items:center;gap:12px"><span class="eyebrow">Боевой пакет</span><span class="chip" style="margin-left:auto;background:var(--critical-bg);color:var(--critical)">объект вызова</span></div>
+  <div style="font-size:34px;font-weight:700;margin-top:16px;letter-spacing:-.01em">ЖК «Капитал»</div>
+  <div style="font-size:24px;color:var(--muted);margin-top:6px">ул. Сабатаева, 82</div>
+  <div style="margin-top:18px">
+    <div class="kv"><span>Этажность</span><span class="tabular">9</span></div>
+    <div class="kv"><span>Назначение</span><span>жилой, многоквартирный</span></div>
+    <div class="kv"><span>Ближайшая ПЧ</span><span>ПЧ-3 · 3,4 км · 5 мин</span></div>
+    <div class="kv" id="kv-hyd"><span>Гидранты рядом</span><span class="tabular">3 · 60–140 м*</span></div>
+    <div class="kv" style="border:0"><span>План тушения (ПТП)</span><span style="color:var(--elevated)">не оцифрован</span></div>
+  </div>
+  <div style="font-size:16px;color:var(--faint);margin-top:12px;line-height:1.35">* гидранты условные: в OpenStreetMap по Кокшетау они не нанесены — на пилоте берутся из реестра водоканала и ДЧС</div>
+</div>
+<div id="caption"></div>
+<div id="attrib">© OpenStreetMap contributors · © OpenMapTiles · OpenFreeMap</div>
+
+<script src="maplibre-gl.js"></script>
+<script>
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, k) => a + (b - a) * k;
+const eo = (k) => 1 - Math.pow(1 - k, 3);
+const eio = (k) => (k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
+const P = (t, s, d, f = eo) => f(clamp((t - s) / d));
+const $ = (s) => document.querySelector(s);
+
+const STATION = [69.3919072, 53.2955771];
+const TARGET = [69.37820562, 53.27880074];
+/* Условные гидранты: на проезжей части у объекта, 60–140 м. */
+const HYDRANTS = [[69.3791, 53.27935], [69.3768, 53.2785], [69.3796, 53.2779]];
+
+let ROUTE = [], ROUTE_LEN = [], TOTAL = 0, map, ready = false, TARGET_ID = null;
+const R = 6371000, rad = Math.PI / 180;
+const dist = (a, b) => { const x = (b[0] - a[0]) * rad * Math.cos((a[1] + b[1]) / 2 * rad), y = (b[1] - a[1]) * rad; return Math.hypot(x, y) * R; };
+const bearing = (a, b) => Math.atan2((b[0] - a[0]) * Math.cos(a[1] * rad), b[1] - a[1]) / rad;
+function along(k) {
+  const d = k * TOTAL;
+  for (let i = 1; i < ROUTE.length; i++) if (ROUTE_LEN[i] >= d) {
+    const f = (d - ROUTE_LEN[i - 1]) / (ROUTE_LEN[i] - ROUTE_LEN[i - 1] || 1);
+    return [lerp(ROUTE[i - 1][0], ROUTE[i][0], f), lerp(ROUTE[i - 1][1], ROUTE[i][1], f)];
+  }
+  return ROUTE[ROUTE.length - 1];
+}
+/* Сглаженное направление: смотрим на 180 м вперёд, чтобы камера не дёргалась на изломах. */
+function heading(k) { const a = along(k), b = along(Math.min(1, k + 180 / TOTAL)); return bearing(a, b); }
+const angLerp = (a, b, k) => { let d = ((b - a + 540) % 360) - 180; return a + d * k; };
+
+/* ---------- сценарий камеры ---------- */
+const T = { overview: 0, toStation: 5, drive: 9, driveEnd: 27, arrive: 29, end: 42 };
+const CAPTIONS = [
+  [0.3, 5.7, "Кокшетау в FireWatch. Реальные здания города — с адресами и этажностью."],
+  [5.7, 10, "Вызов. Наряд выезжает из пожарной части №3."],
+  [10, 27, "Маршрут строится по улицам города, и время в пути известно ещё до выезда."],
+  [28, 34.3, "Объект вызова — девятиэтажный жилой дом на улице Сабатаева."],
+  [34.5, 42, "Караул заранее видит этажность, ближайшие гидранты и есть ли план тушения."],
+];
+function camera(t) {
+  const over = { center: [69.3855, 53.2885], zoom: 14.3, pitch: 35, bearing: -15 };
+  const st = { center: STATION, zoom: 16.6, pitch: 60, bearing: heading(0) };
+  if (t < T.toStation) {
+    const k = P(t, 0, T.toStation, eio);
+    return { center: [lerp(over.center[0], over.center[0] + .003, k), lerp(over.center[1], over.center[1] + .002, k)], zoom: 14.3 + .4 * k, pitch: 35 + 15 * k, bearing: -15 + 10 * k };
+  }
+  if (t < T.drive) {
+    const k = P(t, T.toStation, T.drive - T.toStation, eio);
+    const a = camera(T.toStation - 1e-6);
+    return { center: [lerp(a.center[0], st.center[0], k), lerp(a.center[1], st.center[1], k)], zoom: lerp(a.zoom, st.zoom, k), pitch: lerp(a.pitch, st.pitch, k), bearing: angLerp(a.bearing, st.bearing, k) };
+  }
+  if (t < T.arrive) {
+    const k = P(t, T.drive, T.driveEnd - T.drive, eio);
+    const pos = along(k);
+    const zoomOut = Math.sin(clamp(k) * Math.PI) * 1.1; // в середине пути камера приподнимается
+    const endK = P(t, T.driveEnd, T.arrive - T.driveEnd, eio);
+    const h = heading(Math.min(k, .985));
+    return { center: [lerp(pos[0], TARGET[0], endK), lerp(pos[1], TARGET[1], endK)], zoom: 16.6 - zoomOut + endK * .6, pitch: 60 + endK * 2, bearing: h + endK * 20 };
+  }
+  // облёт объекта
+  const a = camera(T.arrive - 1e-6);
+  const k = (t - T.arrive) / (T.end - T.arrive);
+  return { center: TARGET, zoom: a.zoom, pitch: 62, bearing: a.bearing + k * 110 };
+}
+
+/* ---------- метки в экранных координатах ---------- */
+const labelsEl = $("#labels");
+function label(id, html, cls) { let n = document.getElementById(id); if (!n) { n = document.createElement("div"); n.id = id; n.className = "lbl " + cls; n.innerHTML = html; labelsEl.appendChild(n); } return n; }
+function place(n, lnglat, alt, op) {
+  const p = map.project(lnglat); n.style.left = p.x + "px"; n.style.top = (p.y - (alt || 0)) + "px"; n.style.opacity = op;
+}
+let ADDR_SAMPLES = [];
+
+window.renderAt = function (t) {
+  const cam = camera(t);
+  map.jumpTo(cam);
+  // грузовик и пройденная часть маршрута
+  const k = P(t, T.drive, T.driveEnd - T.drive, eio);
+  const pos = t < T.drive ? STATION : along(k);
+  map.getSource("truck").setData({ type: "Feature", geometry: { type: "Point", coordinates: pos } });
+  const done = [];
+  for (let i = 0; i < ROUTE.length && ROUTE_LEN[i] <= k * TOTAL; i++) done.push(ROUTE[i]);
+  done.push(pos);
+  map.getSource("done").setData({ type: "Feature", geometry: { type: "LineString", coordinates: done.length > 1 ? done : [pos, pos] } });
+  map.setPaintProperty("route", "line-opacity", P(t, T.toStation + 1, 1) * .9);
+  map.setPaintProperty("hyd", "circle-opacity", P(t, T.arrive + 3, .8));
+  map.setPaintProperty("hyd", "circle-stroke-opacity", P(t, T.arrive + 3, .8));
+  const pulse = (t * 1.2) % 1;
+  map.setPaintProperty("hyd-halo", "circle-radius", 10 + pulse * 26);
+  map.setPaintProperty("hyd-halo", "circle-opacity", P(t, T.arrive + 3, .8) * .5 * (1 - pulse));
+  map.setPaintProperty("target", "fill-extrusion-opacity", .35 + .65 * P(t, T.driveEnd - 1, 1.2));
+
+  // оверлеи
+  $("#title").style.opacity = 1 - P(t, 4.2, .8);
+  $("#title-s").textContent = `${BUILDINGS_N.toLocaleString("ru-RU")} зданий центра · ${ADDR_N.toLocaleString("ru-RU")} с адресом · ${LEVELS_N.toLocaleString("ru-RU")} с этажностью`;
+  const hud = P(t, T.drive - .5, .6) * (1 - P(t, T.arrive + .5, .6));
+  $("#hud").style.opacity = hud; $("#hud").style.transform = `translateY(${(1 - hud) * 20}px)`;
+  $("#hud-km").textContent = ((1 - k) * TOTAL / 1000).toFixed(1).replace(".", ",") + " км";
+  const sec = Math.round(k * DURATION);
+  $("#hud-time").textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+  const pan = P(t, T.arrive + .8, .8);
+  $("#panel").style.opacity = pan; $("#panel").style.transform = `translateX(${(1 - pan) * 60}px)`;
+  const cap = CAPTIONS.find(([a, b]) => t >= a && t < b);
+  $("#caption").textContent = cap ? cap[2] : ""; $("#caption").style.opacity = cap ? 1 : 0;
+
+  place(label("l-st", "ПЧ-3", "pin"), STATION, 40, P(t, T.toStation - .5, .8) * (1 - P(t, T.drive + 3, .8)));
+  document.getElementById("l-st").style.background = "var(--info)";
+  place(label("l-tg", "Сабатаева, 82 · 9 эт.", "pin"), TARGET, 110, P(t, T.driveEnd - .5, .8));
+  document.getElementById("l-tg").style.background = "var(--critical)";
+  // адреса соседних зданий вдоль маршрута — показываем, что адресный слой реальный
+  ADDR_SAMPLES.forEach((s, i) => {
+    const vis = t > T.drive && t < T.arrive ? clamp(1 - dist(pos, s.c) / 260) : 0;
+    place(label("a" + i, s.addr, "addr"), s.c, s.h * 3.2 + 70, vis);
+  });
+};
+
+/* ---------- инициализация ---------- */
+let BUILDINGS_N = 0, ADDR_N = 0, LEVELS_N = 0, DURATION = 0;
+async function init() {
+  const [bld, route, style] = await Promise.all([
+    fetch("buildings.geojson").then((r) => r.json()),
+    fetch("route.json").then((r) => r.json()),
+    fetch("/ofm/styles/dark").then((r) => r.json()),
+  ]);
+  const rt = route.routes[0];
+  ROUTE = rt.geometry.coordinates; DURATION = rt.duration;
+  ROUTE_LEN = [0]; for (let i = 1; i < ROUTE.length; i++) ROUTE_LEN.push(ROUTE_LEN[i - 1] + dist(ROUTE[i - 1], ROUTE[i]));
+  TOTAL = ROUTE_LEN[ROUTE_LEN.length - 1];
+  BUILDINGS_N = bld.features.length;
+  ADDR_N = bld.features.filter((f) => f.properties.addr).length;
+  LEVELS_N = bld.features.filter((f) => f.properties.tagged).length;
+  // найти целевое здание (центроид ближе всего к TARGET)
+  let best = 1e9;
+  bld.features.forEach((f, i) => {
+    const r = f.geometry.coordinates[0]; const c = [r.reduce((s, p) => s + p[0], 0) / r.length, r.reduce((s, p) => s + p[1], 0) / r.length];
+    f.properties.c = c; f.id = i;
+    const d = dist(c, TARGET); if (d < best) { best = d; TARGET_ID = i; }
+  });
+  // адресные подписи: здания рядом с маршрутом, не чаще одной на 220 м
+  let lastD = -1e9;
+  for (let i = 0; i < ROUTE.length; i += 2) {
+    if (ROUTE_LEN[i] - lastD < 220) continue;
+    const near = bld.features.filter((f) => f.properties.addr && f.id !== TARGET_ID && dist(f.properties.c, ROUTE[i]) < 45).sort((a, b) => dist(a.properties.c, ROUTE[i]) - dist(b.properties.c, ROUTE[i]))[0];
+    if (near) { ADDR_SAMPLES.push({ addr: near.properties.addr.replace("улица ", "ул. ").replace("проспект ", "пр. "), c: near.properties.c, h: near.properties.levels }); lastD = ROUTE_LEN[i]; }
+  }
+  // базовый стиль OpenFreeMap: убираем его собственные здания — рисуем свои, из OSM с этажностью
+  style.layers = style.layers.filter((l) => !/building/.test(l.id));
+  // дороги чуть светлее — маршрут должен читаться как движение по реальной сетке улиц
+  style.layers.forEach((l) => { if (l.type === "line" && /highway|road|street|transportation|minor|major|motorway|trunk|primary|secondary|tertiary/.test(l.id) && !/casing|label|tunnel/.test(l.id)) { l.paint = { ...(l.paint || {}), "line-color": "#3b3b46" }; } });
+  map = new maplibregl.Map({ container: "map", style, center: [69.3855, 53.2885], zoom: 13.4, pitch: 20, bearing: -15,
+    interactive: false, attributionControl: false, fadeDuration: 0, preserveDrawingBuffer: true, maxPitch: 75 });
+  await new Promise((r) => map.on("load", r));
+  const tgt = bld.features[TARGET_ID];
+  map.addSource("b", { type: "geojson", data: { type: "FeatureCollection", features: bld.features.filter((f) => f.id !== TARGET_ID) } });
+  map.addSource("t", { type: "geojson", data: tgt });
+  map.addLayer({ id: "b3d", type: "fill-extrusion", source: "b", paint: {
+    "fill-extrusion-color": ["interpolate", ["linear"], ["get", "levels"], 1, "#2b2b33", 5, "#3a3a45", 12, "#4d4d5c"],
+    "fill-extrusion-height": ["*", ["get", "levels"], 3.2], "fill-extrusion-opacity": .92, "fill-extrusion-vertical-gradient": true } });
+  map.addLayer({ id: "target", type: "fill-extrusion", source: "t", paint: { "fill-extrusion-color": "#ff453a", "fill-extrusion-height": ["*", ["get", "levels"], 3.2], "fill-extrusion-opacity": 1 } });
+  map.addSource("route", { type: "geojson", data: { type: "Feature", geometry: rt.geometry } });
+  map.addLayer({ id: "route", type: "line", source: "route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ff5a1f", "line-width": 5, "line-opacity": 0, "line-dasharray": [1.2, 1.2] } });
+  map.addSource("done", { type: "geojson", data: { type: "Feature", geometry: { type: "LineString", coordinates: [STATION, STATION] } } });
+  map.addLayer({ id: "done", type: "line", source: "done", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ff5a1f", "line-width": 9 } });
+  map.addSource("hyd", { type: "geojson", data: { type: "FeatureCollection", features: HYDRANTS.map((c) => ({ type: "Feature", geometry: { type: "Point", coordinates: c } })) } });
+  map.addLayer({ id: "hyd-halo", type: "circle", source: "hyd", paint: { "circle-color": "#3d9bff", "circle-radius": 10, "circle-opacity": 0 } });
+  map.addLayer({ id: "hyd", type: "circle", source: "hyd", paint: { "circle-color": "#3d9bff", "circle-radius": 11, "circle-stroke-color": "#0a0a0b", "circle-stroke-width": 3, "circle-opacity": 0, "circle-stroke-opacity": 0 } });
+  map.addSource("truck", { type: "geojson", data: { type: "Feature", geometry: { type: "Point", coordinates: STATION } } });
+  map.addLayer({ id: "truck-halo", type: "circle", source: "truck", paint: { "circle-color": "#ff5a1f", "circle-radius": 26, "circle-opacity": .25 } });
+  map.addLayer({ id: "truck", type: "circle", source: "truck", paint: { "circle-color": "#ffffff", "circle-radius": 11, "circle-stroke-color": "#ff5a1f", "circle-stroke-width": 5 } });
+  ready = true;
+}
+/** Дождаться, пока кадр полностью отрисован: тайлы загружены, карта не в движении. */
+window.frameReady = () => new Promise((res) => {
+  // опрос, а не только 'idle': если кадр не отличается от предыдущего, карта не
+  // перерисовывается и события не будет. Потолок 15 с — на медленный тайл.
+  const t0 = performance.now();
+  const tick = () => {
+    if ((map.loaded() && map.areTilesLoaded() && !map.isMoving()) || performance.now() - t0 > 15000) {
+      map.triggerRepaint(); requestAnimationFrame(() => requestAnimationFrame(res));
+    } else requestAnimationFrame(tick);
+  };
+  tick();
+});
+window.initDone = init().then(() => { window.TOTAL_T = T.end; });
+const q = new URLSearchParams(location.search);
+window.initDone.then(async () => {
+  if (q.has("play")) { const t0 = performance.now(); const loop = () => { renderAt((performance.now() - t0) / 1000); requestAnimationFrame(loop); }; loop(); }
+  else if (q.has("t")) renderAt(parseFloat(q.get("t")));
+});
+</script>
+</body>
+</html>
