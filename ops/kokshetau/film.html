@@ -137,7 +137,7 @@ svg.i { width: 1em; height: 1em; stroke: currentColor; fill: none; stroke-width:
   <div class="eyebrow">Картина города · для руководства</div>
   <div id="metrics" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px"></div>
 </div>
-<div class="card" id="c-legend" style="left:56px;bottom:124px;padding:16px 20px"><div class="legend" id="legend"></div></div>
+<div class="card" id="c-legend" style="left:56px;bottom:160px;padding:16px 20px"><div class="legend" id="legend"></div></div>
 
 <!-- предложение -->
 <div class="card" id="c-pilot" style="left:50%;top:50%;width:1100px;padding:44px 52px;transform:translate(-50%,-50%)">
@@ -303,10 +303,10 @@ function camAt(t, i) {
 const labels = $("#labels");
 function tag(id, html) { let n = document.getElementById(id); if (!n) { n = document.createElement("div"); n.id = id; n.className = "lbl"; labels.appendChild(n); } if (n.dataset.h !== html) { n.innerHTML = html; n.dataset.h = html; } return n; }
 /** altM — высота над землёй в метрах (переводится в пиксели по масштабу и наклону) */
-function place(n, ll, altM, op, dx = 0) {
+function place(n, ll, altM, op, dx = 0, minTop = 0) {
   const p = map.project(ll), mpp = 78271.517 * Math.cos(ll[1] * rad) / 2 ** map.getZoom();
   const px = altM / mpp * Math.sin(map.getPitch() * rad) + 14;
-  n.style.left = p.x + dx + "px"; n.style.top = p.y - px + "px";
+  n.style.left = p.x + dx + "px"; n.style.top = Math.max(minTop, p.y - px) + "px";
   n.style.opacity = op > .3 ? 1 : op / .3 * (op > .01 ? 1 : 0);
   n.style.filter = op > .3 && op < .95 ? "brightness(.45) saturate(.35)" : "none";
 
@@ -394,6 +394,7 @@ function smoke(t, intensity, white) {
 /* ============ кадр ============ */
 let map, TARGET_ID, lastMode = null, modeT0 = 0;
 window.renderAt = function (t) {
+  t = Math.min(t, TOTAL - 1e-3); // последний кадр — всегда заставка
   const idx0 = SC.findIndex((s) => t < s.end), idx = idx0 < 0 ? SC.length - 1 : idx0;
   const s = SC[idx], cam = camAt(t, idx);
   map.jumpTo({ center: cam.c, zoom: cam.z, pitch: cam.p, bearing: cam.b, padding: { left: cam.pl || 0, right: cam.pr || 0, top: 0, bottom: 0 } });
@@ -482,8 +483,8 @@ window.renderAt = function (t) {
   place(tag("l-s1", T("РСК-50 · 5 эт.", "#ff453a", "#fff", "звено №1 · тушение, обеспечение спасания")), L(13, wallN(13)), 15, L_(1, "dep1", .45), -30);
   place(tag("l-s2", T("РСК-50 · 6 эт.", "#ff8c1a", "#0a0a0b", "звено №2 · защита, поиск людей 6–9 эт.")), L(19, wallN(19)), 21, L_(3, "dep2", .4), 40);
   place(tag("l-post", T("пост безопасности ГДЗС", "#3d9bff", "#0a0a0b", "резервное звено")), L(0, 33), 1, L_(4, "dep2", .7), -190);
-  place(tag("l-al", T("АЛ-30 · ПЧ-2", "#ffd029", "#0a0a0b", "спасание 6–9 эт.")), L(...AL.at), 5, L_(5, "dep3", .15), -60);
-  place(tag("l-ac2", T("АЦ-40 №2", "#ff5a1f", "#0a0a0b", "резервная линия")), L(...AC2.at), 12, L_(6, "dep3", .7), 0);
+  place(tag("l-al", T("АЛ-30 · ПЧ-2", "#ffd029", "#0a0a0b", "спасание 6–9 эт.")), L(41, wallN(41) + 1.4), 23, L_(5, "dep3", .15), 0);
+  place(tag("l-ac2", T("АЦ-40 №2", "#ff5a1f", "#0a0a0b", "резервная линия")), L(...AC2.at), 5, L_(6, "dep3", .7), 90);
   place(tag("l-stab", T("Штаб РТП", "#ededf0")), L(...STAB), 2, L_(7, "dep4", 0));
   place(tag("l-smoke", T("дымоудаление ЛК", "#8b8b94", "#0a0a0b")), L(9, wallN(9)), 30, L_(8, "dep4", .45), -60);
   place(tag("l-fire", T("очаг · 5 этаж", "#ff453a", "#fff")), L(25, wallN(25)), 17, (part === "now" && after(t, "call")) ? P(t, S("call").start + 1.2, .6) * (inScene(t, "now2") || inScene(t, "now3") ? 0 : 1) : 0);
@@ -510,8 +511,8 @@ window.renderAt = function (t) {
   map.setPaintProperty("tall", "circle-radius", 12 + 22 * tp);
   map.setPaintProperty("tall", "circle-opacity", mode === 15 ? .8 * (1 - tp) : 0);
   if (part === "city") map.setPaintProperty("st-city", "circle-opacity", K(t, "city1", .2, .4)); else map.setPaintProperty("st-city", "circle-opacity", 0);
-  place(tag("l-st3", T("ПЧ-3", "#3d9bff")), STATION, 4, part === "city" ? K(t, "city1", .2, .4) : 0);
-  place(tag("l-st2", T("ПЧ-2", "#3d9bff")), STATION2, 4, part === "city" ? K(t, "city1", .2, .4) : 0);
+  place(tag("l-st3", T("ПЧ-3", "#3d9bff")), STATION, 4, part === "city" ? K(t, "city1", .2, .4) : 0, 0, 170);
+  place(tag("l-st2", T("ПЧ-2", "#3d9bff")), STATION2, 4, part === "city" ? K(t, "city1", .2, .4) : 0, 0, 170);
 
   /* оверлеи */
   const partEl = $("#part");
