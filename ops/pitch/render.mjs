@@ -106,6 +106,6 @@ tl.scenes.forEach((s, i) => {
 const mix = `${filters.join(";")};${tl.scenes.map((_, i) => `[a${i}]`).join("")}amix=inputs=${tl.scenes.length}:normalize=0,loudnorm=I=-16:TP=-1.5:LRA=11[aout]`;
 const final = path.join(OUT, "firewatch-dchs.mp4");
 execFileSync(FF, ["-y", "-loglevel", "error", "-i", silent, ...inputs, "-filter_complex", mix,
-  "-map", "0:v", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", final]);
+  "-map", "0:v", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-shortest", final]);
 console.log("готово:", final);
 writeFileSync(path.join(OUT, "timeline.json"), JSON.stringify(tl, null, 1));
