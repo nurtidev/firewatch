@@ -2,14 +2,14 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>FireWatch — выезд: сейчас и с FireWatch</title>
+<title>FireWatch — выезд: без данных и с данными</title>
 <!--
-  Ролик ~2,5 мин: один вызов «как сейчас» → тот же вызов с FireWatch (боевой пакет,
-  гидранты, расстановка сил) → картина города для руководства.
-  Камера и всё движение — функция времени renderAt(t); длительности сцен = длительности
-  озвучки (out/film-voice/durations.json), паузы между репликами 0,35 с.
-  Тактика и время на часах — иллюстрация; схема расстановки утверждается ДЧС.
-  Превью: film.html?t=60  ·  film.html?play
+  Ролик ~2,5 мин для руководства ДЧС (Кокшетау). Один вызов дважды: «без данных» →
+  «с данными» (расстановка сил на 3D-карте) → картина города → предложение пилота.
+  v2 — по итогам ревью РТП-тактика, питчера и моушн-дизайнера (out/review/r1).
+  Всё движение — функция времени renderAt(t); длина сцены = длина реплики + 0,35 с.
+  Сценарий, время, расписание выезда и отметки гидрантов — условные (так и подписано).
+  Превью: film.html?t=60 · film.html?play
 -->
 <link rel="stylesheet" href="maplibre-gl.css">
 <style>
@@ -23,110 +23,135 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); color: var(--fg); font-family: Inter, sans-serif; -webkit-font-smoothing: antialiased; }
 #map { position: absolute; inset: 0; }
+#fx { position: absolute; inset: 0; pointer-events: none; }
+#vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 50%, rgba(20,24,40,.12) 40%, rgba(0,0,0,.78) 100%); opacity: 0; }
 .mono { font-family: JB, monospace; } .tabular { font-variant-numeric: tabular-nums; }
-.card { position: absolute; background: rgba(18,18,21,.93); border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 30px 80px -20px rgba(0,0,0,.85); opacity: 0; }
-.eyebrow { font: 600 17px/1 Inter; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); }
-.chip { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 999px; font: 600 18px/1 Inter; white-space: nowrap; }
+.card { position: absolute; background: rgba(18,18,21,.94); border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 30px 80px -20px rgba(0,0,0,.85); opacity: 0; }
+.eyebrow { font: 600 19px/1 Inter; letter-spacing: .15em; text-transform: uppercase; color: var(--accent); }
+.chip { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border-radius: 999px; font: 600 18px/1 Inter; white-space: nowrap; }
 svg.i { width: 1em; height: 1em; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 .row { display: flex; align-items: center; }
-.kv { display: flex; font-size: 23px; padding: 11px 0; border-bottom: 1px solid var(--border); }
+.kv { display: flex; gap: 16px; font-size: 25px; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .kv span:first-child { color: var(--muted); } .kv span:last-child { margin-left: auto; font-weight: 600; text-align: right; }
-#brand { position: absolute; left: 56px; top: 44px; display: flex; align-items: center; gap: 14px; font: 700 26px/1 Inter; text-shadow: 0 2px 12px rgba(0,0,0,.8); }
-#brand .mark { width: 38px; height: 38px; border-radius: 10px; background: var(--accent); display: grid; place-items: center; color: #0a0a0b; }
-#part { position: absolute; left: 56px; top: 104px; height: 46px; padding: 0 20px; border-radius: 12px; display: flex; align-items: center; gap: 10px; font: 700 20px/1 Inter; letter-spacing: .12em; }
-#clock { position: absolute; right: 56px; top: 44px; text-align: right; text-shadow: 0 2px 14px rgba(0,0,0,.9); }
-#clock .t { font: 700 56px/1 JB; } #clock .n { font: 500 16px/1.4 JB; color: var(--faint); margin-top: 6px; }
-#caption { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); width: max-content; max-width: 1480px; text-align: center; font: 500 30px/1.3 Inter; padding: 12px 28px; border-radius: 12px; background: rgba(10,10,11,.8); }
+#brand { position: absolute; left: 56px; top: 44px; display: flex; align-items: center; gap: 14px; font: 700 28px/1 Inter; text-shadow: 0 2px 12px rgba(0,0,0,.8); }
+#brand .mark { width: 40px; height: 40px; border-radius: 10px; background: var(--accent); display: grid; place-items: center; color: #0a0a0b; }
+#part { position: absolute; left: 56px; top: 106px; height: 48px; padding: 0 20px; border-radius: 12px; display: flex; align-items: center; gap: 10px; font: 700 21px/1 Inter; letter-spacing: .12em; }
+#clock { position: absolute; right: 56px; top: 40px; text-align: right; text-shadow: 0 2px 14px rgba(0,0,0,.9); }
+#clock .t { font: 700 64px/1 JB; } #clock .n { font: 500 18px/1.4 JB; color: var(--faint); margin-top: 6px; }
+#caption { position: absolute; left: 50%; bottom: 38px; transform: translateX(-50%); width: max-content; max-width: 1500px; text-align: center; font: 500 32px/1.3 Inter; padding: 12px 28px; border-radius: 12px; background: rgba(10,10,11,.84); }
 #attrib { position: absolute; right: 14px; bottom: 8px; font: 500 14px/1 JB; color: #8a8a93; text-shadow: 0 1px 4px #000; }
+#note { position: absolute; left: 56px; bottom: 120px; font: 500 19px/1.35 JB; color: #b9b9c2; background: rgba(10,10,11,.8); padding: 10px 16px; border-radius: 10px; border: 1px solid var(--border); opacity: 0; max-width: 820px; }
 #fade { position: absolute; inset: 0; background: #0a0a0b; opacity: 0; pointer-events: none; }
 .lbl { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; pointer-events: none; opacity: 0; }
-.tag { font: 700 17px/1 Inter; padding: 7px 11px; border-radius: 9px; box-shadow: 0 6px 20px rgba(0,0,0,.6); display: flex; align-items: center; gap: 7px; }
-.tag small { font: 600 14px/1 Inter; opacity: .85; }
+.tag { font: 700 22px/1 Inter; padding: 9px 13px; border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.6); display: flex; align-items: center; gap: 9px; }
+.tag small { font: 600 17px/1 Inter; opacity: .85; }
 .q { font: 800 34px/1 Inter; width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: var(--elevated); color: #0a0a0b; box-shadow: 0 0 0 6px rgba(255,208,41,.25); }
-.step { display: flex; gap: 14px; align-items: flex-start; font-size: 21px; line-height: 1.3; padding: 10px 0; border-bottom: 1px solid var(--border); opacity: 0; }
-.step b { font: 700 16px/1 JB; min-width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: var(--accent-weak); color: var(--accent); }
-.metric { background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; opacity: 0; }
-.metric .v { font: 750 52px/1 Inter; letter-spacing: -.03em; } .metric .l { font-size: 19px; color: var(--muted); margin-top: 8px; line-height: 1.3; }
-.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 18px; color: var(--muted); }
-.legend i { display: inline-block; width: 16px; height: 16px; border-radius: 4px; margin-right: 7px; vertical-align: -2px; }
+.step { display: none; gap: 14px; align-items: flex-start; font-size: 23px; line-height: 1.3; padding: 11px 12px; border-radius: 10px; border-left: 3px solid transparent; }
+.step b { font: 700 17px/1 JB; min-width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--accent-weak); color: var(--accent); flex: none; }
+.step.on { background: var(--accent-weak); border-left-color: var(--accent); }
+.metric { background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; display: none; }
+.metric.hot { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.metric.pilot { border-style: dashed; background: transparent; }
+.metric .v { font: 750 54px/1 Inter; letter-spacing: -.03em; } .metric .l { font-size: 22px; color: var(--muted); margin-top: 8px; line-height: 1.3; }
+.legend { display: flex; gap: 20px; flex-wrap: wrap; font-size: 22px; color: #c9c9d0; }
+.legend i { display: inline-block; width: 20px; height: 20px; border-radius: 5px; margin-right: 8px; vertical-align: -3px; }
 </style>
 </head>
 <body>
 <div id="map"></div>
+<canvas id="fx" width="1920" height="1080"></canvas>
+<div id="vignette"></div>
 <div id="labels" style="position:absolute;inset:0;pointer-events:none"></div>
+<div id="fade"></div>
 
 <div id="brand"><span class="mark"><svg class="i" viewBox="0 0 24 24" style="width:24px;height:24px;stroke-width:2.4"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg></span>FireWatch</div>
 <div id="part"></div>
-<div id="clock"><div class="t tabular" id="clock-t">14:32</div><div class="n">время условное</div></div>
+<div id="clock"><div class="t tabular" id="clock-t">14:32</div><div class="n">сценарий и время условные</div></div>
 
 <!-- вызов -->
-<div class="card" id="c-call" style="left:56px;top:180px;width:560px;padding:26px">
-  <div class="row" style="gap:12px"><span style="width:14px;height:14px;border-radius:50%;background:var(--critical)" id="call-dot"></span><span class="mono" style="color:var(--critical);font-weight:700;font-size:20px;letter-spacing:.08em">ВЫЗОВ · 101</span></div>
-  <div style="font-size:30px;font-weight:700;margin-top:14px">ул. Сабатаева, 82</div>
-  <div style="font-size:22px;color:var(--muted);margin-top:6px">горит квартира · 5 этаж · жилой дом, 9 этажей</div>
+<div class="card" id="c-call" style="left:56px;top:186px;width:600px;padding:26px">
+  <div class="row" style="gap:12px"><span style="width:16px;height:16px;border-radius:50%;background:var(--critical)" id="call-dot"></span><span class="mono" style="color:var(--critical);font-weight:700;font-size:22px;letter-spacing:.08em">ВЫЗОВ · 101 · КОКШЕТАУ</span></div>
+  <div style="font-size:34px;font-weight:700;margin-top:14px">ул. Сабатаева</div>
+  <div style="font-size:24px;color:var(--muted);margin-top:8px">горит квартира · 5 этаж · жилой дом, 9 этажей</div>
 </div>
 
-<!-- как сейчас -->
-<div class="card" id="c-paper" style="left:56px;top:180px;width:560px;padding:26px">
-  <div class="eyebrow" style="color:var(--elevated)">План тушения объекта</div>
+<!-- без данных -->
+<div class="card" id="c-paper" style="left:56px;top:186px;width:600px;padding:26px">
+  <div class="eyebrow" style="color:var(--elevated)">Данные об объекте</div>
   <div class="row" style="gap:18px;margin-top:16px">
     <div style="width:84px;height:84px;border-radius:14px;background:var(--elevated-bg);color:var(--elevated);display:grid;place-items:center"><svg class="i" viewBox="0 0 24 24" style="width:46px;height:46px"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg></div>
-    <div><div style="font-size:28px;font-weight:700">бумажная папка в части</div><div style="font-size:22px;color:var(--muted);margin-top:6px">в машине — нет</div></div>
+    <div><div style="font-size:29px;font-weight:700">в части и у диспетчера</div><div style="font-size:24px;color:var(--muted);margin-top:6px">караулу — по радио, на ходу</div></div>
   </div>
 </div>
-<div class="card" id="c-unknown" style="left:56px;top:180px;width:560px;padding:26px">
-  <div class="eyebrow" style="color:var(--elevated)">Караул в пути не знает</div>
-  <div id="unk" style="margin-top:14px;display:flex;flex-direction:column;gap:12px"></div>
+<div class="card" id="c-unknown" style="left:56px;top:186px;width:640px;padding:26px">
+  <div class="eyebrow" style="color:var(--elevated)">Что выясняется на месте</div>
+  <div id="unk" style="margin-top:14px;display:flex;flex-direction:column;gap:14px"></div>
 </div>
 
-<!-- с FireWatch -->
-<div class="card" id="c-dispatch" style="left:56px;top:180px;width:600px;padding:26px">
-  <div class="eyebrow">Пульт ЦОУ</div>
-  <div style="font-size:28px;font-weight:700;margin-top:12px">ул. Сабатаева, 82 · найдено</div>
-  <div style="margin-top:12px">
-    <div class="kv"><span>Ближайшая часть</span><span>ПЧ-3 · 3,4 км · ~5 мин</span></div>
-    <div class="kv" id="veh1"><span>АЦ-40 №1</span><span style="color:var(--normal)">в строю</span></div>
-    <div class="kv" id="veh2"><span>АЦ-40 №2</span><span style="color:var(--normal)">в строю</span></div>
-    <div class="kv" id="veh3" style="border:0"><span>АЛ-30</span><span style="color:var(--normal)">в строю</span></div>
+<!-- с данными -->
+<div class="card" id="c-dispatch" style="left:56px;top:186px;width:660px;padding:26px">
+  <div class="row"><span class="eyebrow">ЦОУСС · вызов №2</span><span class="mono" style="margin-left:auto;font-size:16px;color:var(--faint)">расписание выезда — пример</span></div>
+  <div style="font-size:30px;font-weight:700;margin-top:12px" id="addr"></div>
+  <div style="margin-top:10px">
+    <div class="kv" id="d1"><span>ПЧ-3 · АЦ-40 ×2</span><span>5 мин</span></div>
+    <div class="kv" id="d2"><span>ПЧ-2 · АЛ-30</span><span>7 мин</span></div>
+    <div class="kv" id="d3" style="border:0"><span>Оповещены</span><span>103 · газ · электросети</span></div>
   </div>
 </div>
-<div class="card" id="c-pack" style="right:56px;top:170px;width:580px;padding:28px">
-  <div class="row" style="gap:12px"><span class="eyebrow">Боевой пакет</span><span class="chip" style="margin-left:auto;background:var(--normal-bg);color:var(--normal)">до выезда</span></div>
-  <div style="font-size:32px;font-weight:700;margin-top:14px">ул. Сабатаева, 82</div>
+<div class="card" id="c-pack" style="right:56px;top:176px;width:600px;padding:28px">
+  <div class="row" style="gap:12px"><span class="eyebrow">Карточка объекта</span><span class="chip" style="margin-left:auto;background:var(--normal-bg);color:var(--normal)">на планшете в пути</span></div>
+  <div style="font-size:34px;font-weight:700;margin-top:14px">ул. Сабатаева · 9 этажей</div>
   <div style="margin-top:12px">
-    <div class="kv"><span>Этажность</span><span>9 · жилой</span></div>
+    <div class="kv"><span>Назначение</span><span>жилой, многоквартирный</span></div>
     <div class="kv"><span>Подъезды</span><span>со стороны ул. Сабатаева</span></div>
     <div class="kv"><span>Заезд во двор</span><span>с ул. Ашимова</span></div>
-    <div class="kv"><span>Гидранты</span><span>ПГ-1, ПГ-2, ПГ-3</span></div>
-    <div class="kv" style="border:0"><span>План тушения</span><span style="color:var(--normal)">в пакете</span></div>
+    <div class="kv"><span>Водоисточники</span><span>ПГ-1, ПГ-2 · ПГ-3 резерв</span></div>
+    <div class="kv" style="border:0"><span>Карточка тушения (КТП)</span><span style="color:var(--normal)">в системе</span></div>
   </div>
 </div>
-<div class="card" id="c-deploy" style="right:56px;top:170px;width:600px;padding:26px">
-  <div class="row"><span class="eyebrow">Расстановка сил и средств</span><span class="chip" id="offline" style="margin-left:auto;background:var(--elevated-bg);color:var(--elevated);height:30px;font-size:15px">работает без связи</span></div>
-  <div id="steps" style="margin-top:10px"></div>
+<div class="card" id="c-deploy" style="right:56px;top:176px;width:640px;padding:24px">
+  <div class="row"><span class="eyebrow">Расстановка сил и средств</span><span class="chip" id="offline" style="margin-left:auto;background:var(--elevated-bg);color:var(--elevated)">офлайн</span></div>
+  <div id="steps" style="margin-top:12px;display:flex;flex-direction:column;gap:4px"></div>
 </div>
-<div class="card" id="c-report" style="left:56px;top:180px;width:560px;padding:26px">
+<div class="card" id="c-report" style="right:56px;top:176px;width:640px;padding:26px">
   <div class="eyebrow">Ход тушения</div>
   <div id="tl" style="margin-top:14px;display:flex;flex-direction:column;gap:10px"></div>
-  <div class="row" id="rep" style="gap:12px;margin-top:18px;padding:14px 16px;border-radius:12px;background:var(--normal-bg);color:var(--normal);font-size:21px;font-weight:600;opacity:0">
-    <svg class="i" viewBox="0 0 24 24" style="width:24px;height:24px"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2zM9 15l2 2 4-4"/></svg>Донесение о пожаре сформировано</div>
+  <div class="row" id="rep" style="gap:12px;margin-top:18px;padding:14px 16px;border-radius:12px;background:var(--normal-bg);color:var(--normal);font-size:23px;font-weight:600;opacity:0">
+    <svg class="i" viewBox="0 0 24 24" style="width:26px;height:26px"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2zM9 15l2 2 4-4"/></svg>Черновик донесения готов · РТП проверяет</div>
+</div>
+<div class="card" id="c-compare" style="left:56px;top:186px;width:640px;padding:28px">
+  <div class="eyebrow">Первый ствол</div>
+  <div class="row" style="gap:26px;margin-top:18px;align-items:flex-end">
+    <div><div style="font-size:20px;color:var(--elevated)">без данных</div><div class="mono tabular" style="font-size:66px;font-weight:700;color:#a7a7b0">14:42</div></div>
+    <svg class="i" viewBox="0 0 24 24" style="width:46px;height:46px;color:var(--faint);margin-bottom:14px"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    <div><div style="font-size:20px;color:var(--accent)">с данными</div><div class="mono tabular" style="font-size:66px;font-weight:700">14:39</div></div>
+  </div>
+  <div style="font-size:30px;font-weight:700;margin-top:14px;color:var(--normal)">на 3 минуты раньше</div>
+  <div class="mono" style="font-size:17px;color:var(--faint);margin-top:6px">в этом сценарии · реальный эффект — хронометраж пилота</div>
 </div>
 
 <!-- руководство -->
-<div class="card" id="c-city" style="right:56px;top:150px;width:620px;padding:28px">
+<div class="card" id="c-city" style="right:56px;top:150px;width:640px;padding:28px">
   <div class="eyebrow">Картина города · для руководства</div>
   <div id="metrics" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px"></div>
-  <div class="legend" id="legend" style="margin-top:18px"></div>
-  <div style="font-size:15px;color:var(--faint);margin-top:14px;line-height:1.4" class="mono">время доезда — расчёт по дорожной сети без пробок · план тушения — пример данных</div>
+</div>
+<div class="card" id="c-legend" style="left:56px;bottom:124px;padding:16px 20px"><div class="legend" id="legend"></div></div>
+
+<!-- предложение -->
+<div class="card" id="c-pilot" style="left:50%;top:50%;width:1100px;padding:44px 52px;transform:translate(-50%,-50%)">
+  <div class="eyebrow" style="font-size:22px">Предложение</div>
+  <div style="font:750 60px/1.05 Inter;letter-spacing:-.025em;margin-top:18px">Пилот в Кокшетау</div>
+  <div id="pl-rows" style="margin-top:30px;display:flex;flex-direction:column;gap:20px"></div>
 </div>
 
 <div id="outro" style="position:absolute;inset:0;display:grid;place-items:center;opacity:0">
   <div style="text-align:center">
     <div class="row" style="gap:26px;justify-content:center"><div style="width:110px;height:110px;border-radius:28px;background:var(--accent);display:grid;place-items:center;color:#0a0a0b"><svg class="i" viewBox="0 0 24 24" style="width:66px;height:66px;stroke-width:2.2"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg></div><div style="font:750 128px/1 Inter;letter-spacing:-.035em">FireWatch</div></div>
-    <div style="font:550 44px/1.3 Inter;color:var(--muted);margin-top:40px">Данные объекта — <span style="color:var(--fg)">у расчёта до прибытия</span>.<br>Картина города — <span style="color:var(--fg)">у руководства</span>.</div>
+    <div style="font:550 46px/1.3 Inter;color:#b9b9c2;margin-top:40px">Данные объекта — <span style="color:var(--fg)">у расчёта до прибытия</span>.<br>Картина города — <span style="color:var(--fg)">у руководства</span>.</div>
+    <div class="chip" style="margin-top:44px;height:56px;padding:0 26px;font-size:26px;background:var(--accent);color:#0a0a0b">Пилот · 3 месяца · Кокшетау</div>
   </div>
 </div>
-<div id="fade"></div>
+<div id="note"></div>
 <div id="caption"></div>
 <div id="attrib">© OpenStreetMap contributors · © OpenMapTiles · OpenFreeMap</div>
 
@@ -140,316 +165,399 @@ const eio = (k) => (k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
 const P = (t, s, d, f = eo) => f(clamp((t - s) / d));
 const $ = (s) => document.querySelector(s);
 const rad = Math.PI / 180;
-const C0 = [69.37820562, 53.27880074];            // ЖК на Сабатаева, 82
+const C0 = [69.37820562, 53.27880074];
 const KX = Math.cos(53.2788 * rad) * 111320, KY = 111320;
-const L = (x, y) => [C0[0] + x / KX, C0[1] + y / KY];   // локальные метры → lng/lat
+const L = (x, y) => [C0[0] + x / KX, C0[1] + y / KY];
 const dist = (a, b) => Math.hypot((b[0] - a[0]) * KX, (b[1] - a[1]) * KY);
 const bearing = (a, b) => Math.atan2((b[0] - a[0]) * KX, (b[1] - a[1]) * KY) / rad;
 const angLerp = (a, b, k) => { const d = ((b - a + 540) % 360) - 180; return a + d * k; };
+const hash = (i) => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 function rise(n, k, dy = 24) { n.style.opacity = k; n.style.transform = `translateY(${(1 - k) * dy}px)`; }
 
-/* ============ геометрия сцены (метры от центра дома; x — восток, y — север) ============ */
-const STATION = [69.3919072, 53.2955771];          // ПЧ-3
+/* ============ геометрия (метры от центра дома; x — восток, y — север) ============ */
+const STATION = [69.3919072, 53.2955771];        // ПЧ-3
+const STATION2 = [69.3888747, 53.3206706];       // ПЧ-2
 /* Гидранты — на уличных углах квартала у перекрёстков: ≤2,5 м от края проезжей части,
-   не ближе 5 м от стен (нормы наружного водоснабжения). Размещение — пример. */
+   не ближе 5 м от стен, дом покрыт от двух ПГ. Размещение и отметки — пример. */
 const HYD = { "ПГ-1": [-67, 31], "ПГ-2": [58, 48], "ПГ-3": [77, -68] };
-const AC1 = { at: [-55, 38.2], len: 8.5, w: 2.6, h: 3.1 };   // на ул. Сабатаева у ПГ-1
-const AC2 = { at: [47, 50.6], len: 8.5, w: 2.6, h: 3.1 };    // у ПГ-2
-const AL = { at: [27, 46.6], len: 10.5, w: 2.6, h: 3.3 };    // напротив горящих окон
-const ROAD_BRG = 82.6;                                        // ул. Сабатаева
-const SPLIT = [8, 34];                                        // разветвление РТ-70 у подъезда 2
-const ENTR = [10, 27.2];                                      // подъезд 2
-const MAG1 = [[-58, 35.6], [-44, 34.2], [-20, 34.4], [SPLIT[0], SPLIT[1]]];
-const WORK1 = [SPLIT, [9.5, 30.5], [9.3, ENTR[1]]];
-const WORK2 = [SPLIT, [11.5, 31], [11.3, ENTR[1] + .3]];
-const MAG2 = [[52, 48.2], [42, 46.4], [31, 44.8]];
-const STAB = [-40, 31];
-const FIRE_X = [15, 35];
-/* горящая секция — срез северного корпуса по x */
+const HYD_NOTE = { "ПГ-1": "проверен 09.2026 · ~70 м", "ПГ-2": "проверен 09.2026 · ~60 м", "ПГ-3": "резерв · ~90 м" };
 const wallN = (x) => 15.7 + (x + 50.8) * 0.1634, wallS = (x) => 2.0 + (x + 27.3) * 0.1638;
-const sect = (x1, x2, pad = .6) => [[L(x1, wallS(x1) - pad), L(x2, wallS(x2) - pad), L(x2, wallN(x2) + pad), L(x1, wallN(x1) + pad), L(x1, wallS(x1) - pad)]];
-
-function boxPoly(c, len, w, brg) { // прямоугольник машины вдоль дороги
+const roadC = (x) => 37 + (x + 61) * 0.13;                 // ось ул. Сабатаева
+const ROAD_BRG = 82.6;
+const AC1 = { at: [-60, roadC(-60) - 1.8], len: 8.5, w: 2.6, h: 3.1 };   // у ПГ-1, за перекрёстком
+const AC2 = { at: [50, roadC(50) - 1.8], len: 8.5, w: 2.6, h: 3.1 };     // у ПГ-2
+const AL = { at: [45, wallN(45) + 7.5], len: 10.5, w: 2.6, h: 3.3 };     // со смещением от горящих окон
+const SPLIT = [8, 31];                                                   // РТ-70 у подъезда 2
+const ENTR = [9.5, wallN(9.5)];
+/* магистраль — по тротуару вдоль бордюра, не по проезжей части */
+const MAG1 = [[-58, roadC(-58) - 5], [-30, roadC(-30) - 5], [-2, roadC(-2) - 5], [6, 36], SPLIT];
+const WORK1 = [SPLIT, [9, 28.8], [9.2, ENTR[1] + .4]];
+const WORK2 = [SPLIT, [11.5, 29], [11.3, ENTR[1] + .6]];
+const SUCT1 = [[-62, roadC(-62) - 3.2], [-66.2, 31.8]];                  // АЦ-1 ↔ ПГ-1
+const MAG2 = [[50, roadC(50) - 4.5], [30, roadC(30) - 5], [12, 38], [8.8, 31.6]];   // резервная линия
+const STAB = [8, roadC(8) + 7];                                          // через улицу, с обзором фасада
+const FIRE_X = [15, 35];
+const sect = (x1, x2, pad = 1.0) => [[L(x1, wallS(x1) - pad), L(x2, wallS(x2) - pad), L(x2, wallN(x2) + pad), L(x1, wallN(x1) + pad), L(x1, wallS(x1) - pad)]];
+function boxPoly(c, len, w, brg) {
   const a = brg * rad, ux = Math.sin(a), uy = Math.cos(a), vx = uy, vy = -ux;
   const p = (s, q) => L(c[0] + ux * s + vx * q, c[1] + uy * s + vy * q);
   return [[p(-len / 2, -w / 2), p(len / 2, -w / 2), p(len / 2, w / 2), p(-len / 2, w / 2), p(-len / 2, -w / 2)]];
 }
-/* Автолестница: наклонная стрела из ступеней-блоков от машины к окнам 6–7 этажа. */
+const sq = (x, y, r) => [[L(x - r, y - r), L(x + r, y - r), L(x + r, y + r), L(x - r, y + r), L(x - r, y - r)]];
+/* Автолестница: сплошная наклонная стрела (перекрывающиеся блоки) + корзина у окон 7 этажа */
 function ladderBoxes(k) {
-  const from = [AL.at[0], AL.at[1] - 1.5], to = [24, wallN(24) + 1.2], topH = 21, n = 22, out = [];
-  for (let i = 0; i < Math.round(n * k); i++) {
+  const from = [AL.at[0], AL.at[1] - 1.2], to = [41, wallN(41) + 1.4], topH = 21.5, n = 46, out = [];
+  const m = Math.round(n * k);
+  for (let i = 0; i < m; i++) {
     const f = i / n, x = lerp(from[0], to[0], f), y = lerp(from[1], to[1], f), h = lerp(3.4, topH, f);
-    out.push({ type: "Feature", properties: { base: h, top: h + 1.1 }, geometry: { type: "Polygon", coordinates: [[L(x - .6, y - .5), L(x + .6, y - .5), L(x + .6, y + .5), L(x - .6, y + .5), L(x - .6, y - .5)]] } });
+    out.push({ type: "Feature", properties: { base: h, top: h + topH / n * 1.4 }, geometry: { type: "Polygon", coordinates: sq(x, y, .75) } });
   }
+  if (k > .98) out.push({ type: "Feature", properties: { base: topH, top: topH + 1.2 }, geometry: { type: "Polygon", coordinates: sq(to[0], to[1] - .3, 1.1) } });
   return { type: "FeatureCollection", features: out };
 }
-function partial(pts, k) { // часть ломаной (в локальных метрах) → lng/lat
-  const seg = [0]; for (let i = 1; i < pts.length; i++) seg.push(seg[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
-  const d = k * seg[seg.length - 1], out = [L(...pts[0])];
+function plen(pts) { let s = 0; for (let i = 1; i < pts.length; i++) s += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return s; }
+function partial(pts, k) {
+  const tot = plen(pts), d = k * tot, out = [L(...pts[0])]; let acc = 0;
   for (let i = 1; i < pts.length; i++) {
-    if (seg[i] <= d) out.push(L(...pts[i]));
-    else { const f = (d - seg[i - 1]) / (seg[i] - seg[i - 1]); out.push(L(lerp(pts[i - 1][0], pts[i][0], f), lerp(pts[i - 1][1], pts[i][1], f))); break; }
+    const seg = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    if (acc + seg <= d) { out.push(L(...pts[i])); acc += seg; }
+    else { const f = (d - acc) / seg; out.push(L(lerp(pts[i - 1][0], pts[i][0], f), lerp(pts[i - 1][1], pts[i][1], f))); break; }
   }
   return { type: "Feature", geometry: { type: "LineString", coordinates: out.length > 1 ? out : [out[0], out[0]] } };
 }
-
-/* объезд квартала «в поисках» (как сейчас): Сабатаева → Момышулы → Ашимова → Сагдиева → Сабатаева */
+function pointAt(pts, d) { let acc = 0; for (let i = 1; i < pts.length; i++) { const seg = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); if (acc + seg >= d) { const f = (d - acc) / seg; return [lerp(pts[i - 1][0], pts[i][0], f), lerp(pts[i - 1][1], pts[i][1], f)]; } acc += seg; } return pts[pts.length - 1]; }
+/* соединительные головки рукавов — каждые 20 м магистрали */
+const COUPLINGS = [20, 40, 60].map((d) => L(...pointAt(MAG1, d)));
 const LOOP = [[-10, 42], [62, 53], [82, -73], [39, -79], [-52, -90], [-62, -33], [-73, 35], [-20, 41]];
 
 /* ============ маршрут ============ */
 let ROUTE = [], RLEN = [], RTOT = 0;
 function along(k) { const d = k * RTOT; for (let i = 1; i < ROUTE.length; i++) if (RLEN[i] >= d) { const f = (d - RLEN[i - 1]) / (RLEN[i] - RLEN[i - 1] || 1); return [lerp(ROUTE[i - 1][0], ROUTE[i][0], f), lerp(ROUTE[i - 1][1], ROUTE[i][1], f)]; } return ROUTE[ROUTE.length - 1]; }
 const headingAt = (k) => bearing(along(k), along(Math.min(1, k + 180 / RTOT)));
+function routePart(k) { const d = k * RTOT, out = [ROUTE[0]]; for (let i = 1; i < ROUTE.length && RLEN[i] <= d; i++) out.push(ROUTE[i]); out.push(along(k)); return { type: "Feature", geometry: { type: "LineString", coordinates: out } }; }
 const LOOPLL = LOOP.map((p) => L(...p));
 const LLEN = [0]; for (let i = 1; i < LOOPLL.length; i++) LLEN.push(LLEN[i - 1] + dist(LOOPLL[i - 1], LOOPLL[i]));
 function loopAt(k) { const d = k * LLEN[LLEN.length - 1]; for (let i = 1; i < LOOPLL.length; i++) if (LLEN[i] >= d) { const f = (d - LLEN[i - 1]) / (LLEN[i] - LLEN[i - 1]); return [lerp(LOOPLL[i - 1][0], LOOPLL[i][0], f), lerp(LOOPLL[i - 1][1], LOOPLL[i][1], f)]; } return LOOPLL[LOOPLL.length - 1]; }
 
-/* ============ таймлайн по озвучке ============ */
+/* ============ таймлайн ============ */
 let SC = [], TOTAL = 0, CAP = {};
 const GAP = 0.35, LEAD = 0.5;
 window.setTimeline = (dur, caps) => {
   let t = LEAD; SC = [];
   for (const id of Object.keys(dur)) { SC.push({ id, start: t, voice: dur[id], end: t + dur[id] + GAP }); t += dur[id] + GAP; }
-  SC[SC.length - 1].end += 2.2; TOTAL = SC[SC.length - 1].end; CAP = caps || {};
+  SC[SC.length - 1].end += 3.5; TOTAL = SC[SC.length - 1].end; CAP = caps || {};
   return { scenes: SC, total: TOTAL };
 };
 const S = (id) => SC.find((s) => s.id === id);
-/** прогресс сцены 0..1 (по её озвучке) */
 const K = (t, id, a = 0, b = 1, f = eio) => { const s = S(id); return f(clamp((t - s.start - a * s.voice) / ((b - a) * s.voice))); };
 const inScene = (t, id) => { const s = S(id); return t >= s.start - .01 && t < s.end; };
+const after = (t, id) => t >= S(id).start;
 
 /* ============ камера ============ */
 const CITY = [69.3855, 53.2885];
 const CAM_END = {
-  call: { c: L(0, 20), z: 16.3, p: 58, b: -25 },
-  now1: { c: STATION, z: 16.4, p: 58, b: 200 },
-  now4: { c: L(22, 18), z: 17.6, p: 62, b: -150 },
-  fw1: { c: [69.3852, 53.2872], z: 14.8, p: 42, b: -20, pl: 620 },
+  call: { c: L(0, 20), z: 16.3, p: 58, b: -25, pl: 560 },
+  now1: { c: STATION, z: 16.4, p: 58, b: 200, pl: 560 },
+  now4: { c: L(22, 22), z: 17.6, p: 62, b: -160 },
+  fw1: { c: [69.3852, 53.2872], z: 14.8, p: 42, b: -20, pl: 660 },
   fw2: { c: L(0, 12), z: 17.0, p: 58, b: -45, pr: 620 },
-  fw3: { c: L(0, 30), z: 17.6, p: 55, b: 190 },
-  dep1: { c: L(-24, 36), z: 18.25, p: 58, b: 172, pr: 640 },
-  dep2: { c: L(10, 31), z: 18.85, p: 62, b: 195, pr: 640 },
-  dep3: { c: L(30, 42), z: 18.35, p: 60, b: 214, pr: 640 },
-  dep4: { c: L(2, 34), z: 17.9, p: 56, b: 172, pr: 640 },
-  dep5: { c: L(2, 30), z: 17.6, p: 52, b: 150, pl: 600 },
-  city1: { c: CITY, z: 14.35, p: 48, b: 60 },
-  city2: { c: [69.3862, 53.2882], z: 14.55, p: 52, b: 20 },
-  city3: { c: CITY, z: 14.25, p: 46, b: -15 },
-  outro: { c: CITY, z: 14.1, p: 44, b: -30 },
+  fw3: { c: L(0, 28), z: 17.9, p: 55, b: 188 },
+  dep1: { c: L(-24, 33), z: 18.65, p: 60, b: 172, pr: 660 },
+  dep2: { c: L(8, 30), z: 19.25, p: 64, b: 188, pr: 660 },
+  dep3: { c: L(26, 38), z: 18.75, p: 60, b: 200, pr: 660 },
+  dep4: { c: L(4, 38), z: 18.45, p: 56, b: 176, pr: 660 },
+  dep5: { c: L(-2, 34), z: 18.1, p: 54, b: 165, pr: 660, pl: 0 },
+  city1: { c: CITY, z: 14.35, p: 48, b: 60, pr: 660 },
+  city2: { c: [69.3862, 53.2882], z: 14.55, p: 52, b: 20, pr: 660 },
+  city3: { c: CITY, z: 14.25, p: 46, b: -15, pr: 660 },
+  pilot: { c: CITY, z: 14.1, p: 44, b: -40 },
+  outro: { c: CITY, z: 14.0, p: 44, b: -55 },
 };
 const START = { c: CITY, z: 14.2, p: 40, b: -15 };
 function mix(a, b, k) { return { c: [lerp(a.c[0], b.c[0], k), lerp(a.c[1], b.c[1], k)], z: lerp(a.z, b.z, k), p: lerp(a.p, b.p, k), b: angLerp(a.b, b.b, k), pl: lerp(a.pl || 0, b.pl || 0, k), pr: lerp(a.pr || 0, b.pr || 0, k) }; }
 function follow(pos, k0) { return { c: pos, z: 16.5, p: 60, b: headingAt(Math.min(k0, .985)) }; }
 const memo = {};
-function camEndOf(i) { // конечная камера сцены i (для стыка со следующей)
-  const s = SC[i]; if (memo[s.id]) return memo[s.id];
-  return (memo[s.id] = camAt(s.end - 1e-4, i));
-}
+function camEndOf(i) { const s = SC[i]; return memo[s.id] || (memo[s.id] = camAt(s.end - 1e-4, i)); }
 function camAt(t, i) {
   const s = SC[i], prev = i > 0 ? camEndOf(i - 1) : START;
   const k = clamp((t - s.start) / (s.end - s.start));
-  if (s.id === "now2") { // проезд без данных: камера за машиной
-    const kd = eio(k), f = follow(along(kd), kd);
-    return mix(prev, f, P(t, s.start, 1.3, eio));
-  }
-  if (s.id === "now3") { // объезд квартала, камера кружит над домом
-    const b0 = prev.b, orbit = { c: L(5, -15), z: 16.85, p: 60, b: b0 + 150 * k };
-    return mix(prev, orbit, P(t, s.start, 1.2, eio));
-  }
-  if (s.id === "fw3") { // быстрый проезд, затем — к дому
-    const kd = eio(clamp(k / .62)), f = follow(along(kd), kd);
-    const drive = mix(prev, f, P(t, s.start, 1.0, eio));
-    return mix(drive, CAM_END.fw3, eio(clamp((k - .6) / .4)));
+  if (s.id === "now2") { const kd = eio(k); return mix(prev, follow(along(kd), kd), P(t, s.start, 1.3, eio)); }
+  if (s.id === "now3") { const orbit = { c: L(5, -15), z: 16.85, p: 60, b: prev.b + 150 * k }; return mix(prev, orbit, P(t, s.start, 1.2, eio)); }
+  if (s.id === "fw3") {
+    const kd = eio(clamp(k / .6)), drive = mix(prev, follow(along(kd), kd), P(t, s.start, 1.0, eio));
+    return mix(drive, CAM_END.fw3, eio(clamp((k - .58) / .42)));
   }
   const end = CAM_END[s.id] || prev;
   if (s.id === "city3") { const e = { ...end, b: prev.b - 60 * k }; return mix(prev, e, eio(clamp(k * 1.4))); }
   return mix(prev, end, eio(k));
 }
 
-/* ============ подписи на карте ============ */
+/* ============ подписи ============ */
 const labels = $("#labels");
-function tag(id, html, style = "") { let n = document.getElementById(id); if (!n) { n = document.createElement("div"); n.id = id; n.className = "lbl"; n.innerHTML = html; n.setAttribute("style", style); labels.appendChild(n); } return n; }
-function place(n, ll, alt, op) { const p = map.project(ll); n.style.left = p.x + "px"; n.style.top = p.y - alt + "px"; n.style.opacity = op; }
+function tag(id, html) { let n = document.getElementById(id); if (!n) { n = document.createElement("div"); n.id = id; n.className = "lbl"; labels.appendChild(n); } if (n.dataset.h !== html) { n.innerHTML = html; n.dataset.h = html; } return n; }
+/** altM — высота над землёй в метрах (переводится в пиксели по масштабу и наклону) */
+function place(n, ll, altM, op, dx = 0) {
+  const p = map.project(ll), mpp = 78271.517 * Math.cos(ll[1] * rad) / 2 ** map.getZoom();
+  const px = altM / mpp * Math.sin(map.getPitch() * rad) + 14;
+  n.style.left = p.x + dx + "px"; n.style.top = p.y - px + "px"; n.style.opacity = op;
+}
 const T = (txt, bg, fg = "#0a0a0b", sub = "") => `<div class="tag" style="background:${bg};color:${fg}">${txt}${sub ? `<small>${sub}</small>` : ""}</div>`;
 
 /* ============ панели ============ */
-const UNK = ["Сколько подъездов и где лестницы?", "Где заезд во двор?", "Какие гидранты рядом — и исправны ли?"];
-const unkEls = UNK.map((u) => { const d = document.createElement("div"); d.className = "row"; d.style.cssText = "gap:14px;font-size:24px;font-weight:600;opacity:0"; d.innerHTML = `<span class="q" style="width:36px;height:36px;font-size:22px;box-shadow:none">?</span>${u}`; $("#unk").appendChild(d); return d; });
+const UNK = ["Какой гидрант исправен и доступен?", "Где поставить автолестницу?", "Как заехать во двор — шлагбаум, парковка?"];
+const unkEls = UNK.map((u) => { const d = document.createElement("div"); d.className = "row"; d.style.cssText = "gap:14px;font-size:26px;font-weight:600;opacity:0"; d.innerHTML = `<span class="q" style="width:40px;height:40px;font-size:24px;box-shadow:none">?</span>${u}`; $("#unk").appendChild(d); return d; });
+/* шаги расстановки: [сцена, доля реплики] — когда появляется */
 const STEPS = [
-  ["1", "АЦ-40 №1 → ПГ-1 (Сагдиева / Сабатаева)"],
-  ["2", "Магистральная линия 77 мм, ~70 м → разветвление РТ-70 у подъезда 2"],
-  ["3", "Звено ГДЗС: ствол РС-50 на тушение — 5 этаж"],
-  ["4", "Ствол РС-50 на защиту — 6 этаж"],
-  ["5", "АЛ-30 напротив окон — спасание с верхних этажей"],
-  ["6", "АЦ-40 №2 → ПГ-2 (у Момышулы) → ствол с АЛ"],
-  ["7", "Штаб РТП у АЦ-40 №1"],
+  ["dep1", .0, "Решающее направление — спасание людей, подъезд 2"],
+  ["dep1", .3, "Звено ГДЗС №1: РСК-50 на 5 эт. — от ёмкости АЦ-40 №1"],
+  ["dep1", .65, "АЦ-40 №1 → ПГ-1 · магистраль 77 мм ~70 м → РТ-70"],
+  ["dep2", .4, "Звено ГДЗС №2: РСК-50 на защиту 6 эт."],
+  ["dep2", .7, "Пост безопасности ГДЗС · резервное звено"],
+  ["dep3", .15, "АЛ-30 (ПЧ-2) со смещением от окон — спасание 6–9 эт."],
+  ["dep3", .7, "АЦ-40 №2 → ПГ-2 · резервная линия"],
+  ["dep4", .0, "Штаб РТП напротив подъезда 2"],
+  ["dep4", .45, "Дымоудаление ЛК · отключение газа и электричества"],
 ];
-const stepEls = STEPS.map(([n, s]) => { const d = document.createElement("div"); d.className = "step"; d.innerHTML = `<b>${n}</b><span>${s}</span>`; $("#steps").appendChild(d); return d; });
-const TL = [["14:37", "прибытие · разведка не нужна"], ["14:39", "подача первого ствола"], ["14:51", "локализация"], ["15:08", "ликвидация"]];
-const tlEls = TL.map(([a, b]) => { const d = document.createElement("div"); d.className = "row"; d.style.cssText = "gap:16px;font-size:23px;opacity:0"; d.innerHTML = `<span class="mono tabular" style="font-weight:700;color:var(--accent)">${a}</span><span>${b}</span>`; $("#tl").appendChild(d); return d; });
+const stepEls = STEPS.map(([, , s], j) => { const d = document.createElement("div"); d.className = "step"; d.innerHTML = `<b>${j + 1}</b><span>${s}</span>`; $("#steps").appendChild(d); return d; });
+const TL = [["14:37", "прибытие · разведка с подъезда 2"], ["14:39", "первый ствол на 5 этаж"], ["14:41", "АЦ-40 №1 на ПГ-1"], ["14:44", "АЛ-30 · спасание с 7 этажа"], ["14:51", "локализация"], ["15:08", "ликвидация"]];
+const tlEls = TL.map(([a, b]) => { const d = document.createElement("div"); d.className = "row"; d.style.cssText = "gap:16px;font-size:25px;opacity:0"; d.innerHTML = `<span class="mono tabular" style="font-weight:700;color:var(--accent);font-size:25px">${a}</span><span>${b}</span>`; $("#tl").appendChild(d); return d; });
+const PILOT = [
+  ["M3 21h18M5 21V7l7-4 7 4v14", "Одна часть, три месяца — ПЧ-3"],
+  ["M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2zM14 2v6h6", "От ДЧС — реестр гидрантов и карточек тушения, один РТП для проверки"],
+  ["M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2", "Результат — хронометраж на реальных выездах"],
+];
+const pilotEls = PILOT.map(([ic, s]) => { const d = document.createElement("div"); d.className = "row"; d.style.cssText = "gap:20px;font-size:32px;font-weight:600;opacity:0"; d.innerHTML = `<span style="width:60px;height:60px;border-radius:14px;background:var(--accent-weak);color:var(--accent);display:grid;place-items:center;flex:none"><svg class="i" viewBox="0 0 24 24" style="width:32px;height:32px"><path d="${ic}"/></svg></span>${s}`; $("#pl-rows").appendChild(d); return d; });
 
-let BLD = null, METRICS = {};
+let BLD = null, MET = [];
 function buildMetrics() {
   const tagged = BLD.features.filter((f) => f.properties.tagged);
   const dr = BLD.features.map((f) => f.properties.drive_s).filter((x) => x != null).sort((a, b) => a - b);
-  METRICS = {
-    n: BLD.features.length,
-    f9: tagged.filter((f) => f.properties.levels >= 9).length,
-    f5: tagged.filter((f) => f.properties.levels >= 5).length,
-    med: dr[Math.floor(dr.length / 2)] / 60,
-    over5: dr.filter((x) => x > 300).length,
-  };
   const M = [
-    [METRICS.n.toLocaleString("ru-RU"), "зданий на карте"],
-    [METRICS.f9, "домов от 9 этажей — нужна автолестница"],
-    [METRICS.med.toFixed(1).replace(".", ",") + " мин", "медиана доезда ближайшей части"],
-    [METRICS.over5, "зданий дальше 5 минут доезда"],
+    { v: BLD.features.length, fmt: (x) => Math.round(x).toLocaleString("ru-RU"), l: "зданий на карте", at: ["city1", .15] },
+    { v: tagged.filter((f) => f.properties.levels > 9).length, fmt: (x) => Math.round(x), l: "домов выше 9 этажей — вне досягаемости АЛ-30", at: ["city2", .0] },
+    { v: dr[Math.floor(dr.length / 2)] / 60, fmt: (x) => x.toFixed(1).replace(".", ",") + " мин", l: "медиана доезда ближайшей части", at: ["city2", .22] },
+    { v: 100 * dr.filter((x) => x <= 600).length / dr.length, fmt: (x) => Math.round(x) + " %", l: "зданий в пределах норматива 10 мин", at: ["city2", .3] },
+    { v: null, txt: "КТП", l: "карточки тушения — на пилоте, из реестра ДЧС", at: ["city2", .62], pilot: true },
+    { v: null, txt: "ПГ · журнал", l: "гидранты и фактическое время прибытия — на пилоте", at: ["city2", .75], pilot: true },
   ];
-  M.forEach(([v, l]) => { const d = document.createElement("div"); d.className = "metric"; d.innerHTML = `<div class="v tabular">${v}</div><div class="l">${l}</div>`; $("#metrics").appendChild(d); });
+  MET = M.map((m) => { const d = document.createElement("div"); d.className = "metric" + (m.pilot ? " pilot" : ""); d.innerHTML = `<div class="v tabular">${m.txt || ""}</div><div class="l">${m.l}</div>`; $("#metrics").appendChild(d); return { ...m, el: d, vEl: d.querySelector(".v") }; });
 }
 function legend(kind) {
-  const L1 = [["#4a4a57", "до 4 этажей"], ["#6f7fa8", "5–8 этажей"], ["#ff8c1a", "9+ этажей"]];
-  const L2 = [["#2fce7e", "до 4 мин"], ["#ffd029", "4–5 мин"], ["#ff8c1a", "дальше 5 мин"]];
-  const L3 = [["#2fce7e", "план тушения есть"], ["#ff453a", "плана нет"]];
-  const set = kind === 1 ? L1 : kind === 2 ? L2 : L3;
-  const html = set.map(([c, t]) => `<span><i style="background:${c}"></i>${t}</span>`).join("");
-  if ($("#legend").dataset.k !== String(kind)) { $("#legend").innerHTML = html; $("#legend").dataset.k = kind; }
+  const sets = {
+    1: [["#3a3a45", "до 4 этажей"], ["#6f7fa8", "5–9 этажей"], ["#ff8c1a", "выше 9"]],
+    15: [["#ff8c1a", "выше 9 этажей — вне досягаемости АЛ-30"]],
+    2: [["#2fce7e", "до 5 мин"], ["#ffd029", "5–7 мин"], ["#ff8c1a", "7–10 мин"], ["#ff453a", "больше 10 мин (норматив)"]],
+  };
+  if ($("#legend").dataset.k !== String(kind)) { $("#legend").innerHTML = sets[kind].map(([c, t]) => `<span><i style="background:${c}"></i>${t}</span>`).join(""); $("#legend").dataset.k = kind; }
 }
 
-/* ============ рендер кадра ============ */
-let map, TARGET_ID;
-window.renderAt = function (t) {
-  const i = Math.max(0, SC.findIndex((s) => t < s.end)); const idx = i < 0 ? SC.length - 1 : i;
-  const s = SC[idx], cam = camAt(t, idx);
-  /* padding сдвигает точку интереса из-под боковой панели */
-  map.jumpTo({ center: cam.c, zoom: cam.z, pitch: cam.p, bearing: cam.b, padding: { left: cam.pl || 0, right: cam.pr || 0, top: 0, bottom: 0 } });
-  const part = { call: "now", now1: "now", now2: "now", now3: "now", now4: "now" }[s.id] || (s.id.startsWith("city") ? "city" : s.id === "outro" ? "outro" : "fw");
-  const tt = (id) => t - S(id).start;
+/* ============ дым и искры (детерминированно от t) ============ */
+const fx = $("#fx").getContext("2d");
+function smoke(t, intensity, white) {
+  fx.clearRect(0, 0, 1920, 1080);
+  if (intensity < .01) return;
+  const z = map.getZoom(), mpp = 78271.517 * Math.cos(C0[1] * rad) / 2 ** z, sp = Math.sin(map.getPitch() * rad);
+  const N = 40, LIFE = 4.5;
+  for (let i = 0; i < N; i++) {
+    const age = (t + hash(i) * LIFE) % LIFE, f = age / LIFE;
+    const x = lerp(FIRE_X[0] + 2, FIRE_X[1] - 2, hash(i + 50)) + f * 9, y = wallN(25) + 1.5 + f * 4;
+    const h = 15 + f * 26 + hash(i + 9) * 3;
+    const p = map.project(L(x, y)), py = p.y - h / mpp * sp, r = (2.5 + f * 9) / mpp;
+    const a = intensity * .55 * Math.sin(Math.PI * clamp(f * 1.15));
+    const g = fx.createRadialGradient(p.x, py, 0, p.x, py, r);
+    const c = white ? "225,225,232" : "150,150,160";
+    g.addColorStop(0, `rgba(${c},${a})`); g.addColorStop(1, `rgba(${c},0)`);
+    fx.fillStyle = g; fx.beginPath(); fx.arc(p.x, py, r, 0, 7); fx.fill();
+  }
+  if (white) return;
+  for (let i = 0; i < 14; i++) { // искры
+    const age = (t * 1.3 + hash(i + 200) * 2) % 2, f = age / 2;
+    const x = lerp(FIRE_X[0], FIRE_X[1], hash(i + 300)) + Math.sin(i + t) * 2, h = 14 + f * 12;
+    const p = map.project(L(x, wallN(x) + 1)), py = p.y - h / mpp * sp;
+    fx.fillStyle = `rgba(255,176,32,${intensity * (1 - f)})`; fx.beginPath(); fx.arc(p.x, py, 2.2, 0, 7); fx.fill();
+  }
+}
 
-  /* --- огонь: 5 этаж, при задержке — уходит на 6-й; гаснет в конце выезда --- */
-  const pulse = .75 + .25 * Math.sin(t * 7) * Math.sin(t * 3.1);
-  const spread = part === "now" ? K(t, "now4", .2, .9) : 0;
-  const out = inScene(t, "dep5") ? K(t, "dep5", .35, 1) : (t >= S("dep5").end ? 1 : 0);
+/* ============ кадр ============ */
+let map, TARGET_ID, lastMode = null, modeT0 = 0;
+window.renderAt = function (t) {
+  const idx0 = SC.findIndex((s) => t < s.end), idx = idx0 < 0 ? SC.length - 1 : idx0;
+  const s = SC[idx], cam = camAt(t, idx);
+  map.jumpTo({ center: cam.c, zoom: cam.z, pitch: cam.p, bearing: cam.b, padding: { left: cam.pl || 0, right: cam.pr || 0, top: 0, bottom: 0 } });
+  const part = s.id.startsWith("now") || s.id === "call" ? "now" : s.id.startsWith("city") ? "city" : s.id === "pilot" || s.id === "outro" ? "end" : "fw";
+
+  /* «без данных» — приглушённая картинка; огонь остаётся цветным (поверх — дым на canvas) */
+  $("#map").style.filter = "none";
+  $("#vignette").style.opacity = part === "now" && after(t, "now1") ? K(t, "now1", 0, .2) : part === "fw" && t < S("fw1").start + .8 ? 1 - P(t, S("fw1").start, .8) : 0;
+
+  /* огонь */
+  const pulse = .78 + .22 * Math.sin(t * 7) * Math.sin(t * 3.1);
+  const spread = part === "now" ? K(t, "now4", .1, .8) : 0;
+  const out = after(t, "dep5") ? K(t, "dep5", 0, .45) : 0;
   const fireOn = t < S("city1").start ? 1 - out : 0;
   map.setPaintProperty("fire5", "fill-extrusion-opacity", fireOn * pulse);
-  map.setPaintProperty("fire6", "fill-extrusion-opacity", fireOn * spread * pulse * (part === "now" ? 1 : 0));
-  map.setPaintProperty("glow", "circle-opacity", fireOn * .35 * pulse);
-  map.setPaintProperty("glow", "circle-radius", 40 + 20 * pulse);
+  map.setPaintProperty("fire5", "fill-extrusion-color", pulse > .92 ? "#ffb020" : "#ff453a");
+  map.setPaintProperty("glow", "circle-opacity", fireOn * .45 * pulse);
+  map.setPaintProperty("glow", "circle-radius", ["interpolate", ["linear"], ["zoom"], 15, 18 * pulse, 18, 70 + 30 * pulse, 19, 130 + 40 * pulse]);
+  smoke(t, (fireOn + (out > 0 && out < 1 ? .6 * (1 - out) : 0)) * (1 + spread * .8) * (t < S("call").start + .4 ? 0 : 1), out > .05);
 
-  /* --- машина (как сейчас / с FireWatch) --- */
+  /* машина */
   let truck = null;
   if (s.id === "now1") truck = STATION;
   else if (s.id === "now2") truck = along(eio(clamp((t - s.start) / (s.end - s.start))));
   else if (s.id === "now3") truck = loopAt(eio(clamp((t - s.start) / (s.end - s.start))));
   else if (s.id === "now4") truck = L(-20, 41);
-  else if (s.id === "fw3") { const k = clamp((t - s.start) / (s.end - s.start)); truck = along(eio(clamp(k / .62))); }
+  else if (s.id === "fw3") truck = along(eio(clamp(((t - s.start) / (s.end - s.start)) / .6)));
   map.getSource("truck").setData(truck ? { type: "Feature", geometry: { type: "Point", coordinates: truck } } : { type: "FeatureCollection", features: [] });
-  map.setPaintProperty("truck", "circle-stroke-color", part === "now" ? "#8b8b94" : "#ff5a1f");
-  // маршрут: сейчас — серый пунктир, с FireWatch — оранжевый
-  const routeOp = part === "now" ? (inScene(t, "now2") ? .6 : 0) : (inScene(t, "fw1") ? K(t, "fw1", .3, .6) : inScene(t, "fw3") || inScene(t, "fw2") ? 1 : 0);
-  map.setPaintProperty("route", "line-opacity", routeOp);
-  map.setPaintProperty("route", "line-color", part === "now" ? "#6a6a74" : "#ff5a1f");
+  map.setPaintProperty("truck", "circle-stroke-color", part === "now" ? "#9a9aa4" : "#ff5a1f");
+  map.setPaintProperty("truck-halo", "circle-opacity", part === "now" ? 0 : .22);
+  // маршрут: без данных — серый пунктир в пути; с данными — прорисовывается в fw1 со свечением
+  const rData = routePart(part === "now" ? (inScene(t, "now2") ? 1 : 0) : inScene(t, "fw1") ? K(t, "fw1", .45, .85) : 1);
+  map.getSource("route").setData(rData); map.getSource("route-glow").setData(rData);
+  map.setPaintProperty("route", "line-color", part === "now" ? "#9a9aa4" : "#ff5a1f");
+  map.setPaintProperty("route", "line-dasharray", part === "now" ? [2, 1.5] : [1, 0]);
+  const rOp = part === "now" ? (inScene(t, "now2") ? .8 : 0) : (inScene(t, "fw1") || inScene(t, "fw2") || inScene(t, "fw3") ? 1 : 0);
+  map.setPaintProperty("route", "line-opacity", rOp);
+  map.setPaintProperty("route-glow", "line-opacity", part === "fw" && rOp ? .35 : 0);
   map.setPaintProperty("loop", "line-opacity", inScene(t, "now3") ? .8 : inScene(t, "now4") ? .8 * (1 - K(t, "now4", 0, .3)) : 0);
-  map.getSource("loop").setData(inScene(t, "now3") || inScene(t, "now4") ? partial(LOOP, inScene(t, "now3") ? eio(clamp(tt("now3") / (S("now3").end - S("now3").start))) : 1) : partial(LOOP, 0));
+  map.getSource("loop").setData(partial(LOOP, inScene(t, "now3") ? eio(clamp((t - S("now3").start) / (S("now3").end - S("now3").start))) : inScene(t, "now4") ? 1 : 0));
+  // цель вызова — пульсирующее кольцо в fw1
+  const ring = (t * 1.4) % 1;
+  map.setPaintProperty("ring", "circle-radius", 10 + 60 * ring);
+  map.setPaintProperty("ring", "circle-stroke-opacity", inScene(t, "fw1") ? (1 - ring) * K(t, "fw1", .1, .25) : 0);
 
-  /* --- гидранты --- */
-  const hydOn = t >= S("fw3").start && part !== "city" && part !== "outro" ? K(t, "fw3", .55, .75) : 0;
+  /* гидранты */
+  const hydOn = after(t, "fw3") && part === "fw" ? K(t, "fw3", .55, .72) : 0;
+  const deploying = after(t, "dep1") && part === "fw";
   map.setPaintProperty("hyd", "circle-opacity", hydOn); map.setPaintProperty("hyd", "circle-stroke-opacity", hydOn);
   const hp = (t * 1.2) % 1;
-  map.setPaintProperty("hyd-halo", "circle-radius", 12 + hp * 26); map.setPaintProperty("hyd-halo", "circle-opacity", hydOn * .5 * (1 - hp));
-  const hydDist = { "ПГ-1": "~70 м до подъезда 2", "ПГ-2": "~25 м до АЛ", "ПГ-3": "резерв · двор" };
-  Object.entries(HYD).forEach(([n, p], j) => place(tag("h" + j, T(n, "#3d9bff", "#0a0a0b", "исправен · " + hydDist[n])), L(...p), 26, hydOn * (t >= S("dep2").start && t < S("dep5").start ? .45 : 1)));
-  // «как сейчас»: вопросы вместо гидрантов и площадки для лестницы
-  const qOn = inScene(t, "now3") ? K(t, "now3", .45, .6) : inScene(t, "now4") ? 1 - K(t, "now4", .6, .9) : 0;
-  [[...HYD["ПГ-1"]], [...HYD["ПГ-2"]], [...HYD["ПГ-3"]], [27, 46]].forEach((p, j) => place(tag("q" + j, `<div class="q">?</div>`), L(...p), 30, qOn * P(t, S("now3").start + S("now3").voice * (.45 + j * .09), .4)));
+  map.setPaintProperty("hyd-halo", "circle-radius", 12 + hp * 26); map.setPaintProperty("hyd-halo", "circle-opacity", hydOn * (deploying ? 0 : .5) * (1 - hp));
+  Object.entries(HYD).forEach(([n, p], j) => {
+    const html = deploying ? T(n, "#3d9bff") : T(n, "#3d9bff", "#0a0a0b", HYD_NOTE[n]);
+    const op = hydOn * (deploying && n === "ПГ-3" ? 0 : 1);
+    place(tag("h" + j, html), L(...p), 1, op, deploying ? (n === "ПГ-1" ? -115 : 90) : 0);
+  });
+  // без данных: «?» на гидрантах и площадке АЛ
+  const qOn = inScene(t, "now3") ? 1 : inScene(t, "now4") ? 1 - K(t, "now4", .6, .9) : 0;
+  [HYD["ПГ-1"], HYD["ПГ-2"], HYD["ПГ-3"], [27, 46]].forEach((p, j) => place(tag("q" + j, `<div class="q">?</div>`), L(...p), 2, qOn * (inScene(t, "now3") ? P(t, S("now3").start + S("now3").voice * (.35 + j * .1), .4) : 1)));
 
-  /* --- расстановка --- */
-  const vis = (id, a) => (t >= S(id).start ? K(t, id, a, a + .15) : 0) * (part === "fw" ? 1 : 0);
-  const ac1 = vis("dep1", .05), ac2 = vis("dep3", .5), al = vis("dep3", .05);
-  map.setPaintProperty("vehicles", "fill-extrusion-opacity", 1);
+  /* расстановка */
+  const fw = part === "fw";
+  const vis = (id, a) => (fw && after(t, id) ? K(t, id, a, a + .12) : 0);
+  const ac1 = vis("dep1", .0), ac2 = vis("dep3", .65), al = vis("dep3", .1);
   map.getSource("veh").setData({ type: "FeatureCollection", features: [
     ...(ac1 > .01 ? [{ type: "Feature", properties: { c: "#ff5a1f", h: AC1.h * ac1 }, geometry: { type: "Polygon", coordinates: boxPoly(AC1.at, AC1.len, AC1.w, ROAD_BRG) } }] : []),
     ...(ac2 > .01 ? [{ type: "Feature", properties: { c: "#ff5a1f", h: AC2.h * ac2 }, geometry: { type: "Polygon", coordinates: boxPoly(AC2.at, AC2.len, AC2.w, ROAD_BRG) } }] : []),
     ...(al > .01 ? [{ type: "Feature", properties: { c: "#ffd029", h: AL.h * al }, geometry: { type: "Polygon", coordinates: boxPoly(AL.at, AL.len, AL.w, ROAD_BRG) } }] : []),
   ] });
-  map.getSource("ladder").setData(part === "fw" && t >= S("dep3").start ? ladderBoxes(K(t, "dep3", .12, .45)) : { type: "FeatureCollection", features: [] });
-  const hose = (id, a, b) => (part === "fw" && t >= S(id).start ? K(t, id, a, b) : 0);
-  map.getSource("mag1").setData(partial(MAG1, hose("dep1", .35, .85)));
-  map.getSource("work1").setData(partial(WORK1, hose("dep2", .1, .45)));
-  map.getSource("work2").setData(partial(WORK2, hose("dep2", .6, .9)));
-  map.getSource("mag2").setData(partial(MAG2, hose("dep3", .6, .9)));
-  const hoseOp = part === "fw" && t >= S("dep1").start ? 1 : 0;
-  ["mag1", "work1", "work2", "mag2"].forEach((l) => map.setPaintProperty(l, "line-opacity", hoseOp));
-  const lblOp = (id, a) => vis(id, a) * (t < S("city1").start ? 1 : 0);
-  place(tag("l-ac1", T("АЦ-40 №1", "#ff5a1f")), L(...AC1.at), 40, lblOp("dep1", .05));
-  place(tag("l-split", T("РТ-70", "#ededf0")), L(...SPLIT), 18, lblOp("dep1", .8));
-  place(tag("l-s1", T("РС-50 · 5 эт.", "#ff453a", "#fff", "тушение")), L(12, 24), 70, lblOp("dep2", .35));
-  place(tag("l-s2", T("РС-50 · 6 эт.", "#ff8c1a", "#0a0a0b", "защита")), L(16, 25), 118, lblOp("dep2", .8));
-  place(tag("l-gdzs", T("пост ГДЗС", "#3d9bff")), L(...ENTR), 12, lblOp("dep2", .2));
-  place(tag("l-al", T("АЛ-30", "#ffd029", "#0a0a0b", "спасание")), L(...AL.at), 40, lblOp("dep3", .1));
-  place(tag("l-ac2", T("АЦ-40 №2", "#ff5a1f")), L(...AC2.at), 40, lblOp("dep3", .55));
-  place(tag("l-stab", T("Штаб РТП", "#ededf0")), L(...STAB), 20, lblOp("dep4", .05));
-  map.setPaintProperty("stab", "circle-opacity", lblOp("dep4", .05));
-  place(tag("l-call", T("5 этаж · очаг", "#ff453a", "#fff")), L(25, 22), 150, (part === "now" || inScene(t, "fw2")) && t < S("now2").start ? P(t, S("call").start + 1, .6) : inScene(t, "now4") ? 1 : 0);
+  map.getSource("ladder").setData(fw && after(t, "dep3") ? ladderBoxes(K(t, "dep3", .2, .55)) : { type: "FeatureCollection", features: [] });
+  const hose = (id, a, b) => (fw && after(t, id) ? K(t, id, a, b) : 0);
+  map.getSource("mag1").setData(partial(MAG1, hose("dep1", .25, .55)));
+  map.getSource("work1").setData(partial(WORK1, hose("dep1", .5, .62)));
+  map.getSource("suct1").setData(partial(SUCT1, hose("dep1", .7, .85)));
+  map.getSource("work2").setData(partial(WORK2, hose("dep2", .35, .55)));
+  map.getSource("mag2").setData(partial(MAG2, hose("dep3", .7, .95)));
+  ["mag1", "work1", "work2", "mag2", "suct1"].forEach((l) => map.setPaintProperty(l, "line-opacity", fw && after(t, "dep1") ? 1 : 0));
+  map.setPaintProperty("coupl", "circle-opacity", hose("dep1", .5, .6));
+  map.setPaintProperty("stab", "circle-opacity", vis("dep4", 0));
 
-  /* --- город --- */
-  const cityK = part === "city" || part === "outro" ? 1 : 0;
+  // подписи: текущий шаг — ярко, прошлые — приглушённо
+  const curStep = STEPS.reduce((c, [id, a], j) => (fw && after(t, id) && t >= S(id).start + a * S(id).voice ? j : c), -1);
+  const L_ = (step, id, a) => vis(id, a) * (t < S("dep5").start + 1 ? 1 : 0) * (curStep === step ? 1 : .6);
+  place(tag("l-ac1", T("АЦ-40 №1", "#ff5a1f")), L(...AC1.at), 5, L_(2, "dep1", .0), 50);
+  place(tag("l-split", T("РТ-70", "#ededf0")), L(...SPLIT), 1, L_(2, "dep1", .55), -40);
+  place(tag("l-s1", T("РСК-50 · 5 эт.", "#ff453a", "#fff", "звено №1 · тушение")), L(13, wallN(13)), 15, L_(1, "dep1", .45), -30);
+  place(tag("l-s2", T("РСК-50 · 6 эт.", "#ff8c1a", "#0a0a0b", "звено №2 · защита")), L(19, wallN(19)), 21, L_(3, "dep2", .4), 40);
+  place(tag("l-post", T("пост безопасности ГДЗС", "#3d9bff", "#0a0a0b", "резервное звено")), L(0, 33), 1, L_(4, "dep2", .7), -120);
+  place(tag("l-al", T("АЛ-30 · ПЧ-2", "#ffd029", "#0a0a0b", "спасание 6–9 эт.")), L(...AL.at), 5, L_(5, "dep3", .15), 30);
+  place(tag("l-ac2", T("АЦ-40 №2", "#ff5a1f", "#0a0a0b", "резервная линия")), L(...AC2.at), 5, L_(6, "dep3", .7), 60);
+  place(tag("l-stab", T("Штаб РТП", "#ededf0")), L(...STAB), 2, L_(7, "dep4", 0));
+  place(tag("l-smoke", T("дымоудаление ЛК", "#8b8b94", "#0a0a0b")), L(9, wallN(9)), 30, L_(8, "dep4", .45), -60);
+  place(tag("l-fire", T("очаг · 5 этаж", "#ff453a", "#fff")), L(25, wallN(25)), 17, (part === "now" && after(t, "call")) ? P(t, S("call").start + 1.2, .6) * (inScene(t, "now2") || inScene(t, "now3") ? 0 : 1) : 0);
+  place(tag("l-st", T("ПЧ-3", "#9a9aa4")), STATION, 4, inScene(t, "now1") ? K(t, "now1", 0, .15) : 0);
+  // ETA над машиной в пути
+  if (inScene(t, "fw3")) { const k = clamp(((t - S("fw3").start) / (S("fw3").end - S("fw3").start)) / .6), left = (1 - eio(k)) * 324; place(tag("eta", T(`ПЧ-3 · ${Math.floor(left / 60)}:${String(Math.round(left % 60)).padStart(2, "0")}`, "#ff5a1f")), along(eio(k)), 6, k < .98 ? 1 : 0); }
+  else place(tag("eta", ""), STATION, 0, 0);
+
+  /* город */
   let mode = 0;
-  if (part === "city") mode = inScene(t, "city1") ? 1 : inScene(t, "city2") ? (K(t, "city2", 0, 1, (x) => x) < .5 ? 1.5 : 2) : 3;
-  map.setPaintProperty("b3d", "fill-extrusion-color", mode === 1 || mode === 1.5
-    ? ["step", ["get", "levels"], "#4a4a57", 5, "#6f7fa8", 9, "#ff8c1a"]
-    : mode === 2 ? ["case", ["==", ["get", "drive_s"], null], "#3a3a45", ["step", ["get", "drive_s"], "#2fce7e", 240, "#ffd029", 300, "#ff8c1a"]]
-    : mode === 3 ? ["case", [">=", ["get", "levels"], 5], ["case", ["==", ["%", ["get", "rid"], 3], 0], "#2fce7e", "#ff453a"], "#3a3a45"]
-    : ["interpolate", ["linear"], ["get", "levels"], 1, "#2b2b33", 5, "#3a3a45", 12, "#4d4d5c"]);
-  legend(mode >= 3 ? 3 : mode >= 2 ? 2 : 1);
+  if (part === "city" || part === "end") {
+    const k2 = inScene(t, "city2") ? K(t, "city2", 0, 1, (x) => x) : 0;
+    mode = inScene(t, "city1") ? 1 : inScene(t, "city2") ? (k2 < .2 ? 15 : 2) : 2;
+  }
+  if (mode !== lastMode) { lastMode = mode; modeT0 = t; }
+  const grow = mode ? eo(clamp((t - modeT0) / 1.1)) : 1;
+  map.setPaintProperty("b3d", "fill-extrusion-color", mode === 1 ? ["step", ["get", "levels"], "#3a3a45", 5, "#6f7fa8", 10, "#ff8c1a"]
+    : mode === 15 ? ["step", ["get", "levels"], "#26262d", 10, "#ff8c1a"]
+    : mode === 2 ? ["case", ["==", ["get", "drive_s"], null], "#3a3a45", ["step", ["get", "drive_s"], "#2fce7e", 300, "#ffd029", 420, "#ff8c1a", 600, "#ff453a"]]
+    : "#3a3a45");
+  map.setPaintProperty("b3d", "fill-extrusion-height", ["*", ["get", "levels"], 3.2 * (mode ? lerp(.15, 1, grow) : 1)]);
+  if (mode) legend(mode);
+  if (part === "city") map.setPaintProperty("st-city", "circle-opacity", K(t, "city1", .2, .4)); else map.setPaintProperty("st-city", "circle-opacity", 0);
+  place(tag("l-st3", T("ПЧ-3", "#3d9bff")), STATION, 4, part === "city" ? K(t, "city1", .2, .4) : 0);
+  place(tag("l-st2", T("ПЧ-2", "#3d9bff")), STATION2, 4, part === "city" ? K(t, "city1", .2, .4) : 0);
 
-  /* --- оверлеи --- */
+  /* оверлеи */
   const partEl = $("#part");
-  if (part === "now") { partEl.textContent = "КАК СЕЙЧАС"; partEl.style.background = "var(--elevated-bg)"; partEl.style.color = "var(--elevated)"; }
-  else if (part === "fw") { partEl.textContent = "С FIREWATCH"; partEl.style.background = "var(--accent)"; partEl.style.color = "#0a0a0b"; }
-  else { partEl.textContent = "ДЛЯ РУКОВОДСТВА"; partEl.style.background = "var(--info-bg)"; partEl.style.color = "var(--info)"; }
-  partEl.style.opacity = t < S("call").start + 2 || part === "outro" ? 0 : 1;
-  if (part === "now" && t >= S("now1").start) partEl.style.opacity = 1;
-  // условные часы: «как сейчас» — до первого ствола 14:46, с FireWatch — 14:39
-  let minutes = 32;
-  if (part === "now") minutes = t < S("now2").start ? 32 : inScene(t, "now2") ? lerp(32, 38, K(t, "now2")) : inScene(t, "now3") ? lerp(38, 44, K(t, "now3")) : lerp(44, 46, K(t, "now4"));
-  else if (part === "fw") minutes = t < S("fw3").start ? 32 : inScene(t, "fw3") ? lerp(33, 37, K(t, "fw3", 0, .62)) : t < S("dep5").start ? lerp(37, 39, K(t, "dep1") ) : 39;
-  const hh = Math.floor(14 + minutes / 60), mm = Math.floor(minutes % 60);
-  $("#clock-t").textContent = `${hh}:${String(mm).padStart(2, "0")}`;
-  $("#clock-t").style.color = part === "now" && inScene(t, "now4") ? "var(--critical)" : "var(--fg)";
+  const partTxt = { now: ["БЕЗ ДАННЫХ", "var(--elevated-bg)", "var(--elevated)"], fw: ["С ДАННЫМИ · FIREWATCH", "var(--accent)", "#0a0a0b"], city: ["ДЛЯ РУКОВОДСТВА", "var(--info-bg)", "var(--info)"], end: ["", "", ""] }[part];
+  partEl.textContent = partTxt[0]; partEl.style.background = partTxt[1]; partEl.style.color = partTxt[2];
+  partEl.style.opacity = part === "end" || (part === "now" && !after(t, "now1")) ? 0 : 1;
+  // условные часы: прибытие в обоих вариантах 14:37; первый ствол 14:42 → 14:39
+  let m = 32;
+  if (part === "now") m = !after(t, "now2") ? lerp(32, 33, after(t, "now1") ? K(t, "now1") : 0) : inScene(t, "now2") ? lerp(33, 37, K(t, "now2")) : inScene(t, "now3") ? lerp(37, 41, K(t, "now3")) : lerp(41, 42, K(t, "now4", 0, .5));
+  else if (part === "fw") m = !after(t, "fw3") ? lerp(32, 33, after(t, "fw2") ? K(t, "fw2") : 0) : inScene(t, "fw3") ? lerp(33, 37, K(t, "fw3", 0, .6)) : inScene(t, "dep1") ? lerp(37, 39, K(t, "dep1", 0, .6)) : inScene(t, "dep2") ? lerp(39, 41, K(t, "dep2")) : inScene(t, "dep3") ? lerp(41, 44, K(t, "dep3")) : 44;
+  $("#clock-t").textContent = `14:${String(Math.floor(m)).padStart(2, "0")}`;
+  const firstStream = (part === "now" && inScene(t, "now4") && m >= 42) || (inScene(t, "dep1") && m >= 39 && K(t, "dep1") < .9);
+  $("#clock-t").style.color = part === "now" && inScene(t, "now4") ? "var(--critical)" : firstStream ? "var(--normal)" : "var(--fg)";
   $("#clock").style.opacity = part === "now" || (part === "fw" && t < S("dep5").start) ? P(t, S("call").start, .5) : 0;
 
-  const win = (id, a, b, el) => { const k = inScene(t, id) || (b > 1 && t < S(id).end + 99) ? 1 : 0; return el; };
-  const show = (el, on) => rise(el, on, 20);
-  show($("#c-call"), inScene(t, "call") ? P(t, S("call").start + .2, .5) : 0);
-  $("#call-dot").style.opacity = .4 + .6 * ((t * 2) % 1 < .5 ? 1 : 0);
-  show($("#c-paper"), inScene(t, "now1") ? P(t, S("now1").start + S("now1").voice * .2, .5) : 0);
-  show($("#c-unknown"), inScene(t, "now2") ? P(t, S("now2").start + .3, .5) : 0);
-  unkEls.forEach((u, j) => { u.style.opacity = inScene(t, "now2") ? P(t, S("now2").start + S("now2").voice * (.3 + j * .2), .4) : 0; });
-  show($("#c-dispatch"), inScene(t, "fw1") ? P(t, S("fw1").start + S("fw1").voice * .35, .5) : 0);
-  show($("#c-pack"), inScene(t, "fw2") ? P(t, S("fw2").start + .3, .5) : 0);
-  const depOn = part === "fw" && t >= S("dep1").start && t < S("dep5").start;
-  show($("#c-deploy"), depOn ? P(t, S("dep1").start + .2, .5) : 0);
-  const stepAt = [["dep1", .05], ["dep1", .4], ["dep2", .15], ["dep2", .65], ["dep3", .05], ["dep3", .55], ["dep4", .05]];
-  stepEls.forEach((e, j) => { e.style.opacity = t >= S(stepAt[j][0]).start ? K(t, stepAt[j][0], stepAt[j][1], stepAt[j][1] + .12) : 0; });
-  $("#offline").style.opacity = t >= S("dep4").start ? K(t, "dep4", .5, .65) : 0;
-  show($("#c-report"), inScene(t, "dep5") ? P(t, S("dep5").start + .2, .5) : 0);
-  tlEls.forEach((e, j) => { e.style.opacity = inScene(t, "dep5") ? K(t, "dep5", j * .12, j * .12 + .1) : 0; });
-  $("#rep").style.opacity = inScene(t, "dep5") ? K(t, "dep5", .6, .72) : 0;
-  show($("#c-city"), part === "city" ? P(t, S("city1").start + .5, .6) : 0);
-  document.querySelectorAll(".metric").forEach((m, j) => { m.style.opacity = part === "city" ? (j < 2 ? K(t, "city1", .35 + j * .2, .5 + j * .2) : t >= S("city2").start ? K(t, "city2", .25 + (j - 2) * .2, .4 + (j - 2) * .2) : 0) : 0; });
-  $("#outro").style.opacity = part === "outro" ? P(t, S("outro").start, .8) : 0;
-  $("#fade").style.opacity = part === "outro" ? .82 * P(t, S("outro").start, .8) : (t < .6 ? 1 - t / .6 : 0);
-  $("#brand").style.opacity = part === "outro" ? 1 - P(t, S("outro").start, .5) : 1;
+  rise($("#c-call"), inScene(t, "call") ? P(t, S("call").start + .2, .5) : 0);
+  $("#call-dot").style.opacity = (t * 2) % 1 < .5 ? 1 : .35;
+  rise($("#c-paper"), inScene(t, "now1") ? P(t, S("now1").start + .15, .5) : 0);
+  rise($("#c-unknown"), inScene(t, "now3") ? P(t, S("now3").start + S("now3").voice * .3, .5) : 0);
+  unkEls.forEach((u, j) => { u.style.opacity = inScene(t, "now3") ? P(t, S("now3").start + S("now3").voice * (.35 + j * .16), .4) : 0; });
+  rise($("#c-dispatch"), inScene(t, "fw1") ? P(t, S("fw1").start + .3, .5) : 0);
+  const ADDR = "ул. Сабатаева · жилой дом, 9 эт.";
+  $("#addr").textContent = ADDR.slice(0, Math.round(ADDR.length * (inScene(t, "fw1") ? K(t, "fw1", .15, .35, (x) => x) : 1)));
+  ["#d1", "#d2", "#d3"].forEach((id, j) => { $(id).style.opacity = inScene(t, "fw1") ? K(t, "fw1", .5 + j * .12, .6 + j * .12) : 0; });
+  rise($("#c-pack"), inScene(t, "fw2") ? P(t, S("fw2").start + .2, .5) : 0);
+  const depOn = fw && after(t, "dep1") && t < S("dep5").start;
+  rise($("#c-deploy"), depOn ? P(t, S("dep1").start + .1, .5) : 0);
+  stepEls.forEach((e, j) => { const [id, a] = STEPS[j]; const shown = fw && after(t, id) && t >= S(id).start + a * S(id).voice; e.style.display = shown ? "flex" : "none"; e.classList.toggle("on", j === curStep); e.style.opacity = j === curStep ? 1 : .6; });
+  $("#offline").style.opacity = after(t, "dep4") ? K(t, "dep4", .55, .7) : 0;
+  $("#note").textContent = inScene(t, "fw3") || (fw && after(t, "dep1") && t < S("dep5").start) ? "Гидранты, отметки проверки и расписание выезда — пример. На пилоте — реестр водоканала и ДЧС." : "";
+  $("#note").style.opacity = $("#note").textContent ? (inScene(t, "fw3") ? K(t, "fw3", .6, .72) : 1) : 0;
+  rise($("#c-compare"), inScene(t, "dep5") ? K(t, "dep5", 0, .08) : 0);
+  rise($("#c-report"), inScene(t, "dep5") ? K(t, "dep5", .38, .46) : 0);
+  tlEls.forEach((e, j) => { e.style.opacity = inScene(t, "dep5") ? K(t, "dep5", .42 + j * .07, .48 + j * .07) : 0; });
+  $("#rep").style.opacity = inScene(t, "dep5") ? K(t, "dep5", .85, .95) : 0;
+  rise($("#c-city"), part === "city" ? P(t, S("city1").start + .4, .6) : 0);
+  rise($("#c-legend"), part === "city" ? P(t, S("city1").start + .8, .6) : 0);
+  // метрики: появляются по фразе, счётчики растут, текущая — подсвечена
+  let hot = -1;
+  MET.forEach((mm, j) => { if (part === "city" && after(t, mm.at[0]) && t >= S(mm.at[0]).start + mm.at[1] * S(mm.at[0]).voice) hot = j; });
+  MET.forEach((mm, j) => {
+    const st = S(mm.at[0]).start + mm.at[1] * S(mm.at[0]).voice, on = part === "city" && t >= st;
+    mm.el.style.display = on ? "block" : "none";
+    mm.el.classList.toggle("hot", j === hot && !inScene(t, "city3"));
+    mm.el.style.opacity = j === hot || inScene(t, "city3") ? 1 : .6;
+    if (mm.v != null) mm.vEl.textContent = mm.fmt(mm.v * eo(clamp((t - st) / 1.2)));
+  });
+  rise($("#c-pilot"), inScene(t, "pilot") ? P(t, S("pilot").start, .6) : 0, 0);
+  $("#c-pilot").style.transform = "translate(-50%,-50%)";
+  pilotEls.forEach((e, j) => { e.style.opacity = inScene(t, "pilot") ? K(t, "pilot", [.1, .3, .7][j], [.2, .4, .8][j]) : 0; });
+  $("#fade").style.opacity = inScene(t, "pilot") ? .75 * P(t, S("pilot").start, .6) : inScene(t, "outro") ? lerp(.75, .9, P(t, S("outro").start, .8)) : t < .6 ? 1 - t / .6 : 0;
+  $("#outro").style.opacity = inScene(t, "outro") ? P(t, S("outro").start, .8) : 0;
+  $("#brand").style.opacity = inScene(t, "outro") ? 1 - P(t, S("outro").start, .5) : 1;
 
-  // субтитры по предложениям
+  // субтитры
   const lt = t - s.start; let cap = "";
   if (CAP[s.id] && lt >= 0 && lt <= s.voice + .2) {
     const parts = CAP[s.id].match(/[^.?!]+[.?!]*/g).map((x) => x.trim()).filter(Boolean);
     const tot = parts.reduce((a, p) => a + p.length, 0); let acc = 0;
     for (const p of parts) { acc += p.length; if (lt <= (acc / tot) * s.voice + .05) { cap = p; break; } } if (!cap) cap = parts[parts.length - 1];
   }
-  $("#caption").textContent = cap; $("#caption").style.opacity = cap && part !== "outro" ? 1 : 0;
+  $("#caption").textContent = cap; $("#caption").style.opacity = cap && s.id !== "outro" ? 1 : 0;
 };
 
 /* ============ инициализация ============ */
@@ -460,38 +568,39 @@ async function init() {
     fetch("out/film-voice/durations.json").then((r) => r.json()), fetch("film.json").then((r) => r.json()),
   ]);
   BLD = bld;
-  const caps = Object.fromEntries(script.map((s) => [s.id, s.text]));
-  window.setTimeline(dur, caps);
+  window.setTimeline(dur, Object.fromEntries(script.map((s) => [s.id, s.text])));
   ROUTE = route.routes[0].geometry.coordinates; RLEN = [0];
   for (let i = 1; i < ROUTE.length; i++) RLEN.push(RLEN[i - 1] + dist(ROUTE[i - 1], ROUTE[i]));
   RTOT = RLEN[RLEN.length - 1];
   let best = 1e9;
-  bld.features.forEach((f, i) => { const r = f.geometry.coordinates[0]; const c = [r.reduce((a, p) => a + p[0], 0) / r.length, r.reduce((a, p) => a + p[1], 0) / r.length]; f.id = i; f.properties.rid = i; const d = dist(c, C0); if (d < best) { best = d; TARGET_ID = i; } });
+  bld.features.forEach((f, i) => { const r = f.geometry.coordinates[0]; const c = [r.reduce((a, p) => a + p[0], 0) / r.length, r.reduce((a, p) => a + p[1], 0) / r.length]; f.id = i; const d = dist(c, C0); if (d < best) { best = d; TARGET_ID = i; } });
   buildMetrics();
   style.layers = style.layers.filter((l) => !/building/.test(l.id));
   style.layers.forEach((l) => { if (l.type === "line" && /highway|road|street|transportation|minor|major|motorway|trunk|primary|secondary|tertiary/.test(l.id) && !/casing|label|tunnel/.test(l.id)) l.paint = { ...(l.paint || {}), "line-color": "#3b3b46" }; });
   map = new maplibregl.Map({ container: "map", style, center: START.c, zoom: START.z, pitch: START.p, bearing: START.b, interactive: false, attributionControl: false, fadeDuration: 0, preserveDrawingBuffer: true, maxPitch: 75, maxZoom: 20 });
   await new Promise((r) => map.on("load", r));
-  const tgt = bld.features[TARGET_ID];
   const empty = { type: "FeatureCollection", features: [] };
+  const line0 = partial([[0, 0], [0, 0]], 0);
   map.addSource("b", { type: "geojson", data: { type: "FeatureCollection", features: bld.features.filter((f) => f.id !== TARGET_ID) } });
   map.addLayer({ id: "b3d", type: "fill-extrusion", source: "b", paint: { "fill-extrusion-color": "#3a3a45", "fill-extrusion-height": ["*", ["get", "levels"], 3.2], "fill-extrusion-opacity": .92, "fill-extrusion-vertical-gradient": true } });
-  map.addSource("t", { type: "geojson", data: tgt });
+  map.addSource("glow", { type: "geojson", data: { type: "Feature", geometry: { type: "Point", coordinates: L(25, wallN(25) + 8) } } });
+  map.addLayer({ id: "glow", type: "circle", source: "glow", paint: { "circle-color": "#ff5a1f", "circle-radius": 50, "circle-blur": 1, "circle-opacity": 0, "circle-pitch-alignment": "map" } });
+  map.addSource("t", { type: "geojson", data: bld.features[TARGET_ID] });
   map.addLayer({ id: "target", type: "fill-extrusion", source: "t", paint: { "fill-extrusion-color": "#6a6a78", "fill-extrusion-height": 9 * 3.2, "fill-extrusion-opacity": 1 } });
   map.addSource("f5", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: sect(...FIRE_X) } } });
   map.addLayer({ id: "fire5", type: "fill-extrusion", source: "f5", paint: { "fill-extrusion-color": "#ff453a", "fill-extrusion-base": 12.6, "fill-extrusion-height": 16.2, "fill-extrusion-opacity": 0 } });
-  map.addSource("f6", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: sect(FIRE_X[0] + 3, FIRE_X[1] - 2) } } });
-  map.addLayer({ id: "fire6", type: "fill-extrusion", source: "f6", paint: { "fill-extrusion-color": "#ff8c1a", "fill-extrusion-base": 16.2, "fill-extrusion-height": 19.4, "fill-extrusion-opacity": 0 } });
-  map.addSource("glow", { type: "geojson", data: { type: "Feature", geometry: { type: "Point", coordinates: L(25, 20) } } });
-  map.addLayer({ id: "glow", type: "circle", source: "glow", paint: { "circle-color": "#ff453a", "circle-radius": 50, "circle-blur": 1, "circle-opacity": 0, "circle-pitch-alignment": "map" } }, "target");
-  map.addSource("route", { type: "geojson", data: { type: "Feature", geometry: route.routes[0].geometry } });
+  map.addSource("route", { type: "geojson", data: line0 });
+  map.addSource("route-glow", { type: "geojson", data: line0 });
+  map.addLayer({ id: "route-glow", type: "line", source: "route-glow", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ff5a1f", "line-width": 18, "line-blur": 9, "line-opacity": 0 } });
   map.addLayer({ id: "route", type: "line", source: "route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ff5a1f", "line-width": 6, "line-opacity": 0 } });
-  map.addSource("loop", { type: "geojson", data: partial(LOOP, 0) });
+  map.addSource("loop", { type: "geojson", data: line0 });
   map.addLayer({ id: "loop", type: "line", source: "loop", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffd029", "line-width": 5, "line-dasharray": [1.5, 1.5], "line-opacity": 0 } });
-  for (const [id, color, w] of [["mag1", "#3d9bff", 7], ["work1", "#ff453a", 4], ["work2", "#ff8c1a", 4], ["mag2", "#3d9bff", 7]]) {
-    map.addSource(id, { type: "geojson", data: partial([[0, 0], [0, 0]], 0) });
+  for (const [id, color, w] of [["mag1", "#3d9bff", 7], ["mag2", "#7fb8ff", 6], ["suct1", "#3d9bff", 5], ["work1", "#ff453a", 4.5], ["work2", "#ff8c1a", 4.5]]) {
+    map.addSource(id, { type: "geojson", data: line0 });
     map.addLayer({ id, type: "line", source: id, layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": color, "line-width": ["interpolate", ["exponential", 2], ["zoom"], 16, w * .5, 19, w * 2.2], "line-opacity": 0 } });
   }
+  map.addSource("coupl", { type: "geojson", data: { type: "FeatureCollection", features: COUPLINGS.map((c) => ({ type: "Feature", geometry: { type: "Point", coordinates: c } })) } });
+  map.addLayer({ id: "coupl", type: "circle", source: "coupl", paint: { "circle-color": "#ededf0", "circle-radius": 5, "circle-stroke-color": "#0a0a0b", "circle-stroke-width": 2, "circle-opacity": 0 } });
   map.addSource("veh", { type: "geojson", data: empty });
   map.addLayer({ id: "vehicles", type: "fill-extrusion", source: "veh", paint: { "fill-extrusion-color": ["get", "c"], "fill-extrusion-height": ["get", "h"], "fill-extrusion-opacity": 1 } });
   map.addSource("ladder", { type: "geojson", data: empty });
@@ -501,6 +610,10 @@ async function init() {
   map.addLayer({ id: "hyd", type: "circle", source: "hyd", paint: { "circle-color": "#3d9bff", "circle-radius": 9, "circle-stroke-color": "#0a0a0b", "circle-stroke-width": 3, "circle-opacity": 0, "circle-stroke-opacity": 0 } });
   map.addSource("stab", { type: "geojson", data: { type: "Feature", geometry: { type: "Point", coordinates: L(...STAB) } } });
   map.addLayer({ id: "stab", type: "circle", source: "stab", paint: { "circle-color": "#ededf0", "circle-radius": 9, "circle-stroke-color": "#0a0a0b", "circle-stroke-width": 3, "circle-opacity": 0 } });
+  map.addSource("ring", { type: "geojson", data: { type: "Feature", geometry: { type: "Point", coordinates: C0 } } });
+  map.addLayer({ id: "ring", type: "circle", source: "ring", paint: { "circle-color": "rgba(0,0,0,0)", "circle-radius": 10, "circle-stroke-color": "#ff453a", "circle-stroke-width": 4, "circle-stroke-opacity": 0 } });
+  map.addSource("st-city", { type: "geojson", data: { type: "FeatureCollection", features: [STATION, STATION2].map((c) => ({ type: "Feature", geometry: { type: "Point", coordinates: c } })) } });
+  map.addLayer({ id: "st-city", type: "circle", source: "st-city", paint: { "circle-color": "#3d9bff", "circle-radius": 10, "circle-stroke-color": "#0a0a0b", "circle-stroke-width": 3, "circle-opacity": 0 } });
   map.addSource("truck", { type: "geojson", data: empty });
   map.addLayer({ id: "truck-halo", type: "circle", source: "truck", paint: { "circle-color": "#ff5a1f", "circle-radius": 24, "circle-opacity": .2 } });
   map.addLayer({ id: "truck", type: "circle", source: "truck", paint: { "circle-color": "#ffffff", "circle-radius": 11, "circle-stroke-color": "#ff5a1f", "circle-stroke-width": 5 } });
