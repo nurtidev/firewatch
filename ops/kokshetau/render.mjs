@@ -96,7 +96,7 @@ if (arg("mux")) {
   const track = await page.evaluate(() => window.VOICE_TRACK);
   const voice = path.join(OUT, "film-voice.wav"), ins = [], fl = [];
   track.forEach((c, j) => { ins.push("-i", path.join(OUT, "film-voice", "trim", `${c.id}.wav`)); const ms = Math.round(c.start * 1000); fl.push(`[${j}:a]adelay=${ms}|${ms}[a${j}]`); });
-  execFileSync(FF, ["-y", "-loglevel", "error", ...ins, "-filter_complex", `${fl.join(";")};${track.map((_, j) => `[a${j}]`).join("")}amix=inputs=${track.length}:normalize=0,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[o]`, "-map", "[o]", "-ac", "2", voice]);
+  execFileSync(FF, ["-y", "-loglevel", "error", ...ins, "-filter_complex", `${fl.join(";")};${track.map((_, j) => `[a${j}]`).join("")}amix=inputs=${track.length}:normalize=0,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,apad[o]`, "-map", "[o]", "-ac", "2", "-t", String(total), voice]);
   const final = path.join(OUT, PAGE.replace(".html", ".mp4"));
   execFileSync(FF, ["-y", "-loglevel", "error", "-i", silentAll, "-i", voice, "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-shortest", final]);
   console.log("готово:", final); await browser.close(); server.close(); process.exit(0);
