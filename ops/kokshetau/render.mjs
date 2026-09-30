@@ -86,6 +86,22 @@ async function frame(t) {
   PROF.ready += Date.now() - t1;
 }
 
+/* --mux a,b,c: склеить куски chunk-a.mp4, chunk-b.mp4… и наложить озвучку (без повторного рендера) */
+if (arg("mux")) {
+  const list = path.join(OUT, "chunks.txt");
+  const { writeFileSync } = await import("node:fs");
+  writeFileSync(list, arg("mux").split(",").map((c) => `file '${path.join(OUT, `chunk-${c}.mp4`)}'`).join("\n"));
+  const silentAll = path.join(OUT, "video-silent.mp4");
+  execFileSync(FF, ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", silentAll]);
+  const track = await page.evaluate(() => window.VOICE_TRACK);
+  const voice = path.join(OUT, "film-voice.wav"), ins = [], fl = [];
+  track.forEach((c, j) => { ins.push("-i", path.join(OUT, "film-voice", "trim", `${c.id}.wav`)); const ms = Math.round(c.start * 1000); fl.push(`[${j}:a]adelay=${ms}|${ms}[a${j}]`); });
+  execFileSync(FF, ["-y", "-loglevel", "error", ...ins, "-filter_complex", `${fl.join(";")};${track.map((_, j) => `[a${j}]`).join("")}amix=inputs=${track.length}:normalize=0,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[o]`, "-map", "[o]", "-ac", "2", voice]);
+  const final = path.join(OUT, PAGE.replace(".html", ".mp4"));
+  execFileSync(FF, ["-y", "-loglevel", "error", "-i", silentAll, "-i", voice, "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-shortest", final]);
+  console.log("готово:", final); await browser.close(); server.close(); process.exit(0);
+}
+
 const stills = arg("stills");
 if (stills) {
   for (const t of stills.split(",").map(Number)) {
@@ -94,7 +110,7 @@ if (stills) {
     await page.screenshot({ path: f }); console.log(f);
   }
 } else {
-  const silent = path.join(OUT, "video-silent.mp4");
+  const silent = path.join(OUT, arg("chunk") ? `chunk-${arg("chunk")}.mp4` : "video-silent.mp4");
   const ff = spawn(FF, ["-y", "-loglevel", "error", "-f", "image2pipe", "-framerate", String(FPS), "-c:v", "mjpeg", "-i", "-",
     "-vf", "scale=1920:1080:flags=lanczos", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", silent], { stdio: ["pipe", "inherit", "inherit"] });
   const from = Number(arg("from", 0)), to = Number(arg("to", total));
@@ -109,6 +125,7 @@ if (stills) {
     if (i % FPS === 0) process.stdout.write(`\r${i}/${n} кадров · ${((Date.now() - t0) / 1000).toFixed(0)} с`);
   }
   ff.stdin.end(); await new Promise((r) => ff.on("close", r));
+  if (arg("chunk")) { console.log("\nкусок:", silent); await browser.close(); server.close(); process.exit(0); }
   if (process.env.PROFILE) { const c0 = Date.now(); for (let i = 0; i < 5; i++) await page.evaluate(() => map.getCanvas().toDataURL("image/jpeg", .92).length); console.log("\ncanvas toDataURL, мс:", (Date.now() - c0) / 5); }
   if (process.env.PROFILE) console.log("\nмс на кадр:", Object.fromEntries(Object.entries(PROF).map(([k, v]) => [k, Math.round(v / n)])));
   /* Озвучка по таймлайну страницы (film.html): клипы out/film-voice/trim/<id>.wav по своим стартам. */
