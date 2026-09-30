@@ -69,7 +69,8 @@ const browser = await chromium.launch({ args: process.env.CHROME_FLAGS ? process
 const DPR = Number(arg("dpr", 1));
 const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: DPR });
 page.on("pageerror", (e) => console.error("page:", e.message));
-await page.goto(`http://127.0.0.1:${port}/kokshetau/index.html`);
+const PAGE = arg("page", "index.html");
+await page.goto(`http://127.0.0.1:${port}/kokshetau/${PAGE}`);
 await page.evaluate(() => window.initDone);
 await page.evaluate(() => document.fonts.ready);
 const total = await page.evaluate(() => window.TOTAL_T);
@@ -110,8 +111,17 @@ if (stills) {
   ff.stdin.end(); await new Promise((r) => ff.on("close", r));
   if (process.env.PROFILE) { const c0 = Date.now(); for (let i = 0; i < 5; i++) await page.evaluate(() => map.getCanvas().toDataURL("image/jpeg", .92).length); console.log("\ncanvas toDataURL, мс:", (Date.now() - c0) / 5); }
   if (process.env.PROFILE) console.log("\nмс на кадр:", Object.fromEntries(Object.entries(PROF).map(([k, v]) => [k, Math.round(v / n)])));
-  const voice = path.join(OUT, "voice.wav"), final = path.join(OUT, "kokshetau-3d.mp4");
-  if (existsSync(voice)) execFileSync(FF, ["-y", "-loglevel", "error", "-i", silent, "-i", voice, "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", final]);
+  /* Озвучка по таймлайну страницы (film.html): клипы out/film-voice/trim/<id>.wav по своим стартам. */
+  const track = await page.evaluate(() => window.VOICE_TRACK ?? null);
+  let voice = path.join(OUT, "voice.wav");
+  if (track) {
+    voice = path.join(OUT, "film-voice.wav");
+    const ins = [], fl = [];
+    track.forEach((c, j) => { ins.push("-i", path.join(OUT, "film-voice", "trim", `${c.id}.wav`)); const ms = Math.round(Math.max(0, c.start - from) * 1000); fl.push(`[${j}:a]adelay=${ms}|${ms}[a${j}]`); });
+    execFileSync(FF, ["-y", "-loglevel", "error", ...ins, "-filter_complex", `${fl.join(";")};${track.map((_, j) => `[a${j}]`).join("")}amix=inputs=${track.length}:normalize=0,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[o]`, "-map", "[o]", "-ac", "2", voice]);
+  }
+  const final = path.join(OUT, PAGE === "index.html" ? "kokshetau-3d.mp4" : PAGE.replace(".html", ".mp4"));
+  if (existsSync(voice)) execFileSync(FF, ["-y", "-loglevel", "error", "-i", silent, "-i", voice, "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-shortest", final]);
   console.log("\nготово:", existsSync(voice) ? final : silent);
 }
 await browser.close(); server.close();

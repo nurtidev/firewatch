@@ -15,7 +15,7 @@ const OUT = process.env.EL_OUT ?? path.join(DIR, "out", "voice");
 mkdirSync(OUT, { recursive: true });
 
 const only = process.argv.slice(2);
-const script = JSON.parse(readFileSync(path.join(process.env.EL_SCRIPT_DIR ?? DIR, "voiceover.json"), "utf8"));
+const script = JSON.parse(readFileSync(process.env.EL_SCRIPT ?? path.join(DIR, "voiceover.json"), "utf8"));
 for (const s of script.filter((x) => !only.length || only.includes(x.id))) {
   const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE}?output_format=mp3_44100_128`, {
     method: "POST",
