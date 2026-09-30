@@ -358,7 +358,7 @@ function legend(kind) {
   const sets = {
     1: [["#3a3a45", "до 4 этажей"], ["#6f7fa8", "5–9 этажей"], ["#ff8c1a", "выше 9"]],
     15: [["#ff8c1a", "выше 9 этажей — вне досягаемости АЛ-30"]],
-    2: [["#2fce7e", "до 6 мин"], ["#ffd029", "6–7 мин"], ["#ff8c1a", "7–8 мин"], ["#ff453a", "больше 8 мин"]],
+    2: [["#2fce7e", "до 6 мин"], ["#ffd029", "6–7 мин"], ["#ff8c1a", "7–8 мин"], ["#ff453a", "8–10 мин · норматив — 10 мин"]],
   };
   if ($("#legend").dataset.k !== String(kind)) { $("#legend").innerHTML = (kind === 2 ? `<span style="color:#ededf0;font-weight:600">Расчётное прибытие:</span>` : "") + sets[kind].map(([c, t]) => `<span><i style="background:${c}"></i>${t}</span>`).join(""); $("#legend").dataset.k = kind; }
 }
