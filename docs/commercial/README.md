@@ -15,6 +15,7 @@
 | [08_letter_akimat.md](08_letter_akimat.md) | Письмо о пилоте в Astana Smart City | Управление цифровизации акимата |
 | [09_letter_astana_innovations.md](09_letter_astana_innovations.md) | Запрос: 4-й поток + пилот вне потока | Astana Innovations / Astana Hub |
 | [10_founder_economics.md](10_founder_economics.md) | Сколько на этом зарабатывает основатель | внутренний |
+| [11_value_metrics_monetization.md](11_value_metrics_monetization.md) | Ценность, проблема, метрики пилота (go/no-go), критика монетизации | внутренний / к встрече с ДЧС |
 
 **Порядок захода (решено 27.07.2026):** первый контакт с ДЧС и акиматом идёт
 **от физического лица** — юрлицо на этом шаге не нужно и не упоминается.

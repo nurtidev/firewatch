@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>FireWatch — ролик для ДЧС</title>
+<!--
+  Моушн-ролик FireWatch (питч для руководства ДЧС), 1920×1080.
+  Всё движение — чистая функция времени: window.renderAt(t) раскладывает кадр
+  на момент t секунд. Поэтому render.mjs снимает ролик покадрово и детерминированно,
+  без записи экрана в реальном времени. Тайминги сцен приходят из длительности
+  озвучки (out/voice/durations.json) через window.TIMELINE.
+  Открыть в браузере для превью: ?t=12.5 — стоп-кадр, ?play — проигрывание.
+-->
+<style>
+@font-face { font-family: Inter; src: url(fonts/inter-cyrillic-wght-normal.woff2) format("woff2"); font-weight: 100 900; unicode-range: U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116; }
+@font-face { font-family: Inter; src: url(fonts/inter-latin-wght-normal.woff2) format("woff2"); font-weight: 100 900; unicode-range: U+0000-00FF,U+2000-206F,U+2190-21FF,U+2212,U+2264-2265; }
+@font-face { font-family: JB; src: url(fonts/jetbrains-mono-cyrillic-500-normal.woff2) format("woff2"); font-weight: 500; unicode-range: U+0400-045F; }
+@font-face { font-family: JB; src: url(fonts/jetbrains-mono-latin-500-normal.woff2) format("woff2"); font-weight: 500; }
+@font-face { font-family: JB; src: url(fonts/jetbrains-mono-cyrillic-700-normal.woff2) format("woff2"); font-weight: 700; unicode-range: U+0400-045F; }
+@font-face { font-family: JB; src: url(fonts/jetbrains-mono-latin-700-normal.woff2) format("woff2"); font-weight: 700; }
+
+/* Токены — копия web/src/app/globals.css (:root, тёмная тема) */
+:root {
+  --bg:#0a0a0b; --surface:#121215; --surface-2:#1a1a1f; --surface-3:#232329;
+  --border:#27272d; --border-strong:#34343c; --muted:#8b8b94; --faint:#84848b; --fg:#ededf0;
+  --accent:#ff5a1f; --accent-weak:#2a1209;
+  --critical:#ff453a; --high:#ff8c1a; --elevated:#ffd029; --normal:#2fce7e; --info:#3d9bff;
+  --critical-bg:#2a100e; --high-bg:#2a1a0a; --elevated-bg:#292309; --normal-bg:#0c2418; --info-bg:#0c1d2b;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); }
+body { font-family: Inter, system-ui, sans-serif; color: var(--fg); -webkit-font-smoothing: antialiased; font-feature-settings: "tnum" 0; }
+.tabular { font-variant-numeric: tabular-nums; }
+.mono { font-family: JB, ui-monospace, monospace; }
+
+#stage { position: absolute; inset: 0; overflow: hidden; }
+/* Тонкая сетка «пульта» на фоне — даёт глубину без шума */
+#grid { position: absolute; inset: -60px; background-image:
+  linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 60px 60px; opacity: .22; }
+#vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 45%, transparent 35%, rgba(0,0,0,.75) 100%); pointer-events: none; }
+.scene { position: absolute; inset: 0; opacity: 0; }
+
+.eyebrow { font: 600 22px/1 Inter; letter-spacing: .18em; text-transform: uppercase; color: var(--accent); }
+.h1 { font-weight: 700; font-size: 92px; line-height: 1.02; letter-spacing: -.035em; }
+.h2 { font-weight: 650; font-size: 60px; line-height: 1.08; letter-spacing: -.025em; }
+.lead { font-weight: 450; font-size: 32px; line-height: 1.35; color: var(--muted); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 30px 80px -20px rgba(0,0,0,.8); }
+.chip { display: inline-flex; align-items: center; gap: 10px; height: 40px; padding: 0 16px; border-radius: 999px; font: 600 20px/1 Inter; }
+.chip svg { width: 20px; height: 20px; }
+.row { display: flex; align-items: center; }
+svg.i { width: 1em; height: 1em; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* Постоянные элементы поверх сцен */
+#brand { position: absolute; left: 64px; top: 52px; display: flex; align-items: center; gap: 14px; font: 700 26px/1 Inter; letter-spacing: -.01em; }
+#brand .mark { width: 38px; height: 38px; border-radius: 10px; background: var(--accent); display: grid; place-items: center; color: #0a0a0b; }
+#brand .mark svg { width: 24px; height: 24px; stroke-width: 2.4; }
+#sceneTag { position: absolute; right: 64px; top: 60px; font: 500 20px/1 JB; color: var(--faint); letter-spacing: .06em; }
+#progress { position: absolute; left: 0; bottom: 0; height: 4px; background: var(--accent); }
+#caption { position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%); max-width: 1500px; text-align: center;
+  font: 500 30px/1.3 Inter; color: var(--fg); padding: 12px 28px; border-radius: 12px; background: rgba(10,10,11,.72);
+  text-shadow: 0 2px 10px rgba(0,0,0,.6); }
+.src { position: absolute; font: 500 18px/1.3 JB; color: var(--faint); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="grid"></div>
+
+  <!-- 1. HOOK — вызов -->
+  <section class="scene" id="s-hook">
+    <div id="hook-alert" style="position:absolute;left:50%;top:250px;transform:translateX(-50%);width:1080px" class="card">
+      <div class="row" style="gap:18px;padding:26px 34px;border-bottom:1px solid var(--border)">
+        <span id="hook-dot" style="width:18px;height:18px;border-radius:50%;background:var(--critical);box-shadow:0 0 0 0 rgba(255,69,58,.6)"></span>
+        <span class="mono" style="font-size:24px;color:var(--critical);font-weight:700;letter-spacing:.08em">ВЫЗОВ · РАНГ 2</span>
+        <span class="mono tabular" style="margin-left:auto;font-size:24px;color:var(--muted)" id="hook-clock">14:32:07</span>
+      </div>
+      <div style="padding:30px 34px" class="mono">
+        <div id="hook-type" style="font-size:34px;line-height:1.5;color:var(--fg);white-space:pre"></div>
+      </div>
+    </div>
+    <div id="hook-q" class="h1" style="position:absolute;left:0;right:0;top:640px;text-align:center">Где план тушения этого здания?</div>
+    <div id="hook-a" style="position:absolute;left:0;right:0;top:790px;display:flex;justify-content:center;gap:28px">
+      <span class="chip" style="height:64px;font-size:30px;padding:0 30px;background:var(--surface-2);border:1px solid var(--border-strong);color:var(--muted)" id="hook-a1">
+        <svg class="i" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>В папке</span>
+      <span class="chip" style="height:64px;font-size:30px;padding:0 30px;background:var(--surface-2);border:1px solid var(--border-strong);color:var(--muted)" id="hook-a2">
+        <svg class="i" viewBox="0 0 24 24"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6"/></svg>В части</span>
+    </div>
+  </section>
+
+  <!-- 2. PROBLEM -->
+  <section class="scene" id="s-problem">
+    <div style="position:absolute;left:140px;top:210px" class="eyebrow" id="pr-eyebrow">Проблема · Казахстан, 2021</div>
+    <div style="position:absolute;left:140px;top:280px;display:flex;gap:120px">
+      <div id="pr-s1"><div class="tabular" style="font-weight:750;font-size:170px;letter-spacing:-.05em;line-height:1" id="pr-n1">0</div>
+        <div class="lead" style="margin-top:14px"><svg class="i" viewBox="0 0 24 24" style="color:var(--high);vertical-align:-4px"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg> пожаров за год</div></div>
+      <div id="pr-s2"><div class="tabular" style="font-weight:750;font-size:170px;letter-spacing:-.05em;line-height:1;color:var(--critical)" id="pr-n2">0</div>
+        <div class="lead" style="margin-top:14px">погибших</div></div>
+    </div>
+    <div class="src" style="left:140px;top:560px" id="pr-src">Источник: брифинг МЧС РК, 02.05.2022 (данные за 2021 год)</div>
+    <div style="position:absolute;left:140px;top:650px;display:flex;flex-direction:column;gap:22px">
+      <div class="row pr-pain" style="gap:22px;font-size:40px;font-weight:600"><span class="pain-ic" style="color:var(--high)"><svg class="i" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg></span>Планы тушения — на бумаге, в пути недоступны</div>
+      <div class="row pr-pain" style="gap:22px;font-size:40px;font-weight:600"><span class="pain-ic" style="color:var(--elevated)"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>Проверки — по графику, а не по опасности</div>
+      <div class="row pr-pain" style="gap:22px;font-size:40px;font-weight:600"><span class="pain-ic" style="color:var(--info)"><svg class="i" viewBox="0 0 24 24"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg></span>Нет общей с городом картины прибытия</div>
+    </div>
+  </section>
+
+  <!-- 3. DISPATCH — город, наряд, боевой пакет -->
+  <section class="scene" id="s-dispatch">
+    <div id="d-title" style="position:absolute;left:0;right:0;top:380px;text-align:center">
+      <div class="h1" style="font-size:132px"><span style="color:var(--accent)">Fire</span>Watch</div>
+      <div class="lead" style="margin-top:22px;font-size:38px">единая рабочая среда службы</div>
+    </div>
+    <div id="d-ui" style="position:absolute;inset:0">
+      <div class="card" id="d-crew" style="position:absolute;left:110px;top:190px;width:520px;padding:28px">
+        <div class="eyebrow" style="font-size:18px;color:var(--muted)">Пульт ЦОУ · наряд</div>
+        <div id="d-veh" style="margin-top:22px;display:flex;flex-direction:column;gap:14px"></div>
+      </div>
+      <svg id="d-map" viewBox="0 0 1120 790" style="position:absolute;left:680px;top:150px;width:1050px;height:740px"></svg>
+      <div class="card" id="d-pack" style="position:absolute;left:1270px;top:470px;width:590px;padding:28px">
+        <div class="row" style="gap:12px"><span class="eyebrow" style="font-size:18px">Боевой пакет</span><span class="mono" style="margin-left:auto;color:var(--faint);font-size:18px">в пути · 4 мин</span></div>
+        <div style="margin-top:14px;font-size:30px;font-weight:650">ТРЦ, 9 этажей</div>
+        <div id="d-pack-rows" style="margin-top:20px;display:flex;flex-direction:column;gap:14px"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. DEPLOY — расстановка на плане + расчёт сил -->
+  <section class="scene" id="s-deploy">
+    <div class="card" style="position:absolute;left:110px;top:150px;width:1080px;height:760px;padding:28px" id="dp-plan">
+      <div class="row" style="gap:14px"><span class="eyebrow" style="font-size:18px;color:var(--muted)">Расстановка сил · этаж 3</span>
+        <span class="chip" id="dp-offline" style="margin-left:auto;background:var(--elevated-bg);color:var(--elevated)"><svg class="i" viewBox="0 0 24 24"><path d="M12 20h.01M8.5 16.4a5 5 0 0 1 7 0M2 8.8a15 15 0 0 1 4.2-2.8M22 8.8a15 15 0 0 0-10.8-3.7M5 12.9a10 10 0 0 1 5.2-2.7M19 12.9a10 10 0 0 0-2-1.4M2 2l20 20"/></svg>нет связи · сохранено на устройстве</span></div>
+      <svg id="dp-svg" viewBox="0 0 1020 640" style="margin-top:18px;width:1020px;height:640px"></svg>
+    </div>
+    <div class="card" id="dp-forces" style="position:absolute;left:1240px;top:250px;width:570px;padding:32px">
+      <div class="eyebrow" style="font-size:18px;color:var(--muted)">Расчёт сил и средств</div>
+      <div style="font-size:22px;color:var(--faint);margin-top:8px">по методике ДЧС · пример</div>
+      <div id="dp-rows" style="margin-top:26px;display:flex;flex-direction:column;gap:20px"></div>
+    </div>
+  </section>
+
+  <!-- 5. DIGITIZE — скан → карточка -->
+  <section class="scene" id="s-digitize">
+    <div id="dg-scan" style="position:absolute;left:170px;top:190px;width:560px;height:760px;background:#e8e6df;border-radius:6px;box-shadow:0 30px 80px -20px rgba(0,0,0,.8);overflow:hidden;transform:rotate(-2deg)">
+      <div id="dg-lines" style="position:absolute;inset:48px 44px"></div>
+      <div id="dg-beam" style="position:absolute;left:0;right:0;height:90px;background:linear-gradient(transparent,rgba(255,90,31,.35),transparent);border-bottom:2px solid var(--accent)"></div>
+    </div>
+    <svg id="dg-arrow" viewBox="0 0 200 40" style="position:absolute;left:790px;top:530px;width:200px;height:40px"><path d="M0 20h180m-18-14 18 14-18 14" stroke="var(--accent)" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="card" id="dg-card" style="position:absolute;left:1060px;top:190px;width:720px;padding:34px">
+      <div class="row" style="gap:12px"><span class="eyebrow" style="font-size:18px">Карточка ПТП</span><span class="chip" style="margin-left:auto;background:var(--normal-bg);color:var(--normal);height:36px;font-size:18px"><svg class="i" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>структурировано</span></div>
+      <div id="dg-fields" style="margin-top:26px;display:flex;flex-direction:column;gap:16px"></div>
+    </div>
+  </section>
+
+  <!-- 6. PREVENT — оценка уязвимости + маршрут -->
+  <section class="scene" id="s-prevent">
+    <svg id="p-map" viewBox="0 0 1120 790" style="position:absolute;left:100px;top:150px;width:1050px;height:740px"></svg>
+    <div class="card" id="p-panel" style="position:absolute;left:1240px;top:200px;width:560px;padding:32px">
+      <div class="eyebrow" style="font-size:18px;color:var(--muted)">Объяснимая оценка уязвимости</div>
+      <div class="row" style="gap:18px;margin-top:22px">
+        <div class="tabular" style="font-size:96px;font-weight:750;letter-spacing:-.04em;color:var(--critical)" id="p-score">0</div>
+        <span class="chip" style="background:var(--critical-bg);color:var(--critical)"><svg class="i" viewBox="0 0 24 24"><path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3ZM12 9v4M12 17h.01"/></svg>критический</span>
+      </div>
+      <div style="font-size:22px;color:var(--faint);margin-top:4px">из чего сложилась оценка</div>
+      <div id="p-factors" style="margin-top:22px;display:flex;flex-direction:column;gap:18px"></div>
+    </div>
+  </section>
+
+  <!-- 7. COVERAGE — изохроны и слепые зоны -->
+  <section class="scene" id="s-coverage">
+    <svg id="c-map" viewBox="0 0 1120 790" style="position:absolute;left:100px;top:150px;width:1050px;height:740px"></svg>
+    <div id="c-side" style="position:absolute;left:1250px;top:240px;width:540px">
+      <div class="eyebrow">Покрытие · норматив 10 мин</div>
+      <div class="h2" style="margin-top:22px">Где город не&nbsp;успевает</div>
+      <div style="margin-top:36px;display:flex;flex-direction:column;gap:18px">
+        <div class="row" style="gap:16px;font-size:28px"><span style="width:26px;height:26px;border-radius:6px;background:rgba(47,206,126,.28);border:2px solid var(--normal)"></span>в норматив</div>
+        <div class="row" style="gap:16px;font-size:28px"><span style="width:26px;height:26px;border-radius:6px;background:var(--critical-bg);border:2px solid var(--critical)"></span>вне норматива — <span class="tabular" id="c-count" style="font-weight:700">0</span>&nbsp;зданий</div>
+      </div>
+      <div class="row" id="c-shared" style="gap:14px;margin-top:48px">
+        <span class="chip" style="background:var(--info-bg);color:var(--info)"><svg class="i" viewBox="0 0 24 24"><path d="M3 21h18M5 21V7l7-4 7 4v14"/></svg>Акимат</span>
+        <svg class="i" viewBox="0 0 24 24" style="width:28px;height:28px;color:var(--faint)"><path d="M8 3 4 7l4 4M4 7h16M16 21l4-4-4-4M20 17H4"/></svg>
+        <span class="chip" style="background:var(--accent-weak);color:var(--accent)"><svg class="i" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>ДЧС</span>
+      </div>
+      <div class="src" style="position:static;margin-top:40px">© OpenStreetMap contributors · схема условная</div>
+    </div>
+  </section>
+
+  <!-- 8. PILOT -->
+  <section class="scene" id="s-pilot">
+    <div style="position:absolute;left:140px;top:200px" class="eyebrow">Предложение</div>
+    <div class="h1" id="pl-title" style="position:absolute;left:140px;top:250px">Пилот: один район Астаны, 3&nbsp;месяца</div>
+    <div style="position:absolute;left:140px;top:420px;width:1640px;height:10px;border-radius:5px;background:var(--surface-3)"><div id="pl-bar" style="height:100%;border-radius:5px;background:var(--accent);width:0"></div></div>
+    <div style="position:absolute;left:140px;top:446px;width:1640px;display:flex;justify-content:space-between;font:500 20px/1 JB;color:var(--faint)"><span>неделя 1</span><span>неделя 4 · данные ДЧС</span><span>неделя 8</span><span>неделя 12 · решение</span></div>
+    <div style="position:absolute;left:140px;top:540px;display:flex;gap:40px" id="pl-kpis"></div>
+  </section>
+
+  <!-- 9. OUTRO -->
+  <section class="scene" id="s-outro">
+    <div style="position:absolute;left:0;right:0;top:360px;text-align:center">
+      <div class="row" style="justify-content:center;gap:28px" id="o-logo">
+        <div style="width:120px;height:120px;border-radius:30px;background:var(--accent);display:grid;place-items:center;color:#0a0a0b"><svg class="i" viewBox="0 0 24 24" style="width:72px;height:72px;stroke-width:2.2"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg></div>
+        <div class="h1" style="font-size:140px">FireWatch</div>
+      </div>
+      <div class="h2" id="o-tag" style="margin-top:48px;color:var(--muted);font-weight:550">Данные объекта — у расчёта <span style="color:var(--fg)">до прибытия</span></div>
+      <div class="mono" id="o-url" style="margin-top:44px;font-size:30px;color:var(--accent)">www.firewatch.kz</div>
+    </div>
+  </section>
+
+  <div id="vignette"></div>
+  <div id="brand"><span class="mark"><svg class="i" viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg></span>FireWatch</div>
+  <div id="sceneTag"></div>
+  <div id="caption"></div>
+  <div id="progress"></div>
+</div>
+
+<script>
+/* ======================= время и кривые ======================= */
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, k) => a + (b - a) * k;
+const ease = {
+  out: (k) => 1 - Math.pow(1 - k, 3),
+  inOut: (k) => (k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2),
+  expo: (k) => (k === 1 ? 1 : 1 - Math.pow(2, -10 * k)),
+  back: (k) => { const c = 1.5; return 1 + (c + 1) * Math.pow(k - 1, 3) + c * Math.pow(k - 1, 2); },
+};
+/** Прогресс 0..1 участка [start, start+dur] с кривой. */
+const P = (t, start, dur, fn = ease.out) => fn(clamp((t - start) / dur));
+const $ = (s) => document.querySelector(s);
+const NS = "http://www.w3.org/2000/svg";
+const el = (tag, attrs = {}, parent) => {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+};
+/** Появление: прозрачность + сдвиг снизу. */
+function rise(node, k, dy = 36, scale = 0) {
+  node.style.opacity = k;
+  node.style.transform = `translateY(${(1 - k) * dy}px) scale(${1 - (1 - k) * scale})`;
+}
+
+/* ======================= таймлайн ======================= */
+const SCENES = ["hook", "problem", "dispatch", "deploy", "digitize", "prevent", "coverage", "pilot", "outro"];
+const TAGS = { hook: "01 / вызов", problem: "02 / проблема", dispatch: "03 / реагирование", deploy: "04 / расстановка",
+  digitize: "05 / оцифровка ПТП", prevent: "06 / профилактика", coverage: "07 / покрытие", pilot: "08 / пилот", outro: "" };
+/* Длительности озвучки по умолчанию — для превью без сборки. */
+const DEFAULT_VOICE = { hook: 5.5, problem: 14.5, dispatch: 13.5, deploy: 7.2, digitize: 6.6, prevent: 7.8, coverage: 6.2, pilot: 9.6, outro: 4.2 };
+const LEAD = 0.45, TAIL = 0.75, XF = 0.45; // пауза до голоса, после голоса, кроссфейд
+let TL = null;
+function buildTimeline(voice, captions) {
+  let t = 0; const out = [];
+  for (const id of SCENES) {
+    const v = voice[id];
+    const dur = LEAD + v + TAIL + (id === "outro" ? 1.6 : 0);
+    out.push({ id, start: t, dur, voiceStart: t + LEAD, voiceDur: v, caption: (captions || {})[id] || "" });
+    t += dur;
+  }
+  return { scenes: out, total: t };
+}
+window.setTimeline = (voice, captions) => { TL = buildTimeline(voice, captions); return TL; };
+
+/* ======================= общий «город» ======================= */
+/* Процедурный квартал: сетка кварталов 10×7, в каждом 2–4 здания.
+   Детерминированный ГПСЧ — один и тот же город во всех сценах и при каждом рендере. */
+let seed = 7;
+const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+const PITCH = 110, ROAD = 20;
+const BUILDINGS = [];
+for (let r = 0; r < 7; r++) for (let c = 0; c < 10; c++) {
+  const bx = c * PITCH + ROAD, by = r * PITCH + ROAD, bs = PITCH - ROAD;
+  const n = 2 + Math.floor(rnd() * 3);
+  const splitV = rnd() > .5;
+  for (let i = 0; i < n; i++) {
+    const pad = 6, span = (bs - pad * (n + 1)) / n;
+    const w = splitV ? span : bs - pad * 2 - rnd() * 18;
+    const h = splitV ? bs - pad * 2 - rnd() * 18 : span;
+    const x = splitV ? bx + pad + i * (span + pad) : bx + pad;
+    const y = splitV ? by + pad : by + pad + i * (span + pad);
+    // оценка 0–100, скошена к низким значениям (как в реальном распределении)
+    const score = Math.round(Math.pow(rnd(), 4) * 100);
+    BUILDINGS.push({ x, y, w, h, c, r, cx: x + w / 2, cy: y + h / 2, score });
+  }
+}
+/* Пороги — как в web/src/lib/risk.ts: ≥60 critical, ≥40 high, ≥20 elevated. */
+const sevOf = (s) => (s >= 60 ? "critical" : s >= 40 ? "high" : s >= 20 ? "elevated" : "normal");
+const SEV = { critical: "#ff453a", high: "#ff8c1a", elevated: "#ffd029", normal: "#2fce7e" };
+const node = (c, r) => [c * PITCH + ROAD / 2, r * PITCH + ROAD / 2];
+
+function drawBase(svg) {
+  el("rect", { x: 0, y: 0, width: 1120, height: 790, rx: 18, fill: "#0e0e11", stroke: "#27272d" }, svg);
+  const roads = el("g", { stroke: "#1f1f25", "stroke-width": ROAD }, svg);
+  for (let c = 0; c <= 10; c++) el("line", { x1: node(c, 0)[0], y1: 0, x2: node(c, 0)[0], y2: 790 }, roads);
+  for (let r = 0; r <= 7; r++) el("line", { x1: 0, y1: node(0, r)[1], x2: 1120, y2: node(0, r)[1] }, roads);
+  const g = el("g", {}, svg);
+  return BUILDINGS.map((b) => el("rect", { x: b.x, y: b.y, width: b.w, height: b.h, rx: 3, fill: "#2a2a31" }, g));
+}
+
+/* ======================= сцена: dispatch ======================= */
+const VEH = [
+  { name: "АЦ-40 · ПЧ-3", ok: true }, { name: "АЛ-30 · ПЧ-3", ok: true },
+  { name: "АЦ-40 · ПЧ-5", ok: false, note: "в ремонте" }, { name: "АНР · ПЧ-5", ok: true },
+];
+const vehRows = VEH.map((v) => {
+  const d = document.createElement("div");
+  d.className = "row"; d.style.cssText = "gap:14px;padding:16px 18px;border-radius:12px;background:var(--surface-2);border:1px solid var(--border);font-size:26px;font-weight:600";
+  d.innerHTML = `<span class="mono" style="${v.ok ? "" : "color:var(--faint);text-decoration:line-through"}">${v.name}</span>` +
+    (v.ok
+      ? `<span class="chip vchip" style="margin-left:auto;height:34px;font-size:18px;background:var(--normal-bg);color:var(--normal)"><svg class="i" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>в строю</span>`
+      : `<span class="chip vchip" style="margin-left:auto;height:34px;font-size:18px;background:var(--critical-bg);color:var(--critical)"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>${v.note}</span>`);
+  $("#d-veh").appendChild(d);
+  return d;
+});
+const PACK = [
+  ["M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z M14 2v6h6", "Оперативная карточка", "ПТП · утв."],
+  ["m12 2 10 5-10 5L2 7l10-5Z M2 17l10 5 10-5 M2 12l10 5 10-5", "Поэтажные планы", "9 этажей · 3D"],
+  ["M12 2.7s-6 6.3-6 11.3a6 6 0 0 0 12 0c0-5-6-11.3-6-11.3z", "Гидранты рядом", "3 исправны"],
+  ["m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3Z M12 9v4 M12 17h.01", "Препятствия проезда", "двор перекрыт"],
+];
+const packRows = PACK.map(([ic, a, b]) => {
+  const d = document.createElement("div");
+  d.className = "row"; d.style.cssText = "gap:16px;font-size:24px";
+  d.innerHTML = `<span style="width:46px;height:46px;border-radius:10px;background:var(--accent-weak);color:var(--accent);display:grid;place-items:center"><svg class="i" viewBox="0 0 24 24" style="width:24px;height:24px"><path d="${ic}"/></svg></span><span style="font-weight:600">${a}</span><span class="mono" style="margin-left:auto;color:var(--muted);font-size:20px;white-space:nowrap">${b}</span>`;
+  $("#d-pack-rows").appendChild(d);
+  return d;
+});
+const dMap = $("#d-map");
+const dRects = drawBase(dMap);
+const STATION = node(1, 6);
+const ROUTE = [node(1, 6), node(1, 2), node(5, 2), node(5, 3), node(6, 3)];
+const target = BUILDINGS.find((b) => b.c === 5 && b.r === 2);
+const dRoute = el("polyline", { points: ROUTE.map((p) => p.join(",")).join(" "), fill: "none", stroke: "#ff5a1f", "stroke-width": 7, "stroke-linecap": "round", "stroke-linejoin": "round" }, dMap);
+const dRouteLen = ROUTE.slice(1).reduce((s, p, i) => s + Math.hypot(p[0] - ROUTE[i][0], p[1] - ROUTE[i][1]), 0);
+dRoute.setAttribute("stroke-dasharray", dRouteLen);
+const dTargetRing = el("rect", { x: target.x - 8, y: target.y - 8, width: target.w + 16, height: target.h + 16, rx: 8, fill: "none", stroke: "#ff453a", "stroke-width": 4 }, dMap);
+const dStation = el("g", {}, dMap);
+el("rect", { x: STATION[0] - 20, y: STATION[1] - 20, width: 40, height: 40, rx: 9, fill: "#3d9bff" }, dStation);
+el("text", { x: STATION[0], y: STATION[1] + 7, "text-anchor": "middle", "font-size": 18, "font-weight": 700, fill: "#0a0a0b", "font-family": "Inter" }, dStation).textContent = "ПЧ";
+const HYD = [[node(4, 2)[0] + 22, node(4, 2)[1] - 16], [node(5, 3)[0] - 20, node(5, 3)[1] + 20], [node(6, 2)[0] + 18, node(6, 2)[1] + 18]];
+const dHyd = HYD.map(([x, y]) => { const g = el("g", {}, dMap); el("circle", { cx: x, cy: y, r: 13, fill: "#3d9bff", stroke: "#0a0a0b", "stroke-width": 3 }, g); return g; });
+const dTruck = el("circle", { r: 13, fill: "#fff", stroke: "#ff5a1f", "stroke-width": 5 }, dMap);
+function pointOn(poly, len, k) {
+  let d = k * len;
+  for (let i = 1; i < poly.length; i++) {
+    const seg = Math.hypot(poly[i][0] - poly[i - 1][0], poly[i][1] - poly[i - 1][1]);
+    if (d <= seg) { const f = d / seg; return [lerp(poly[i - 1][0], poly[i][0], f), lerp(poly[i - 1][1], poly[i][1], f)]; }
+    d -= seg;
+  }
+  return poly[poly.length - 1];
+}
+
+/* ======================= сцена: deploy ======================= */
+const dpSvg = $("#dp-svg");
+/* Условная планировка этажа — не реальный объект. */
+const ROOMS = [[0, 0, 340, 250], [340, 0, 330, 250], [670, 0, 350, 250], [0, 330, 260, 310], [260, 330, 250, 310], [510, 330, 250, 310], [760, 330, 260, 310]];
+el("rect", { x: 0, y: 0, width: 1020, height: 640, fill: "#0e0e11" }, dpSvg);
+const roomEls = ROOMS.map(([x, y, w, h]) => el("rect", { x: x + 4, y: y + 4, width: w - 8, height: h - 8, fill: "none", stroke: "#4a4a55", "stroke-width": 4, rx: 2 }, dpSvg));
+el("rect", { x: 4, y: 254, width: 1012, height: 72, fill: "#16161b" }, dpSvg); // коридор
+const corridorTxt = el("text", { x: 510, y: 298, "text-anchor": "middle", fill: "#5c5c66", "font-size": 20, "font-family": "JB" }, dpSvg);
+corridorTxt.textContent = "КОРИДОР · ПУТЬ ЭВАКУАЦИИ";
+const fire = el("circle", { cx: 505, cy: 125, r: 60, fill: "rgba(255,69,58,.18)", stroke: "#ff453a", "stroke-width": 3, "stroke-dasharray": "8 8" }, dpSvg);
+const MARKS = [
+  { x: 300, y: 290, t: "Б-1", c: "#ff5a1f", lbl: "ствол Б · тушение" }, { x: 700, y: 290, t: "Б-2", c: "#ff5a1f", lbl: "ствол Б · тушение" },
+  { x: 860, y: 125, t: "Б-3", c: "#ff8c1a", lbl: "защита" }, { x: 160, y: 125, t: "Б-4", c: "#ff8c1a", lbl: "защита" },
+  { x: 130, y: 490, t: "ШТ", c: "#3d9bff", lbl: "штаб" },
+];
+const markEls = MARKS.map((m) => {
+  const g = el("g", {}, dpSvg);
+  el("circle", { cx: m.x, cy: m.y, r: 30, fill: m.c, stroke: "#0a0a0b", "stroke-width": 4 }, g);
+  const tx = el("text", { x: m.x, y: m.y + 7, "text-anchor": "middle", "font-size": 19, "font-weight": 700, fill: "#0a0a0b", "font-family": "Inter" }, g);
+  tx.textContent = m.t;
+  g.style.transformOrigin = `${m.x}px ${m.y}px`; g.style.transformBox = "view-box";
+  return g;
+});
+const FORCES = [["Площадь тушения", 180, " м²"], ["Требуемый расход", 18, " л/с"], ["Стволов на тушение", 2, ""], ["Стволов на защиту", 2, ""], ["Отделений", 3, ""]];
+const forceRows = FORCES.map(([a, v, u]) => {
+  const d = document.createElement("div");
+  d.className = "row"; d.style.cssText = "font-size:28px;padding-bottom:18px;border-bottom:1px solid var(--border)";
+  d.innerHTML = `<span style="color:var(--muted)">${a}</span><span class="tabular mono" style="margin-left:auto;font-weight:700"><span class="v">0</span>${u}</span>`;
+  $("#dp-rows").appendChild(d);
+  return { d, v, n: d.querySelector(".v") };
+});
+
+/* ======================= сцена: digitize ======================= */
+for (let i = 0; i < 26; i++) {
+  const l = document.createElement("div");
+  const w = i % 7 === 0 ? 45 : 60 + ((i * 37) % 38);
+  l.style.cssText = `height:${i % 7 === 0 ? 16 : 10}px;width:${w}%;background:#9a978d;opacity:${i % 7 === 0 ? .8 : .45};margin-bottom:16px;border-radius:2px;filter:blur(.6px)`;
+  $("#dg-lines").appendChild(l);
+}
+/* Телефон вымышленный — показывает маскирование, а не реальные ПДн. */
+const FIELDS = [
+  ["Конструктив", "монолит, II степень огнестойкости"], ["Этажность", "9 надземных · 1 подземный"],
+  ["Водоисточники", "ПГ-12, ПГ-14 · 120 м"], ["Пути эвакуации", "4 лестничные клетки"],
+  ["Ответственный", "+7 701 555 12 34", "+7 7•• ••• •• ••"],
+];
+const fieldRows = FIELDS.map(([a, b, masked]) => {
+  const d = document.createElement("div");
+  d.style.cssText = "padding:16px 20px;border-radius:12px;background:var(--surface-2);border:1px solid var(--border)";
+  d.innerHTML = `<div style="font-size:18px;color:var(--faint);letter-spacing:.04em">${a}</div><div class="fv" style="font-size:28px;font-weight:600;margin-top:6px">${b}</div>`;
+  $("#dg-fields").appendChild(d);
+  return { d, b, masked, v: d.querySelector(".fv") };
+});
+
+/* ======================= сцена: prevent ======================= */
+const pMap = $("#p-map");
+const pRects = drawBase(pMap);
+const MC = [560, 395];
+const bDist = BUILDINGS.map((b) => Math.hypot(b.cx - MC[0], b.cy - MC[1]));
+const maxD = Math.max(...bDist);
+/* Маршрут инспектора: 5 самых уязвимых зданий, порядок — ближайший сосед (как /routes). */
+const topRisk = BUILDINGS.map((b, i) => ({ b, i })).filter((o) => o.b.score >= 40).sort((a, b) => b.b.score - a.b.score).slice(0, 5);
+const order = [topRisk[0]]; const rest = topRisk.slice(1);
+while (rest.length) {
+  const last = order[order.length - 1].b;
+  rest.sort((a, b) => Math.hypot(a.b.cx - last.cx, a.b.cy - last.cy) - Math.hypot(b.b.cx - last.cx, b.b.cy - last.cy));
+  order.push(rest.shift());
+}
+order[0].b.score = 72;
+const pRoutePts = order.map((o) => [o.b.cx, o.b.cy]);
+const pRouteLen = pRoutePts.slice(1).reduce((s, p, i) => s + Math.hypot(p[0] - pRoutePts[i][0], p[1] - pRoutePts[i][1]), 0);
+const pRoute = el("polyline", { points: pRoutePts.map((p) => p.join(",")).join(" "), fill: "none", stroke: "#ededf0", "stroke-width": 4, "stroke-dasharray": `${pRouteLen}`, "stroke-linecap": "round" }, pMap);
+const pPins = order.map((o, k) => {
+  const g = el("g", {}, pMap);
+  el("circle", { cx: o.b.cx, cy: o.b.cy, r: 20, fill: "#0a0a0b", stroke: "#ededf0", "stroke-width": 3 }, g);
+  el("text", { x: o.b.cx, y: o.b.cy + 7, "text-anchor": "middle", "font-size": 19, "font-weight": 700, fill: "#ededf0", "font-family": "Inter" }, g).textContent = k + 1;
+  g.style.transformOrigin = `${o.b.cx}px ${o.b.cy}px`; g.style.transformBox = "view-box";
+  return g;
+});
+const FACTORS = [["Возраст здания", .82], ["Сигнализация неисправна", .68], ["До гидранта 340 м", .55], ["Нарушения в прошлой проверке", .41]];
+const factorRows = FACTORS.map(([a, v]) => {
+  const d = document.createElement("div");
+  d.innerHTML = `<div class="row" style="font-size:24px"><span>${a}</span><span class="tabular mono" style="margin-left:auto;color:var(--muted)">+${Math.round(v * 20)}</span></div><div style="height:10px;border-radius:5px;background:var(--surface-3);margin-top:10px"><div class="bar" style="height:100%;border-radius:5px;background:var(--high);width:0"></div></div>`;
+  $("#p-factors").appendChild(d);
+  return { d, v, bar: d.querySelector(".bar") };
+});
+
+/* ======================= сцена: coverage ======================= */
+const cMap = $("#c-map");
+const cDefs = el("defs", {}, cMap);
+const hatch = el("pattern", { id: "hatch", width: 10, height: 10, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" }, cDefs);
+el("line", { x1: 0, y1: 0, x2: 0, y2: 10, stroke: "#ff453a", "stroke-width": 4 }, hatch);
+const cRects = drawBase(cMap);
+const STATIONS = [node(2, 5), node(5, 2), node(8, 5)];
+const RADIUS = 380;
+const blobGroup = el("g", {}, cMap);
+cMap.insertBefore(blobGroup, cMap.children[3]); // изохроны под зданиями
+/* Изохрона — не круг: по дорожной сети она «рваная». Шум по углу, фиксированный. */
+const blobs = STATIONS.map(([sx, sy], si) => {
+  const pts = [];
+  for (let a = 0; a < 48; a++) {
+    const ang = (a / 48) * Math.PI * 2;
+    const rr = RADIUS * (0.78 + 0.22 * Math.sin(ang * 3 + si) * Math.cos(ang * 2 - si * 1.7) + 0.08 * Math.sin(ang * 7 + si * 2));
+    pts.push([Math.cos(ang) * rr, Math.sin(ang) * rr]);
+  }
+  const p = el("polygon", { points: pts.map((q) => q.join(",")).join(" "), fill: "rgba(47,206,126,.13)", stroke: "#2fce7e", "stroke-width": 3 }, blobGroup);
+  return { p, sx, sy, pts };
+});
+const inPoly = (x, y, pts) => { let ins = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+  const [xi, yi] = pts[i], [xj, yj] = pts[j];
+  if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) ins = !ins; } return ins; };
+const covered = BUILDINGS.map((b) => blobs.some((bl) => inPoly(b.cx - bl.sx, b.cy - bl.sy, bl.pts)));
+const blindCount = covered.filter((x) => !x).length;
+const stationEls = STATIONS.map(([x, y]) => {
+  const g = el("g", {}, cMap);
+  el("rect", { x: x - 20, y: y - 20, width: 40, height: 40, rx: 9, fill: "#3d9bff" }, g);
+  el("text", { x, y: y + 7, "text-anchor": "middle", "font-size": 18, "font-weight": 700, fill: "#0a0a0b", "font-family": "Inter" }, g).textContent = "ПЧ";
+  g.style.transformOrigin = `${x}px ${y}px`; g.style.transformBox = "view-box";
+  return g;
+});
+
+/* ======================= сцена: pilot ======================= */
+const KPIS = [
+  ["≤ 60 с", "от назначения наряда до открытия карточки объекта", "clock"],
+  ["≥ 60 %", "выездов пилотного района проходят через систему", "chart"],
+  ["20", "карточек ПТП утверждены ДЧС", "file"],
+];
+const KPI_IC = {
+  clock: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2",
+  chart: "M3 3v18h18M7 16l4-4 4 4 5-6",
+  file: "M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2zM9 15l2 2 4-4",
+};
+const kpiEls = KPIS.map(([v, l, ic]) => {
+  const d = document.createElement("div");
+  d.className = "card"; d.style.cssText = "width:520px;padding:36px";
+  d.innerHTML = `<div style="width:56px;height:56px;border-radius:14px;background:var(--accent-weak);color:var(--accent);display:grid;place-items:center"><svg class="i" viewBox="0 0 24 24" style="width:30px;height:30px"><path d="${KPI_IC[ic]}"/></svg></div><div class="tabular" style="font-size:84px;font-weight:750;letter-spacing:-.04em;margin-top:26px">${v}</div><div style="font-size:28px;line-height:1.35;color:var(--muted);margin-top:10px">${l}</div>`;
+  $("#pl-kpis").appendChild(d);
+  return d;
+});
+
+/* ======================= рендер кадра ======================= */
+const HOOK_TEXT = "Адрес: пр. Туран, ТРЦ\nОбъект: 9 этажей · сложная планировка\nПТП: ???";
+const fmt = (n) => Math.round(n).toLocaleString("ru-RU").replace(/ /g, " ");
+
+const R = {
+  hook(t, s) {
+    const n = Math.floor(clamp((t - .3) / 2.2) * HOOK_TEXT.length);
+    $("#hook-type").textContent = HOOK_TEXT.slice(0, n) + (Math.floor(t * 2) % 2 && n < HOOK_TEXT.length + 1 ? "▍" : " ");
+    rise($("#hook-alert"), P(t, 0, .6), 40, .03);
+    const pulse = (t * 1.4) % 1;
+    $("#hook-dot").style.boxShadow = `0 0 0 ${pulse * 18}px rgba(255,69,58,${.55 * (1 - pulse)})`;
+    const sec = 7 + Math.floor(t);
+    $("#hook-clock").textContent = `14:32:${String(sec).padStart(2, "0")}`;
+    // вопрос появляется, когда диктор его задаёт
+    const q = s.voiceDur * .38;
+    rise($("#hook-q"), P(t, LEAD + q, .6), 30);
+    rise($("#hook-a1"), P(t, LEAD + s.voiceDur * .7, .5, ease.back), 20, .1);
+    rise($("#hook-a2"), P(t, LEAD + s.voiceDur * .84, .5, ease.back), 20, .1);
+    $("#hook-alert").style.filter = `blur(${P(t, LEAD + q, .8) * 3}px)`;
+    $("#hook-alert").style.opacity = String(P(t, 0, .6) * (1 - .55 * P(t, LEAD + q, .8)));
+  },
+  problem(t, s) {
+    rise($("#pr-eyebrow"), P(t, .1, .5));
+    rise($("#pr-s1"), P(t, .3, .7), 40);
+    rise($("#pr-s2"), P(t, 1.2, .7), 40);
+    $("#pr-n1").textContent = fmt(12256 * P(t, .3, 2.0, ease.expo));
+    $("#pr-n2").textContent = fmt(413 * P(t, 1.2, 1.8, ease.expo));
+    rise($("#pr-src"), P(t, 2.2, .6), 10);
+    const pains = document.querySelectorAll(".pr-pain");
+    const at = [.45, .62, .8];
+    pains.forEach((p, i) => rise(p, P(t, LEAD + s.voiceDur * at[i], .55), 26));
+  },
+  dispatch(t, s) {
+    // логотип — затем уходит вверх и уступает место интерфейсу
+    const titleIn = P(t, .1, .7), titleOut = P(t, 2.3, .6, ease.inOut);
+    $("#d-title").style.opacity = titleIn * (1 - titleOut);
+    $("#d-title").style.transform = `translateY(${(1 - titleIn) * 30 - titleOut * 60}px) scale(${1 - titleOut * .06})`;
+    const uiK = P(t, 2.6, .8);
+    $("#d-ui").style.opacity = uiK;
+    rise($("#d-crew"), uiK, 40);
+    const vs = s.voiceDur * .30;
+    vehRows.forEach((r, i) => rise(r, P(t, LEAD + vs + i * .22, .45), 18));
+    // техника «в ремонте» — отдельно подсвечивается
+    const bad = vehRows[2];
+    bad.style.borderColor = P(t, LEAD + vs + 1.2, .4) > 0 ? `rgba(255,69,58,${.7 * P(t, LEAD + vs + 1.2, .4)})` : "";
+    // карта
+    const mapK = P(t, 2.8, 1);
+    dMap.style.opacity = mapK;
+    dMap.style.transform = `scale(${1.04 - .04 * mapK})`;
+    const drive = P(t, LEAD + s.voiceDur * .5, s.voiceDur * .45, ease.inOut);
+    dRoute.setAttribute("stroke-dashoffset", dRouteLen * (1 - drive));
+    const [tx, ty] = pointOn(ROUTE, dRouteLen, drive);
+    dTruck.setAttribute("cx", tx); dTruck.setAttribute("cy", ty);
+    dTruck.style.opacity = P(t, LEAD + s.voiceDur * .48, .3);
+    const ring = (t * 1.2) % 1;
+    dTargetRing.setAttribute("stroke-opacity", P(t, 3.2, .5) * (.4 + .6 * (1 - ring)));
+    dRects.forEach((r, i) => r.setAttribute("fill", BUILDINGS[i] === target ? "#ff453a" : "#2a2a31"));
+    // пакет едет в кабину
+    const packK = P(t, LEAD + s.voiceDur * .56, .7);
+    rise($("#d-pack"), packK, 0);
+    $("#d-pack").style.transform = `translateX(${(1 - packK) * 120}px)`;
+    packRows.forEach((r, i) => rise(r, P(t, LEAD + s.voiceDur * .6 + i * .45, .45), 14));
+    dHyd.forEach((h, i) => { h.style.opacity = P(t, LEAD + s.voiceDur * .6 + 2 * .45 + i * .15, .4); });
+  },
+  deploy(t, s) {
+    rise($("#dp-plan"), P(t, 0, .7), 40, .02);
+    roomEls.forEach((r, i) => r.setAttribute("stroke-opacity", P(t, .2 + i * .07, .5)));
+    fire.setAttribute("r", 50 + 10 * Math.sin(t * 5));
+    markEls.forEach((m, i) => {
+      const k = P(t, LEAD + .5 + i * .45, .5, ease.back);
+      m.style.opacity = clamp(k * 2); m.style.transform = `scale(${k})`;
+    });
+    rise($("#dp-offline"), P(t, LEAD + s.voiceDur * .45, .5, ease.back), 10, .1);
+    rise($("#dp-forces"), P(t, LEAD + s.voiceDur * .55, .7), 40);
+    forceRows.forEach((f, i) => {
+      const k = P(t, LEAD + s.voiceDur * .6 + i * .18, .8, ease.expo);
+      f.d.style.opacity = P(t, LEAD + s.voiceDur * .6 + i * .18, .3);
+      f.n.textContent = fmt(f.v * k);
+    });
+  },
+  digitize(t, s) {
+    rise($("#dg-scan"), P(t, 0, .7), 40);
+    $("#dg-scan").style.transform += " rotate(-2deg)";
+    const beam = P(t, .5, s.voiceDur * .55, ease.inOut);
+    $("#dg-beam").style.top = `${-90 + beam * 850}px`;
+    $("#dg-beam").style.opacity = beam > 0 && beam < 1 ? 1 : 0;
+    const ar = P(t, 1.0, .5);
+    $("#dg-arrow").style.opacity = ar; $("#dg-arrow").style.transform = `translateX(${(ar - 1) * 30}px)`;
+    rise($("#dg-card"), P(t, 1.1, .7), 30);
+    fieldRows.forEach((f, i) => {
+      rise(f.d, P(t, 1.5 + i * .5, .45), 16);
+      if (f.masked) {
+        const m = P(t, LEAD + s.voiceDur * .72, .6);
+        f.v.textContent = m > .5 ? f.masked : f.b;
+        f.v.style.color = m > .5 ? "var(--normal)" : "var(--fg)";
+        f.d.style.borderColor = m > 0 && m < 1 ? "var(--accent)" : m >= 1 ? "rgba(47,206,126,.5)" : "var(--border)";
+      }
+    });
+  },
+  prevent(t, s) {
+    pMap.style.opacity = P(t, 0, .6);
+    // волна окраски от центра: цвет = ступень severity, не градиент
+    const wave = P(t, .4, 2.2, ease.inOut) * (maxD + 80);
+    pRects.forEach((r, i) => r.setAttribute("fill", bDist[i] < wave ? SEV[sevOf(BUILDINGS[i].score)] : "#2a2a31"));
+    pRects.forEach((r, i) => r.setAttribute("fill-opacity", bDist[i] < wave ? ({ critical: 1, high: 1, elevated: .7, normal: .38 }[sevOf(BUILDINGS[i].score)]) : 1));
+    const rt = P(t, LEAD + s.voiceDur * .45, s.voiceDur * .35, ease.inOut);
+    pRoute.setAttribute("stroke-dashoffset", pRouteLen * (1 - rt));
+    pPins.forEach((g, k) => {
+      const kk = P(t, LEAD + s.voiceDur * .45 + k * (s.voiceDur * .35 / 5), .4, ease.back);
+      g.style.opacity = clamp(kk * 2); g.style.transform = `scale(${kk})`;
+    });
+    rise($("#p-panel"), P(t, 1.4, .7), 30);
+    $("#p-score").textContent = Math.round(order[0].b.score * P(t, 1.6, 1.4, ease.expo));
+    factorRows.forEach((f, i) => {
+      const k = P(t, LEAD + s.voiceDur * .7 + i * .2, .7);
+      f.d.style.opacity = P(t, LEAD + s.voiceDur * .68 + i * .2, .3);
+      f.bar.style.width = `${f.v * 100 * k}%`;
+    });
+  },
+  coverage(t, s) {
+    cMap.style.opacity = P(t, 0, .5);
+    stationEls.forEach((g, i) => { const k = P(t, .2 + i * .15, .5, ease.back); g.style.opacity = clamp(k * 2); g.style.transform = `scale(${k})`; });
+    const grow = P(t, .6, 2.0, ease.out);
+    blobs.forEach((b) => b.p.setAttribute("transform", `translate(${b.sx} ${b.sy}) scale(${grow})`));
+    const blind = P(t, 2.6, .6);
+    cRects.forEach((r, i) => {
+      if (covered[i]) { r.setAttribute("fill", "#3a3a42"); r.removeAttribute("stroke"); }
+      else { r.setAttribute("fill", blind > 0 ? "url(#hatch)" : "#2a2a31"); r.setAttribute("stroke", "#ff453a"); r.setAttribute("stroke-opacity", blind); r.setAttribute("stroke-width", 2); }
+    });
+    rise($("#c-side"), P(t, .5, .7), 30);
+    $("#c-count").textContent = fmt(blindCount * P(t, 2.6, 1.2, ease.expo));
+    rise($("#c-shared"), P(t, LEAD + s.voiceDur * .25, .6), 16);
+  },
+  pilot(t, s) {
+    rise($("#pl-title"), P(t, .1, .7), 30);
+    $("#pl-bar").style.width = `${P(t, .6, s.voiceDur * .35, ease.inOut) * 100}%`;
+    kpiEls.forEach((k, i) => rise(k, P(t, LEAD + s.voiceDur * (.45 + i * .15), .6), 40, .03));
+  },
+  outro(t, s) {
+    rise($("#o-logo"), P(t, .1, .8), 30, .06);
+    rise($("#o-tag"), P(t, LEAD + s.voiceDur * .35, .7), 20);
+    rise($("#o-url"), P(t, LEAD + s.voiceDur + .2, .6), 12);
+  },
+};
+
+/* Субтитры: предложения диктора делятся по времени пропорционально длине. */
+function captionAt(s, t) {
+  if (!s.caption) return "";
+  const lt = t - s.voiceStart;
+  if (lt < 0 || lt > s.voiceDur + .3) return "";
+  const parts = s.caption.match(/[^.?!:]+[.?!:]*/g).map((x) => x.trim()).filter(Boolean);
+  const total = parts.reduce((a, p) => a + p.length, 0);
+  let acc = 0;
+  for (const p of parts) { acc += p.length; if (lt <= (acc / total) * s.voiceDur + .05) return p; }
+  return parts[parts.length - 1];
+}
+
+window.renderAt = function (t) {
+  if (!TL) window.setTimeline(DEFAULT_VOICE, window.CAPTIONS);
+  let cur = TL.scenes[0];
+  for (const s of TL.scenes) {
+    const lt = t - s.start;
+    const sceneEl = document.getElementById("s-" + s.id);
+    // кроссфейд: сцена проявляется за XF до своего старта и гаснет на XF после конца
+    const vis = clamp((lt + XF) / XF) * clamp((s.dur + XF - lt) / XF);
+    sceneEl.style.opacity = vis;
+    sceneEl.style.display = vis > 0 ? "block" : "none";
+    if (vis > 0) R[s.id](Math.max(0, lt), s);
+    if (t >= s.start) cur = s;
+  }
+  $("#sceneTag").textContent = TAGS[cur.id];
+  const cap = captionAt(cur, t);
+  $("#caption").textContent = cap;
+  $("#caption").style.opacity = cap && cur.id !== "outro" ? 1 : 0;
+  $("#progress").style.width = `${(t / TL.total) * 100}%`;
+  $("#brand").style.opacity = cur.id === "outro" || cur.id === "dispatch" && t - cur.start < 3 ? 0 : 1;
+  // медленный дрейф фоновой сетки — «живой» кадр без отвлечения
+  $("#grid").style.transform = `translate(${(t * 6) % 60}px, ${(t * 3) % 60}px)`;
+};
+
+/* Превью в браузере */
+const q = new URLSearchParams(location.search);
+document.fonts.ready.then(() => {
+  if (q.has("play")) { const t0 = performance.now(); const loop = () => { window.renderAt((performance.now() - t0) / 1000); requestAnimationFrame(loop); }; loop(); }
+  else window.renderAt(parseFloat(q.get("t") || "0"));
+});
+</script>
+</body>
+</html>
